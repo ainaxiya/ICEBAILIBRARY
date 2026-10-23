@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ADMIN_BASE } from "@/lib/admin-path";
 
@@ -13,6 +13,18 @@ function AdminLoginInner() {
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [siteName, setSiteName] = useState("");
+  const [logoIcon, setLogoIcon] = useState("/logo/icon.png");
+
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.basic?.siteName) setSiteName(d.basic.siteName);
+        if (d?.basic?.logoIcon) setLogoIcon(d.basic.logoIcon);
+      })
+      .catch(() => {});
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,7 +56,7 @@ function AdminLoginInner() {
       className="flex min-h-screen items-center justify-center px-4"
       style={{
         backgroundImage:
-          "radial-gradient(900px 500px at 50% -10%, rgba(99,102,241,0.18), transparent 60%), radial-gradient(700px 500px at 100% 110%, rgba(16,185,129,0.10), transparent 60%)",
+          "radial-gradient(900px 500px at 50% -10%, rgba(47,146,232,0.18), transparent 60%), radial-gradient(700px 500px at 100% 110%, rgba(45,212,232,0.10), transparent 60%)",
         backgroundColor: "#0b0f29",
       }}
     >
@@ -54,8 +66,8 @@ function AdminLoginInner() {
       >
         <div className="mb-6 flex flex-col items-center text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo/icon.png" alt="logo" className="h-12 w-12 rounded-xl object-cover" />
-          <h1 className="mt-3 text-lg font-bold tracking-wide text-gold-gradient">完整提示词</h1>
+          <img src={logoIcon} alt="logo" className="h-12 w-12 rounded-xl object-cover" />
+          <h1 className="mt-3 text-lg font-bold tracking-wide text-gold-gradient">{siteName || "管理后台"}</h1>
           <div className="mt-1 flex items-center gap-2">
             <span className="rounded border border-emerald-700/60 px-1.5 py-0.5 text-[10px] tracking-[0.3em] text-emerald-400">
               ADMIN

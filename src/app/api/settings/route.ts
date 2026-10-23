@@ -10,6 +10,7 @@ export async function GET() {
   return NextResponse.json({
     basic: {
       siteName: site.siteName,
+      logoIcon: site.logoIcon || "/logo/icon.png",
       allowRegister: site.allowRegister,
     },
     // 注册页动态字段配置（off/optional/required）

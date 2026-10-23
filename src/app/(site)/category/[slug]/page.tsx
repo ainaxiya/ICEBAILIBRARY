@@ -44,8 +44,8 @@ export default async function CategoryDetail({
 
   const meta = getCategoryMeta(slug);
   const sortRaw = sp.sort || "new";
-  // new=最新降序(默认) old=最旧升序 views=浏览量 likes=点赞
-  const sort = ["new", "old", "views", "likes"].includes(sortRaw) ? sortRaw : "new";
+  // new=最新降序(默认) old=最旧升序 views=浏览量
+  const sort = ["new", "old", "views"].includes(sortRaw) ? sortRaw : "new";
   const page = Math.max(1, parseInt(sp.page || "1") || 1);
 
   const where = { status: "published" as const, category: slug };
@@ -54,9 +54,7 @@ export default async function CategoryDetail({
       ? [{ createdAt: "asc" as const }, { id: "asc" as const }]
       : sort === "views"
         ? [{ viewCount: "desc" as const }, { id: "desc" as const }]
-        : sort === "likes"
-          ? [{ likeCount: "desc" as const }, { id: "desc" as const }]
-          : [{ createdAt: "desc" as const }, { id: "desc" as const }];
+        : [{ createdAt: "desc" as const }, { id: "desc" as const }];
 
   const [prompts, total] = await Promise.all([
     db.prompt.findMany({
@@ -66,7 +64,7 @@ export default async function CategoryDetail({
       take: PAGE_SIZE,
       select: {
         id: true, title: true, type: true, category: true, tags: true,
-        sourceAuthor: true, likeCount: true, content: true, description: true,
+        sourceAuthor: true, viewCount: true, content: true, description: true,
         coverUrl: true, featured: true,
       },
     }),
@@ -120,9 +118,8 @@ export default async function CategoryDetail({
           ? sortBtn(sort === "new", t(locale, "sort.new"), sortHref("new"), "↓")
           : sortBtn(true, t(locale, "sort.new"), sortHref("new"), "↑")}
         {sortBtn(sort === "views", t(locale, "sort.views"), sortHref("views"))}
-        {sortBtn(sort === "likes", t(locale, "sort.likes"), sortHref("likes"))}
         <span className="ml-auto text-xs text-zinc-600">
-          {sort === "old" ? "↑ 旧 → 新" : sort === "views" ? "↓ 浏览量" : sort === "likes" ? "↓ 点赞数" : "↓ 新 → 旧"}
+          {sort === "old" ? "↑ 旧 → 新" : sort === "views" ? "↓ 浏览量" : "↓ 新 → 旧"}
         </span>
       </div>
 

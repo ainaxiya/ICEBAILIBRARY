@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useLocale, translate as t } from "@/lib/i18n-client";
 
-// 手机端底部标签栏：仅 <md(768px) 显示；4 个标签 首页/热门/分类/我的
+// 手机端底部标签栏：仅 <md(768px) 显示；5 个标签 首页/提示词/AI技能/AI软件/我的
 // 未登录点「我的」由 /member 自身重定向到 /login?next=/member
 function TabIcon({ name, className = "h-[22px] w-[22px]" }: { name: string; className?: string }) {
   const common = {
@@ -41,6 +41,20 @@ function TabIcon({ name, className = "h-[22px] w-[22px]" }: { name: string; clas
           <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
         </svg>
       );
+    case "puzzle":
+      return (
+        <svg {...common}>
+          <path d="M14 3v3a2 2 0 1 0 4 0h3v5h-3a2 2 0 1 0 0 4h3v5h-6v-3a2 2 0 1 0-4 0v3H5v-6H2v-5h3V3h9z" />
+        </svg>
+      );
+    case "disk":
+      return (
+        <svg {...common}>
+          <rect x="4" y="3" width="16" height="18" rx="2" />
+          <path d="M8 3v5h8V3" />
+          <circle cx="12" cy="15" r="2.5" />
+        </svg>
+      );
     case "user":
       return (
         <svg {...common}>
@@ -57,10 +71,12 @@ export default function MobileTabBar() {
   const locale = useLocale();
   const pathname = usePathname();
 
+  // v0.6 四大栏目 + 我的：首页 / 提示词 / AI技能 / AI软件 / 我的
   const tabs = [
     { href: "/", icon: "home", label: t(locale, "nav.home"), exact: true },
-    { href: "/hot", icon: "flame", label: t(locale, "nav.hot"), exact: false },
     { href: "/categories", icon: "grid", label: t(locale, "nav.categories"), exact: false },
+    { href: "/skills", icon: "puzzle", label: t(locale, "nav.skills"), exact: false },
+    { href: "/software", icon: "disk", label: t(locale, "nav.software"), exact: false },
     { href: "/member", icon: "user", label: t(locale, "nav.memberCenter"), exact: false },
   ];
 

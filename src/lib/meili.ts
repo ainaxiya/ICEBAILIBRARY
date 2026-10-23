@@ -18,8 +18,7 @@ export async function searchPrompts(
   if (opts.language) filter.push(`language = "${opts.language}"`);
   if (opts.tag) filter.push(`tags = "${opts.tag}"`);
   const sort: string[] = [];
-  if (opts.sort === "likes") sort.push("likeCount:desc");
-  else if (opts.sort === "new") sort.push("createdAtTs:desc");
+  if (opts.sort === "new") sort.push("createdAtTs:desc");
   const res = await index.search(q, {
     page,
     hitsPerPage: 24,
@@ -63,4 +62,68 @@ export async function syncPromptToMeili(p: {
 
 export async function removePromptFromMeili(id: number) {
   await meili.index("prompts").deleteDocument(id);
+}
+
+// ─── v0.6 AI 技能索引 ───
+export async function syncSkillToMeili(s: {
+  id: number; name: string; summary: string; skillMd: string;
+  tags: string[]; author: string | null; categoryId: number; categorySlug: string;
+  language: string; viewCount: number; copyCount: number; createdAt: Date;
+}) {
+  await meili.index("skills").addDocuments(
+    [
+      {
+        id: s.id,
+        name: s.name,
+        summary: s.summary.slice(0, 2000),
+        skillMd: s.skillMd.slice(0, 15000),
+        tags: s.tags,
+        author: s.author ?? null,
+        categoryId: s.categoryId,
+        categorySlug: s.categorySlug,
+        language: s.language,
+        viewCount: s.viewCount,
+        copyCount: s.copyCount,
+        createdAtTs: Math.floor(s.createdAt.getTime() / 1000),
+      },
+    ],
+    { primaryKey: "id" }
+  );
+}
+
+export async function removeSkillFromMeili(id: number) {
+  await meili.index("skills").deleteDocument(id);
+}
+
+// ─── v0.6 AI 软件索引 ───
+export async function syncSoftwareToMeili(s: {
+  id: number; name: string; tagline: string | null; description: string;
+  tags: string[]; categoryId: number; categorySlug: string;
+  platform: string | null; icon: string | null; version: string | null;
+  viewCount: number; downloadCount: number; createdAt: Date;
+}) {
+  await meili.index("software").addDocuments(
+    [
+      {
+        id: s.id,
+        name: s.name,
+        tagline: (s.tagline || "").slice(0, 500),
+        description: stripHtml(s.description || "").slice(0, 10000),
+        tags: s.tags,
+        categoryId: s.categoryId,
+        categorySlug: s.categorySlug,
+        platform: s.platform ?? null,
+        icon: s.icon ?? null,
+        version: s.version ?? null,
+        viewCount: s.viewCount,
+        downloadCount: s.downloadCount,
+        createdAtTs: Math.floor(s.createdAt.getTime() / 1000),
+      },
+    ],
+    { primaryKey: "id" }
+  );
+}
+
+export async function removeSoftwareFromMeili(id: number) {
+  await meili.index("software").deleteDocument(id);
 }

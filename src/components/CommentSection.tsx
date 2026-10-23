@@ -13,7 +13,8 @@ export type CommentUser = {
 export type CommentData = {
   id: number;
   userId?: number | null;
-  promptId: number;
+  targetType?: string;
+  targetId?: number;
   content: string;
   parentId?: number | null;
   status?: string;
@@ -49,12 +50,15 @@ type PendingPost =
   | { kind: "reply"; parentId: number; text: string };
 
 export default function CommentSection({
-  promptId,
+  targetType = "prompt",
+  targetId,
   initialComments,
   closed: initialClosed = false,
   initialTotal,
 }: {
-  promptId: number;
+  /** 评论挂载目标类型：prompt | skill | software */
+  targetType?: string;
+  targetId: number;
   initialComments: CommentData[];
   closed?: boolean;
   initialTotal?: number;
@@ -127,7 +131,7 @@ export default function CommentSection({
         });
         const data = await res.json().catch(() => ({}));
         if (res.status === 401) {
-          location.href = `/login?next=/p/${promptId}`;
+          location.href = `/login?next=${encodeURIComponent(location.pathname)}`;
           return { ok: false };
         }
         return { ok: res.ok, status: res.status, data };
@@ -135,14 +139,15 @@ export default function CommentSection({
         return { ok: false };
       }
     },
-    [promptId]
+    []
   );
 
   const finishSuccess = (data: any, wasReply: boolean) => {
     const c: CommentData = {
       id: data.id,
       userId: data.userId,
-      promptId: data.promptId,
+      targetType: data.targetType,
+      targetId: data.targetId,
       content: data.content,
       parentId: data.parentId ?? null,
       likeCount: 0,
@@ -166,8 +171,8 @@ export default function CommentSection({
     if (submitting) return;
     const base =
       pending.kind === "top"
-        ? { promptId, content: pending.text }
-        : { promptId, content: pending.text, parentId: pending.parentId };
+        ? { targetType, targetId, content: pending.text }
+        : { targetType, targetId, content: pending.text, parentId: pending.parentId };
 
     setSubmitting(true);
     setError("");
@@ -233,7 +238,7 @@ export default function CommentSection({
 
   const like = async (id: number) => {
     if (!me) {
-      location.href = `/login?next=/p/${promptId}`;
+      location.href = `/login?next=${encodeURIComponent(location.pathname)}`;
       return;
     }
     // 乐观更新
@@ -270,7 +275,7 @@ export default function CommentSection({
     setLoadingMore(true);
     try {
       const next = page + 1;
-      const res = await fetch(`/api/comments?promptId=${promptId}&page=${next}`);
+      const res = await fetch(`/api/comments?targetType=${targetType}&targetId=${targetId}&page=${next}`);
       if (!res.ok) return;
       const d = await res.json();
       setComments((prev) => {
@@ -465,7 +470,7 @@ export default function CommentSection({
         </div>
       ) : !me && !closed ? (
         <div className="mb-5 rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2.5 text-sm text-zinc-500">
-          <a href={`/login?next=/p/${promptId}`} className="text-indigo-400 hover:underline">
+          <a href={`/login?next=${encodeURIComponent(typeof window !== "undefined" ? location.pathname : "/")}`} className="text-indigo-400 hover:underline">
             登录
           </a>
           后参与评论

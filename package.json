@@ -1,6 +1,6 @@
 {
   "name": "completeprompt",
-  "version": "1.0.0",
+  "version": "0.75.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -9,12 +9,11 @@
     "postinstall": "prisma generate",
     "db:up": "node scripts/db-manual.mjs",
     "db:push": "prisma db push",
-    "parse": "python scripts/parse_lib.py",
-    "seed": "node scripts/seed.mjs",
-    "meili:sync": "node scripts/meili-sync-daemon.mjs",
-    "migrate:admins": "node scripts/migrate-admins.mjs"
+    "meili:sync": "node scripts/meili-sync-daemon.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1152.0",
+    "@aws-sdk/s3-request-presigner": "^3.1152.0",
     "@prisma/client": "^6.16.0",
     "@tiptap/core": "^3.31.3",
     "@tiptap/extension-image": "^3.31.3",
@@ -27,6 +26,7 @@
     "bcryptjs": "^3.0.2",
     "dotenv": "^16.6.1",
     "jose": "^6.0.0",
+    "jszip": "^3.10.2",
     "meilisearch": "^0.50.0",
     "next": "^15.5.0",
     "react": "^19.1.0",

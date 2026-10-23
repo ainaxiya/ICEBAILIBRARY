@@ -141,6 +141,16 @@ export const CATEGORY_META: Record<string, CategoryMeta> = {
     name: { zh: "其他", en: "Other" },
     desc: { zh: "其他类型提示词", en: "Miscellaneous prompts" },
   },
+  pj: {
+    icon: "security",
+    bg: "bg-purple-500/15",
+    fg: "text-purple-300",
+    name: { zh: "破甲提示词", en: "Jailbreak" },
+    desc: {
+      zh: "大模型行为差异、对齐缺陷、越狱边界探索等破甲研究提示词",
+      en: "Jailbreak, alignment-boundary and model-behavior research prompts",
+    },
+  },
 };
 
 // 旧中文 slug → 新 2 字母码（用于 301 重定向与数据迁移）
@@ -157,6 +167,7 @@ export const LEGACY_CAT_SLUG: Record<string, string> = {
   金融理财: "jr",
   AI智能体: "zn",
   其他: "qt",
+  破甲提示词: "pj",
 };
 
 export function getCategoryMeta(slug: string): CategoryMeta {

@@ -1,12 +1,12 @@
-# 采集管理（v0.4 + 即梦扩展）设计与实现记录
+# 采集管理（v0.4 + 即梦扩展 + v0.7 PromptHub 扩展）设计与实现记录
 
-> 版本：FULL PROMPT v0.4（2026-09-27 上线）+ 即梦AI采集源（2026-10-14 追加）
+> 版本：FULL PROMPT v0.4（2026-09-27 上线）+ 即梦AI采集源（2026-10-14 追加）+ PromptHub 技能库/提示词库采集源（v0.7 追加）
 > 需求：后台新增「采集管理」，支持针对特定站点一键获取更新、与历史采集去重、勾选或全部采集入库。
 
 ## 1. 交互流程
 
 1. 后台侧边栏「采集管理」（仅拥有 `crawl:manage` 权限的管理员可见；超管自动拥有）。
-2. 选择采集源（LibLib TV / 即梦AI，注册表在 `src/lib/crawl-sources.ts`）。**每个源独立采集，不能同时采集两个源**。
+2. 选择采集源（LibLib TV / 即梦AI / PromptHub 技能库 / PromptHub 提示词库，注册表在 `src/lib/crawl-sources.ts`）。**每个源独立采集，不能同时采集两个源**。
 3. 点「一键获取 XXX 更新」：
    - **LIBTV**：服务端拉取热门流前 3 页（60 条）→ 并发 5 逐条探测 detail，未公开提示词画布的作品直接剔除 → 按 `projectUuid` 与 `CrawlItem` 表 upsert
    - **即梦AI**：服务端通过 JSONP 拉取 explore feed 前 3 页（60 条）→ 有提示词+图即可采（无需额外探测，feed 已含全部数据）→ 按 `itemId` 与 `CrawlItem` 表 upsert
@@ -23,9 +23,11 @@
 
 ## 2. 数据模型（prisma/schema.prisma）
 
-- `CrawlItem`：远端作品快照。`@@unique([source, remoteId])` 去重；`status = new | collected | failed | skipped`（skipped=不采集，获取时跳过）；`promptId @unique` 关联入库的 Prompt。
+- `CrawlItem`：远端作品快照。`@@unique([source, remoteId])` 去重；`status = new | collected | failed | skipped`（skipped=不采集，获取时跳过）；`promptId @unique` 关联入库的 Prompt；`skillId Int? @unique`（v0.7）关联入库的 Skill。
   - LIBTV：`remoteId = projectUuid`，`templateUuid` 存模板 UUID
   - 即梦AI：`remoteId = itemId`（common_attr.id），`templateUuid = null`（即梦无此概念）
+  - PromptHub 技能库：`remoteId = 技能页 slug`（如 `alloydb-basics`）
+  - PromptHub 提示词库：`remoteId = 提示词页 slug`
   - 即梦AI 的 `tags` 数组约定（v0.5 起）：第 0 个元素为 `__meta__` 前缀的 JSON（`p`=提示词、`m`=模型名、`w`=形态 image|video、`v`=视频地址、`i`=大图地址），后续为真实标签（模型名、文生图/文生视频）；列表展示与入库时剥离 `__meta__` 前缀标签
 - `CrawlJob`：入库任务（source/itemIds/total/done/succeeded/failed/lastError/status/message/adminId）。`lastError` 只保留最后一条失败原因供进度卡片展示。运行态卡死超过 45 分钟（如 PM2 重启）会在下次发起任务时被 `reapStaleJobs()` 回收。
 - `Prompt` 增加反向关系 `crawlItem CrawlItem?`。
@@ -64,13 +66,29 @@
 - Prompt 字段：`sourceSite="jimeng.jianying.com"`、`sourceUrl="https://jimeng.jianying.com/ai-tool/work/<itemId>"`、`sourceAuthor`、tags（真实标签：模型名、文生图/文生视频）、likeCount、language=zh、status=published、adminAuthorId=操作管理员、userId=专用 importer 账号 `jimeng`（role=importer，自动 upsert）。
 - 入库后双写 Meilisearch（`syncPromptToMeili`），立即可搜。
 
+### 3c. PromptHub 技能库（src/lib/crawl-prompthub.ts · `fetchPrompthubSkills` / `fetchPrompthubSkillDetail`）
+
+PromptHub 是 Next.js App Router 站点，详情页正文 **纯客户端渲染**（服务端 HTML 里 `<main>` 只有「页面加载中」占位符），因此不能直接抓 DOM 文本。
+
+- 列表：`https://prompthub.xin/skills` 里技能链接只存在于 JSON-LD 的 canonical URL 中，正则 `/\/\/prompthub\.xin\/skills\/([a-zA-Z0-9-]+)(?!\/SKILL\.md)/g` 提取 slug（实测 18 条/页）；标题与描述从同 URL 位置的 `"name"` / `"description"` 字段取。
+- 详情：先 fetch 详情页，从 RSC payload（`__next_f` 内联脚本）里匹配 GitHub 来源路径（`github.com/owner/repo/blob/branch/.../SKILL.md`，优先取路径中含当前 slug 的那条），再直连 `raw.githubusercontent.com` 拉 **SKILL.md 全文**；分支名缺失时用 GitHub API `default_branch` 兜底（进程内 Map 缓存）。
+- 分类：详情页 HTML 里命中中文分类名（开发工具 / 设计与界面 / …），经 `SKILL_CAT_MAP` 映射到 SkillCategory 短码；未命中归 `pr`。
+- Skill 字段：`userId = importerId`（专用 importer 账号 `prompthub`，自动 upsert；**Skill 表无 `adminAuthorId` 字段**）、`skillMd = 正文全文`、`sourceSite="prompthub.xin"`、`sourceUrl=null`（不落原网址）、`status=published`。
+- 站点公开可访问，无需登录；适配器顶部保留账号常量但不参与请求。
+
+### 3d. PromptHub 提示词库（`fetchPrompthubPrompts` / `fetchPrompthubPromptDetail`）
+
+- 列表：`https://prompthub.xin/prompts` 从 `href="/prompts/<slug>"` 提取条目（站点列表页 SSR 只渲染少量推荐条目，实测 2 条），标题 / 分类 / 标签从条目周边 HTML 取。
+- 详情：详情页同样是客户端渲染，正文取 `meta description` + `og:description` + JSON-LD `description` 拼接，并补充分类与标签行；`type` 按页面关键词判定 text / image / video。
+- Prompt 字段：`sourceSite="prompthub.xin"`、`sourceUrl=null`、`sourceAuthor=null`、`category = promptCategoryFromRaw(原始分类)`、`userId = importerId`。
+
 ## 4. 接口（全部挂 PERMISSIONS.CRAWL_MANAGE）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/admin/collect/sources` | 启用的采集源 |
 | GET | `/api/admin/collect/items?source=&status=&page=` | 列表/计数/上次获取时间/运行中任务 |
-| POST | `/api/admin/collect/fetch` | `{source: "libtv"\|"jimeng", pages?}` 一键拉取更新 |
+| POST | `/api/admin/collect/fetch` | `{source: "libtv"\|"jimeng"\|"prompthub-skills"\|"prompthub-prompts", pages?}` 一键拉取更新 |
 | POST | `/api/admin/collect/import` | `{source, all:true}` 或 `{source, ids:[]}`，返回 `{jobId,total}` |
 | GET | `/api/admin/collect/jobs/[id]` | 任务进度 |
 
@@ -84,12 +102,12 @@
 
 仪表盘 → 网站设置 → 提示词管理 → 提示词分类（原分类管理）→ **采集管理（新）** → 发布设置 → 用户管理 → 注册设置 → 评论管理 → 管理员设置（超管）→ 权限角色（原角色权限）→ 后台操作日志（原操作日志）。
 
-侧边栏底部版本标识：`FULL PROMPT v0.4`。
+侧边栏底部版本标识：读 `src/lib/version.ts` 的 `APP_VERSION`（v0.7 起前后台统一，升级只改这一处）。
 
 ## 7. 采集源注册表（src/lib/crawl-sources.ts）
 
 ```typescript
-export type CrawlSourceId = "libtv" | "jimeng";
+export type CrawlSourceId = "libtv" | "jimeng" | "prompthub-skills" | "prompthub-prompts";
 ```
 
 新增采集站只需：① 注册到 `CRAWL_SOURCES` 数组 ② 创建 `crawl-xxx.ts` 适配器 ③ crawl-worker 添加对应 `importXxxItem` 函数 ④ fetch 路由添加对应 `handleXxxFetch` 函数。
@@ -104,3 +122,7 @@ export type CrawlSourceId = "libtv" | "jimeng";
 - 即梦远端接口通过 JSONP 公开访问：feed 页间隔 300ms、429 退避；单图下载间隔 80ms。
 - 即梦图片 URL 带签名过期（x-expires），采集后存本地不受影响；但 CrawlItem.coverUrl 中的远端 URL 过期后封面将无法在列表中显示（TODO: 后续可考虑 fetch 时同步下载封面到本地缓存）。
 - 即梦视频 URL 短时效签名（约 1 小时），入库时若已过期则跳过截帧仅用封面；后续如需完整视频截帧，需在 fetch 阶段同步下载视频或缩短 fetch→import 间隔。
+- **PromptHub 技能库**：GitHub 来源路径只在部分技能的 RSC payload 里带 `blob/<branch>/.../SKILL.md` 形态，路径不带 slug 或 SKILL.md 不在常规位置的条目会拉取失败（首批 18 条中 6 条成功，其余为边缘 case，不会入库脏数据）。
+- **PromptHub 提示词库**：列表页 SSR 只渲染少量推荐条目（实测 2 条），分页疑似前端动态加载，因此当前可采量很少；后续可尝试直接请求其分页接口或 RSC 路由。
+- **PromptHub 无需登录**：站点公开可访问，适配器顶部保留的账号常量不参与任何请求。
+- **生产库迁移**：`CrawlItem.skillId` 为 v0.7 新增列，线上用幂等 SQL（`ADD COLUMN IF NOT EXISTS` + 唯一索引 + 外键）补齐，`prisma db push` 前需先执行，避免锁表阻塞。

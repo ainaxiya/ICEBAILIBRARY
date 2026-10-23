@@ -3,6 +3,7 @@ import Script from "next/script";
 import SiteHeader from "@/components/SiteHeader";
 import MobileTabBar from "@/components/MobileTabBar";
 import { getPublicSite } from "@/lib/settings";
+import { APP_VERSION } from "@/lib/version";
 
 export const dynamic = "force-dynamic";
 
@@ -34,23 +35,24 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
               <p className="mt-3 text-sm leading-relaxed text-zinc-400">
                 {site.footerText}
               </p>
+              <p className="mt-2 text-xs tracking-wider text-zinc-600">ICEBERG AI {APP_VERSION}</p>
             </div>
 
             <nav className="grid grid-cols-2 gap-x-12 gap-y-2 text-sm sm:grid-cols-3">
               <Link href="/" className="text-zinc-400 transition hover:text-emerald-300">
                 首页
               </Link>
-              <Link href="/hot" className="text-zinc-400 transition hover:text-emerald-300">
-                热门
-              </Link>
               <Link href="/categories" className="text-zinc-400 transition hover:text-emerald-300">
-                分类
+                提示词
+              </Link>
+              <Link href="/skills" className="text-zinc-400 transition hover:text-emerald-300">
+                AI 技能
+              </Link>
+              <Link href="/software" className="text-zinc-400 transition hover:text-emerald-300">
+                AI 软件
               </Link>
               <Link href="/search" className="text-zinc-400 transition hover:text-emerald-300">
                 搜索
-              </Link>
-              <Link href="/publish" className="text-zinc-400 transition hover:text-emerald-300">
-                发布提示词
               </Link>
               <Link href="/member" className="text-zinc-400 transition hover:text-emerald-300">
                 会员中心
@@ -79,7 +81,7 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
           {/* 下部：版权条（橙色点缀） */}
           <div className="flex flex-col items-center justify-between gap-2 border-t border-zinc-800/70 py-4 text-xs text-zinc-500 sm:flex-row">
             <span className="flex items-center gap-1.5">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-royal-500 shadow-[0_0_8px_rgba(245,158,11,0.9)]" />
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-royal-500 shadow-[0_0_8px_rgba(45,212,232,0.9)]" />
               © {new Date().getFullYear()} {site.siteName}
             </span>
             <span>

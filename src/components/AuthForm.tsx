@@ -10,7 +10,7 @@ type RegFields = { email: FieldMode; nickname: FieldMode; phone: FieldMode };
 const inputCls =
   "w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-emerald-500";
 
-export default function AuthForm({ mode }: { mode: "login" | "register" }) {
+export default function AuthForm({ mode, siteName }: { mode: "login" | "register"; siteName?: string }) {
   const locale = useLocale();
   const router = useRouter();
   const sp = useSearchParams();
@@ -87,7 +87,9 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
       className="mx-auto mt-16 w-full max-w-sm rounded-xl border border-zinc-800 bg-zinc-900/60 p-6"
     >
       <h1 className="mb-6 text-center text-xl font-bold">
-        {mode === "login" ? t(locale, "auth.loginTitle") : t(locale, "auth.registerTitle")}
+        {mode === "login"
+          ? t(locale, "auth.loginTitle", { site: siteName || "" })
+          : t(locale, "auth.registerTitle", { site: siteName || "" })}
       </h1>
 
       <label className="mb-1 block text-sm text-zinc-400">{t(locale, "auth.username")} *</label>

@@ -6,6 +6,7 @@ import { getSettings } from "@/lib/settings";
 import { clientIp } from "@/lib/rate-limit";
 import { consumeCaptcha } from "@/lib/captcha";
 import { COMMENT, maskSensitive } from "@/lib/comment-policy";
+import { getCommentTarget, bumpCommentCount, isCommentTargetType } from "@/lib/comment-target";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,8 @@ function presentComment(c: any, currentUserId: number | null) {
   return {
     id: c.id,
     userId: c.userId,
-    promptId: c.promptId,
+    targetType: c.targetType,
+    targetId: c.targetId,
     content: c.content,
     parentId: c.parentId,
     status: c.status,
@@ -62,19 +64,20 @@ function presentComment(c: any, currentUserId: number | null) {
   };
 }
 
-// GET /api/comments?promptId=&page=
+// GET /api/comments?targetType=&targetId=&page=  （兼容旧参数 promptId=）
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const promptId = parseInt(searchParams.get("promptId") || "0");
-  if (!promptId) return NextResponse.json({ error: "promptId required" }, { status: 400 });
+  const targetType = searchParams.get("targetType") || "prompt";
+  const targetId = parseInt(searchParams.get("targetId") || searchParams.get("promptId") || "0");
+  if (!isCommentTargetType(targetType)) {
+    return NextResponse.json({ error: "bad targetType" }, { status: 400 });
+  }
+  if (!targetId) return NextResponse.json({ error: "targetId required" }, { status: 400 });
 
   const page = Math.max(1, Number(searchParams.get("page") || 1) || 1);
 
-  const prompt = await db.prompt.findUnique({
-    where: { id: promptId },
-    select: { id: true, commentsClosed: true },
-  });
-  if (!prompt) return NextResponse.json({ error: "prompt not found" }, { status: 404 });
+  const target = await getCommentTarget(targetType, targetId);
+  if (!target) return NextResponse.json({ error: "target not found" }, { status: 404 });
 
   const me = await getCurrentUser();
   const currentUserId = me?.id ?? null;
@@ -83,7 +86,8 @@ export async function GET(req: NextRequest) {
   // 顶级评论：正常评论 + 仍有公开回复的已删评论（显示「该评论已删除」占位）；
   // hidden 评论及其回复对公众完全不可见
   const topWhere = {
-    promptId,
+    targetType,
+    targetId,
     parentId: null,
     OR: [
       { status: "published" },
@@ -112,7 +116,8 @@ export async function GET(req: NextRequest) {
     if (c.status === "deleted") {
       return {
         id: c.id,
-        promptId: c.promptId,
+        targetType: c.targetType,
+        targetId: c.targetId,
         parentId: null,
         status: "deleted",
         deleted: true,
@@ -128,13 +133,14 @@ export async function GET(req: NextRequest) {
   });
 
   // 全站开关关闭或单篇关评 → 前端只读
-  const closed = !settings.comment.enabled || prompt.commentsClosed;
+  const closed = !settings.comment.enabled || target.commentsClosed;
 
   return NextResponse.json({ list, total, page, pageSize: COMMENT.PAGE_SIZE, closed });
 }
 
 const createSchema = z.object({
-  promptId: z.number().int().positive(),
+  targetType: z.enum(["prompt", "skill", "software"]).default("prompt"),
+  targetId: z.number().int().positive(),
   content: z.string().trim().min(1).max(COMMENT.MAX_LEN),
   parentId: z.number().int().positive().nullable().optional(),
   captchaId: z.string().optional(),
@@ -163,25 +169,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "comments_disabled", message: "全站评论已关闭" }, { status: 403 });
   }
 
-  const prompt = await db.prompt.findUnique({
-    where: { id: d.promptId },
-    select: { id: true, status: true, commentsClosed: true },
-  });
-  if (!prompt) return NextResponse.json({ error: "prompt not found" }, { status: 404 });
-  if (prompt.status !== "published") {
-    return NextResponse.json({ error: "prompt not published" }, { status: 400 });
+  const target = await getCommentTarget(d.targetType, d.targetId);
+  if (!target) return NextResponse.json({ error: "target not found" }, { status: 404 });
+  if (target.status !== "published") {
+    return NextResponse.json({ error: "target not published" }, { status: 400 });
   }
-  if (prompt.commentsClosed) {
+  if (target.commentsClosed) {
     return NextResponse.json({ error: "comments_closed", message: "该内容已关闭评论" }, { status: 403 });
   }
 
-  // 父评论：必须存在、同 prompt、且只能是顶级评论（两级结构）
+  // 父评论：必须存在、同目标、且只能是顶级评论（两级结构）
   if (d.parentId) {
     const parent = await db.comment.findUnique({
       where: { id: d.parentId },
-      select: { id: true, promptId: true, parentId: true, status: true },
+      select: { id: true, targetType: true, targetId: true, parentId: true, status: true },
     });
-    if (!parent || parent.promptId !== d.promptId || parent.status !== "published") {
+    if (!parent || parent.targetType !== d.targetType || parent.targetId !== d.targetId || parent.status !== "published") {
       return NextResponse.json({ error: "parent comment invalid" }, { status: 400 });
     }
     if (parent.parentId !== null) {
@@ -226,7 +229,8 @@ export async function POST(req: NextRequest) {
     const c = await tx.comment.create({
       data: {
         userId: user.id,
-        promptId: d.promptId,
+        targetType: d.targetType,
+        targetId: d.targetId,
         content: maskedContent,
         parentId: d.parentId ?? null,
         ip,
@@ -234,10 +238,7 @@ export async function POST(req: NextRequest) {
       },
       include: { user: { select: userSelect } },
     });
-    await tx.prompt.update({
-      where: { id: d.promptId },
-      data: { commentCount: { increment: 1 } },
-    });
+    await bumpCommentCount(tx, d.targetType, d.targetId, 1);
     return c;
   });
 

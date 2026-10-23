@@ -2,7 +2,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
-import PromptCard from "@/components/PromptCard";
 import LogoutButton from "@/components/LogoutButton";
 import { getServerLocale, translate as t } from "@/lib/i18n";
 import { getCategoryMeta } from "@/lib/category-meta";
@@ -29,33 +28,17 @@ export default async function MemberPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login?next=/member");
 
-  const [myPosts, favs, postCount, favCount, agg] = await Promise.all([
+  const [myPosts, postCount] = await Promise.all([
     db.prompt.findMany({
       where: { userId: user.id },
       orderBy: { id: "desc" },
       take: 10,
       select: {
-        id: true, title: true, status: true, likeCount: true, viewCount: true,
+        id: true, title: true, status: true, viewCount: true, commentCount: true,
         createdAt: true, category: true, rejectReason: true,
       },
     }),
-    db.favorite.findMany({
-      where: { userId: user.id },
-      orderBy: { createdAt: "desc" },
-      take: 12,
-      include: {
-        prompt: {
-          select: {
-            id: true, title: true, type: true, category: true, tags: true,
-            sourceAuthor: true, likeCount: true, content: true,
-            coverUrl: true, featured: true, status: true,
-          },
-        },
-      },
-    }),
     db.prompt.count({ where: { userId: user.id } }),
-    db.favorite.count({ where: { userId: user.id } }),
-    db.prompt.aggregate({ where: { userId: user.id }, _sum: { likeCount: true } }),
   ]);
 
   const stat = (label: string, value: number | string) => (
@@ -94,10 +77,9 @@ export default async function MemberPage() {
       </div>
 
       {/* 统计 */}
-      <div className="mb-8 grid grid-cols-3 gap-3">
+      <div className="mb-8 grid grid-cols-2 gap-3">
         {stat(t(locale, "member.myPosts"), postCount)}
-        {stat(t(locale, "member.myFavs"), favCount)}
-        {stat(t(locale, "member.likesGot"), agg._sum.likeCount ?? 0)}
+        {stat(locale === "zh" ? "总浏览" : "Total views", myPosts.reduce((s, p) => s + p.viewCount, 0))}
       </div>
 
       {/* 我的发布 */}
@@ -124,7 +106,7 @@ export default async function MemberPage() {
                     )}
                   </td>
                   <td className="hidden px-3 py-2.5 text-xs text-zinc-500 sm:table-cell">{getCategoryMeta(p.category).name[locale]}</td>
-                  <td className="px-3 py-2.5 text-xs text-zinc-500">♥ {p.likeCount} · 👁 {p.viewCount}</td>
+                  <td className="px-3 py-2.5 text-xs text-zinc-500">👁 {p.viewCount} · 💬 {p.commentCount}</td>
                   <td className="px-3 py-2.5 text-right">
                     <span className={`rounded px-1.5 py-0.5 text-xs ${STATUS_BADGE[p.status]}`}>
                       {STATUS_TEXT[p.status] || p.status}
@@ -137,36 +119,6 @@ export default async function MemberPage() {
         )}
       </div>
 
-      {/* 我的收藏 */}
-      <h2 className="mb-3 text-base font-semibold text-zinc-200">{t(locale, "member.myFavs")}</h2>
-      {favs.length === 0 ? (
-        <p className="rounded-xl border border-zinc-800 p-6 text-center text-sm text-zinc-500">
-          {t(locale, "member.noFavs")}
-        </p>
-      ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {favs
-            .filter((f) => f.prompt.status === "published")
-            .map((f) => (
-              <PromptCard
-                key={f.prompt.id}
-                locale={locale}
-                p={{
-                  id: f.prompt.id,
-                  title: f.prompt.title,
-                  type: f.prompt.type,
-                  category: f.prompt.category,
-                  tags: f.prompt.tags,
-                  sourceAuthor: f.prompt.sourceAuthor,
-                  likeCount: f.prompt.likeCount,
-                  coverUrl: f.prompt.coverUrl,
-                  featured: f.prompt.featured,
-                  content: f.prompt.content,
-                }}
-              />
-            ))}
-        </div>
-      )}
     </div>
   );
 }

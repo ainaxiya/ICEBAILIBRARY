@@ -9,11 +9,18 @@ type Row = {
   content: string;
   status: string;
   likeCount: number;
-  promptId: number;
+  targetType: string;
+  targetId: number;
   userId: number;
   createdAt: string;
   user: { id: number; username: string; nickname: string | null; commentBanned: boolean } | null;
-  prompt: { id: number; title: string } | null;
+  prompt: { id: number; title: string | null } | null;
+};
+
+const TARGET_TYPE_TEXT: Record<string, string> = {
+  prompt: "提示词",
+  skill: "技能",
+  software: "软件",
 };
 
 const TABS = [
@@ -37,7 +44,8 @@ const STATUS_TEXT: Record<string, string> = {
 export default function CommentManager() {
   const [tab, setTab] = useState("");
   const [q, setQ] = useState("");
-  const [promptId, setPromptId] = useState("");
+  const [targetType, setTargetType] = useState("");
+  const [targetId, setTargetId] = useState("");
   const [userId, setUserId] = useState("");
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState<Row[]>([]);
@@ -60,7 +68,8 @@ export default function CommentManager() {
       const params = new URLSearchParams();
       if (tab) params.set("status", tab);
       if (q.trim()) params.set("q", q.trim());
-      if (promptId.trim()) params.set("promptId", promptId.trim());
+      if (targetType) params.set("targetType", targetType);
+      if (targetId.trim()) params.set("targetId", targetId.trim());
       if (userId.trim()) params.set("userId", userId.trim());
       params.set("page", String(page));
       const res = await fetch(`/api/admin/comments?${params}`);
@@ -74,7 +83,7 @@ export default function CommentManager() {
     } finally {
       setLoading(false);
     }
-  }, [tab, q, promptId, userId, page]);
+  }, [tab, q, targetType, targetId, userId, page]);
 
   useEffect(() => {
     load();
@@ -128,6 +137,20 @@ export default function CommentManager() {
       }
     } finally {
       setBusy(false);
+    }
+  };
+
+  const [cleaning, setCleaning] = useState(false);
+  const cleanupOrphans = async () => {
+    if (!window.confirm("将物理删除目标内容（提示词/技能/软件）已不存在的评论（含其回复），不可恢复。确定清理？")) return;
+    setCleaning(true);
+    try {
+      const res = await fetch("/api/admin/comments/cleanup-orphans", { method: "POST" });
+      const d = await res.json().catch(() => ({}));
+      setMsg(res.ok ? `已清理无主评论 ${d.deleted ?? 0} 条` : d.error || "清理失败");
+      await load();
+    } finally {
+      setCleaning(false);
     }
   };
 
@@ -205,11 +228,21 @@ export default function CommentManager() {
           placeholder="搜索评论内容"
           className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-100 outline-none focus:border-indigo-500 sm:w-56"
         />
+        <select
+          value={targetType}
+          onChange={(e) => setTargetType(e.target.value)}
+          className="w-28 rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-100 outline-none focus:border-indigo-500"
+        >
+          <option value="">全部类型</option>
+          <option value="prompt">提示词</option>
+          <option value="skill">技能</option>
+          <option value="software">软件</option>
+        </select>
         <input
-          value={promptId}
-          onChange={(e) => setPromptId(e.target.value.replace(/[^0-9]/g, ""))}
+          value={targetId}
+          onChange={(e) => setTargetId(e.target.value.replace(/[^0-9]/g, ""))}
           onKeyDown={(e) => e.key === "Enter" && search()}
-          placeholder="提示词 ID"
+          placeholder="内容 ID"
           className="w-28 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-100 outline-none focus:border-indigo-500"
         />
         <input
@@ -224,6 +257,14 @@ export default function CommentManager() {
           className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
         >
           查询
+        </button>
+        <button
+          onClick={cleanupOrphans}
+          disabled={cleaning}
+          className="ml-auto rounded-lg border border-rose-700/50 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-300 hover:bg-rose-500/20 disabled:opacity-50"
+          title="物理删除目标内容（提示词/技能/软件）已不存在的评论"
+        >
+          {cleaning ? "清理中…" : "🧹 清理无主评论"}
         </button>
       </div>
 
@@ -255,7 +296,7 @@ export default function CommentManager() {
               </th>
               <th className="px-3 py-2.5">评论内容</th>
               <th className="px-3 py-2.5">用户</th>
-              <th className="px-3 py-2.5">所属提示词</th>
+              <th className="px-3 py-2.5">所属内容</th>
               <th className="px-3 py-2.5">状态</th>
               <th className="px-3 py-2.5">赞</th>
               <th className="px-3 py-2.5">时间</th>
@@ -282,12 +323,15 @@ export default function CommentManager() {
                   )}
                 </td>
                 <td className="max-w-[180px] px-3 py-3 text-xs">
-                  {r.prompt ? (
+                  <span className="mr-1 rounded bg-zinc-700/40 px-1 py-0.5 text-[10px] text-zinc-400">
+                    {TARGET_TYPE_TEXT[r.targetType] || r.targetType}
+                  </span>
+                  {r.targetType === "prompt" && r.prompt?.title ? (
                     <Link href={`/p/${r.prompt.id}`} target="_blank" className="text-indigo-300 hover:underline line-clamp-2">
                       {r.prompt.title}
                     </Link>
                   ) : (
-                    <span className="text-zinc-600">#{r.promptId}</span>
+                    <span className="text-zinc-600">#{r.targetId}</span>
                   )}
                 </td>
                 <td className="px-3 py-3">

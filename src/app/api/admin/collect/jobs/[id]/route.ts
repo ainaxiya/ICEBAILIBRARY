@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { PERMISSIONS, requirePerm } from "@/lib/rbac";
+import { healOrphanJob } from "@/lib/crawl-worker";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   const { id } = await ctx.params;
   const jobId = Number(id);
   if (!jobId) return NextResponse.json({ error: "bad id" }, { status: 400 });
+
+  // 库里有 running 但本进程没有执行句柄（服务重启/进程退出）→ 自动标记中断，避免永久卡住
+  await healOrphanJob(jobId);
 
   const job = await db.crawlJob.findUnique({ where: { id: jobId } });
   if (!job) return NextResponse.json({ error: "not found" }, { status: 404 });

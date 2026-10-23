@@ -42,6 +42,20 @@ function Icon({ name, className = "h-4 w-4" }: { name: string; className?: strin
           <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
         </svg>
       );
+    case "puzzle":
+      return (
+        <svg {...common}>
+          <path d="M14 3v3a2 2 0 1 0 4 0h3v5h-3a2 2 0 1 0 0 4h3v5h-6v-3a2 2 0 1 0-4 0v3H5v-6H2v-5h3V3h9z" />
+        </svg>
+      );
+    case "disk":
+      return (
+        <svg {...common}>
+          <rect x="4" y="3" width="16" height="18" rx="2" />
+          <path d="M8 3v5h8V3" />
+          <circle cx="12" cy="15" r="2.5" />
+        </svg>
+      );
     case "plus":
       return (
         <svg {...common}>
@@ -73,6 +87,8 @@ export default function SiteHeader({
   const [mobileSearch, setMobileSearch] = useState(false);
   const [q, setQ] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  // 搜索页 hero 自带大搜索框，header 搜索框在此页隐藏避免重复
+  const onSearchPage = pathname.startsWith("/search");
 
   useEffect(() => {
     if (mobileSearch) inputRef.current?.focus();
@@ -113,7 +129,7 @@ export default function SiteHeader({
   const searchBox = (big: boolean) => (
     <form onSubmit={submitSearch} role="search" className={big ? "mx-auto w-full max-w-2xl" : "w-full"}>
       <div
-        className={`group flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/80 pr-1.5 transition focus-within:border-emerald-500 focus-within:shadow-[0_0_0_3px_rgba(194,145,59,0.16)] ${
+        className={`group flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/80 pr-1.5 transition focus-within:border-emerald-500 focus-within:shadow-[0_0_0_3px_rgba(56,189,248,0.18)] ${
           big ? "px-5 py-2.5" : "px-4 py-2"
         }`}
       >
@@ -149,40 +165,33 @@ export default function SiteHeader({
           {/* 灯泡品牌图标（后台可在网站设置中替换） */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={logoIcon} alt={siteName} className="h-8 w-8 rounded-lg object-cover" />
-          {/* 站点名：桌面端显示，移动端只留图标 */}
-          <span className="hidden text-base font-semibold tracking-wide text-zinc-100 sm:inline">
+          {/* 站点名：手机端也显示（短名），小屏适当缩小字号防挤压 */}
+          <span className="text-sm font-semibold tracking-wide text-zinc-100 sm:text-base">
             {siteName}
           </span>
         </Link>
 
         {/* 手机端导航由底部 MobileTabBar 承接，<md 整块隐藏 */}
+        {/* v0.6 四大栏目：首页 / 提示词 / AI技能 / AI软件（发布入口已收回会员中心） */}
         <nav className="hidden items-center gap-1 md:flex">
           {navItem("/", "home", t(locale, "nav.home"), true)}
-          {navItem("/hot", "flame", t(locale, "nav.hot"))}
           {navItem("/categories", "grid", t(locale, "nav.categories"))}
-          <Link
-            href="/publish"
-            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition ${
-              pathname === "/publish"
-                ? "bg-emerald-600 text-zinc-50"
-                : "bg-emerald-600/15 text-emerald-300 hover:bg-emerald-600 hover:text-zinc-50"
-            }`}
-          >
-            <Icon name="plus" />
-            <span className="hidden md:inline">{t(locale, "nav.publish")}</span>
-          </Link>
+          {navItem("/skills", "puzzle", t(locale, "nav.skills"))}
+          {navItem("/software", "disk", t(locale, "nav.software"))}
         </nav>
 
         <div className="ml-auto flex items-center gap-1">
-          {/* 移动端搜索切换 */}
-          <button
-            type="button"
-            onClick={() => setMobileSearch((v) => !v)}
-            aria-label={t(locale, "search.button")}
-            className="rounded-lg p-2 text-zinc-300 hover:bg-zinc-800 hover:text-white sm:hidden"
-          >
-            <Icon name="search" className="h-5 w-5" />
-          </button>
+          {/* 移动端搜索切换（搜索页隐藏，hero 已有搜索框） */}
+          {!onSearchPage && (
+            <button
+              type="button"
+              onClick={() => setMobileSearch((v) => !v)}
+              aria-label={t(locale, "search.button")}
+              className="rounded-lg p-2 text-zinc-300 hover:bg-zinc-800 hover:text-white sm:hidden"
+            >
+              <Icon name="search" className="h-5 w-5" />
+            </button>
+          )}
           <Suspense fallback={null}>
             <LanguageSwitcher />
           </Suspense>
@@ -190,11 +199,13 @@ export default function SiteHeader({
         </div>
       </div>
 
-      {/* 第二行：大搜索栏（桌面常驻；移动端展开式） */}
-      <div className="hidden bg-zinc-950/60 px-4 py-3 sm:block">
-        <div className="mx-auto max-w-6xl">{searchBox(true)}</div>
-      </div>
-      {mobileSearch && (
+      {/* 第二行：大搜索栏（桌面常驻；移动端展开式；搜索页隐藏避免与 hero 搜索框重复） */}
+      {!onSearchPage && (
+        <div className="hidden bg-zinc-950/60 px-4 py-3 sm:block">
+          <div className="mx-auto max-w-6xl">{searchBox(true)}</div>
+        </div>
+      )}
+      {mobileSearch && !onSearchPage && (
         <div className="bg-zinc-950/60 px-3 py-3 sm:hidden">{searchBox(false)}</div>
       )}
     </header>

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { PERMISSIONS, requirePerm, logAdminAction, getClientIp } from "@/lib/rbac";
 import { getCrawlSource } from "@/lib/crawl-sources";
+import { healOrphanJob } from "@/lib/crawl-worker";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
   const where: any = { source };
   if (status) where.status = status;
 
-  const [list, total, counts, lastRow, running] = await Promise.all([
+  const [list, total, counts, lastRow, runningRow] = await Promise.all([
     db.crawlItem.findMany({
       where,
       orderBy: [{ remoteUpdatedAt: "desc" }, { id: "desc" }],
@@ -42,6 +43,10 @@ export async function GET(req: NextRequest) {
     db.crawlItem.findFirst({ where: { source }, orderBy: { lastSeenAt: "desc" }, select: { lastSeenAt: true } }),
     db.crawlJob.findFirst({ where: { status: "running" }, orderBy: { id: "desc" } }),
   ]);
+
+  // 卡死任务自愈：库里有 running 但本进程无执行句柄（服务重启等）→ 直接标记中断
+  let running = runningRow;
+  if (running && (await healOrphanJob(running.id))) running = null;
 
   return NextResponse.json({
     list,

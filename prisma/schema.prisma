@@ -41,6 +41,7 @@ model User {
   comments        Comment[]
   commentLikes    CommentLike[]
   adminLogs       AdminLog[]
+  skills          Skill[]
 }
 
 // 后台管理员（与会员体系完全独立）
@@ -117,7 +118,6 @@ model Prompt {
   user      User       @relation(fields: [userId], references: [id])
   likes     Like[]
   favorites Favorite[]
-  comments  Comment[]
   crawlItem CrawlItem?
 
   @@index([status, createdAt(sort: Desc)])
@@ -210,11 +210,13 @@ model AdminLog {
 
 // ─── 用户互动 ───
 
-// 提示词评论
+// 通用评论（targetType: prompt | skill | software，未来新栏目直接加值）
 model Comment {
   id        Int      @id @default(autoincrement())
   userId    Int
-  promptId  Int
+  // 通用挂载点：目标类型 + 目标 ID（v0.6 起替代原 promptId 硬外键；孤儿评论永不自动清理）
+  targetType String  @default("prompt")
+  targetId  Int
   content   String   @db.Text
   // 回复目标评论 ID（null=顶级评论）
   parentId  Int?
@@ -230,10 +232,9 @@ model Comment {
   updatedAt DateTime @updatedAt
 
   user   User   @relation(fields: [userId], references: [id])
-  prompt Prompt @relation(fields: [promptId], references: [id])
   likes  CommentLike[]
 
-  @@index([promptId, createdAt(sort: Desc)])
+  @@index([targetType, targetId, createdAt(sort: Desc)])
   @@index([userId])
   @@index([parentId])
 }
@@ -272,6 +273,8 @@ model CrawlItem {
   error    String? @db.Text
   promptId Int?    @unique
   prompt   Prompt? @relation(fields: [promptId], references: [id])
+  skillId  Int?    @unique
+  skill    Skill?  @relation(fields: [skillId], references: [id])
   firstSeenAt    DateTime @default(now())
   lastSeenAt     DateTime @updatedAt
   collectedAt    DateTime?
@@ -301,4 +304,182 @@ model CrawlJob {
   finishedAt DateTime?
 
   @@index([status, createdAt(sort: Desc)])
+}
+
+// ─── v0.6 AI技能 ───
+
+// 技能分类（slug 为 2 字母短码，与提示词分类风格一致）
+model SkillCategory {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  nameEn    String
+  slug      String   @unique
+  icon      String   @default("")
+  sort      Int      @default(0)
+  createdAt DateTime @default(now())
+
+  skills Skill[]
+
+  @@index([sort])
+}
+
+// AI 技能（SKILL.md 完整内容 + 附加文件清单）
+model Skill {
+  id            Int      @id @default(autoincrement())
+  // slug 允许重复（URL 形式为 slug-id，按 id 精确定位）
+  slug          String
+  name          String
+  // "Use when..." 触发语（列表卡片展示）
+  summary       String   @db.Text
+  // SKILL.md 完整内容
+  skillMd       String   @db.Text
+  // 附加文件 [{path, content, size}]
+  files         Json     @default("[]")
+  categoryId    Int
+  category      SkillCategory @relation(fields: [categoryId], references: [id])
+  tags          String[]
+  author        String?
+  sourceUrl     String?
+  sourceSite    String?
+  version       String?
+  license       String?
+  language      String   @default("zh")
+  // published | pending | rejected
+  status        String   @default("published")
+  viewCount     Int      @default(0)
+  commentCount  Int      @default(0)
+  copyCount     Int      @default(0)
+  downloadCount Int      @default(0)
+  // 发布者（系统账号 system）
+  userId        Int
+  user          User     @relation(fields: [userId], references: [id])
+  publishedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status, publishedAt(sort: Desc)])
+  @@index([categoryId])
+  @@index([viewCount])
+  @@index([slug])
+
+  // 采集入口：CrawlItem 可关联 Skill（prompthub-skills 入库）
+  crawlItems CrawlItem[]
+}
+
+// ─── v0.6 AI软件 ───
+
+// 软件分类
+model SoftwareCategory {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  nameEn    String
+  slug      String   @unique
+  icon      String   @default("")
+  sort      Int      @default(0)
+  createdAt DateTime @default(now())
+
+  software Software[]
+
+  @@index([sort])
+}
+
+// AI 软件
+model Software {
+  id            Int      @id @default(autoincrement())
+  slug          String   @unique
+  name          String
+  version       String?
+  // 一句话简介（列表卡片用）
+  tagline       String?
+  // 详细介绍（富文本，sanitize-html 净化）
+  description   String   @db.Text
+  // 图标（自动本地化后的 /uploads 路径）
+  icon          String?
+  categoryId    Int
+  category      SoftwareCategory @relation(fields: [categoryId], references: [id])
+  tags          String[]
+  sizeText      String?
+  platform      String?
+  language      String?
+  officialUrl   String?
+  // published | pending | rejected
+  status        String   @default("published")
+  viewCount     Int      @default(0)
+  downloadCount Int      @default(0)
+  commentCount  Int      @default(0)
+  publishedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  downloads SoftwareDownload[]
+
+  @@index([status, publishedAt(sort: Desc)])
+  @@index([categoryId])
+  @@index([downloadCount])
+}
+
+// 软件下载地址（一个软件多条；local=本站 /uploads，bucket=对象存储）
+model SoftwareDownload {
+  id          Int      @id @default(autoincrement())
+  softwareId  Int
+  software    Software @relation(fields: [softwareId], references: [id], onDelete: Cascade)
+  // "官方原版 dmg" / "免安装绿色版"
+  label       String
+  // local | bucket
+  storageType String   @default("local")
+  bucketId    Int?
+  bucket      StorageBucket? @relation(fields: [bucketId], references: [id])
+  // 桶内对象 key（storageType=bucket 时使用）
+  objectKey   String?
+  // local 模式：/uploads/soft/xxx.zip
+  fileUrl     String?
+  sizeBytes   BigInt?
+  // 是否会员登录后可见/可下载（下载 API 层强制校验）
+  memberOnly  Boolean  @default(false)
+  sort        Int      @default(0)
+  downloadCount Int    @default(0)
+
+  @@index([softwareId, sort])
+}
+
+// ─── v0.6 对象存储 ───
+
+// 存储桶配置（MinIO/S3 兼容；SecretKey AES-256-GCM 加密存储不回显）
+model StorageBucket {
+  id           Int      @id @default(autoincrement())
+  // 管理备注名，如 "MinIO主桶"
+  name         String
+  // minio | s3（API 均为 S3 兼容）
+  type         String   @default("minio")
+  endpoint     String
+  // S3 需要，MinIO 可空
+  region       String?
+  bucket       String
+  accessKey    String
+  // 加密存储（enc:v1:iv:tag:cipher）
+  secretKey    String
+  // 公开读 CDN 域名（公开下载直链用）
+  publicBaseUrl String?
+  // 发布软件时的默认选中桶
+  isDefault    Boolean  @default(false)
+  enabled      Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  downloads SoftwareDownload[]
+}
+
+// ─── v0.85 神器·全能提示词优化器使用记录 ───
+// 每次前台调用 /api/optimize 记录一条（成功写 output，失败写 error）
+// 仅供后台查看，不关联用户账号（即使已登录会员也不记录账号）
+model OptimizerLog {
+  id        Int      @id @default(autoincrement())
+  ip        String   @default("")
+  source    String   @default("home") // home=首页神器区 / shenqi=单页工具页
+  input     String   @db.Text
+  output    String   @default("") @db.Text
+  error     String   @default("") @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }

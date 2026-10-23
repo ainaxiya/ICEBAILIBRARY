@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { PERMISSIONS, requirePerm, logAdminAction, getClientIp } from "@/lib/rbac";
+import { bumpCommentCount } from "@/lib/comment-target";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
 
   const comments = await db.comment.findMany({
     where: { id: { in: ids } },
-    select: { id: true, status: true, promptId: true, userId: true },
+    select: { id: true, status: true, targetType: true, targetId: true, userId: true },
   });
 
   let done = 0;
@@ -49,10 +50,7 @@ export async function POST(req: NextRequest) {
     await db.$transaction(async (tx) => {
       await tx.comment.update({ where: { id: c.id }, data: { status: nextStatus } });
       if (delta !== 0) {
-        await tx.prompt.update({
-          where: { id: c.promptId },
-          data: { commentCount: { [delta > 0 ? "increment" : "decrement"]: 1 } },
-        });
+        await bumpCommentCount(tx, c.targetType, c.targetId, delta as 1 | -1);
       }
     });
 
@@ -61,7 +59,7 @@ export async function POST(req: NextRequest) {
       action: action === "delete" ? "delete" : "update",
       targetType: "comment",
       targetId: c.id,
-      detail: JSON.stringify({ batch: true, from: c.status, to: nextStatus, promptId: c.promptId, ownerId: c.userId }),
+      detail: JSON.stringify({ batch: true, from: c.status, to: nextStatus, commentTarget: `${c.targetType}#${c.targetId}`, ownerId: c.userId }),
       ip: await getClientIp(),
     });
     done++;

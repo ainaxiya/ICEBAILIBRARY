@@ -47,6 +47,7 @@
 4. 正文双形态：
    - HTML（isHtmlContent）：`sanitizeRich()` 后渲染；`stripHtml` 得纯文本给复制/翻译
    - 旧纯文本：正则 `^\[(\d+)\]\s*(.+)$`（gm）切 sections `{ no, label, body }`，逐段渲染并挂 CopyButton、AutoTranslate
+4.1 分段导航（v0.85）：多分段（≥2）纯文本挂 PromptToc「本页结构」——桌面 xl 吸顶左侧目录、中小屏右下角浮标弹层选段；section 元素带 `id=seg-{i}` + `data-seg-index={i}` + `scroll-mt-24`，分段头部两位数序号 `01 / NN`（按显示顺序编号，非原 [N] 值）
 5. 媒体：media Json 解析为 MediaItem[]；MediaGallery 展示全部；SectionMedia 按 section/nodeNo 归位
 6. 评论：查两层（顶级 + replies）→ serializeComment（Date 转 ISO）→ CommentSection
 
@@ -79,6 +80,8 @@
 | UserManager | admin/ | 无（自取数据） |
 | BasicForm/PublishForm/MembershipForm | admin/SettingsForms.tsx | 无（自取 /api/admin/settings） |
 | SiteSettingsForm | admin/ | `{ initial: SiteFormShape }`（页面读 site 键注入） |
+| PromptToc | components/ | `{ segments: { index: number; label: string }[] }`（client，详情页分段导航） |
+| OptimizerLogTable | admin/ | `{ rows: { id; ip; input; output; error; createdAt:ISO }[] }`（client，使用记录表格+详情弹层） |
 
 ### PromptCard 的 p（CardData）精确形状
 ```

@@ -9,6 +9,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const titleDefault = `${site.siteName} - ${site.siteNameEn}`;
   return {
     metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
+    // 自引用 canonical：统一收敛到 siteUrl（www），避免 apex / www 双主机重复收录
+    alternates: { canonical: "./" },
     title: {
       default: titleDefault,
       template: `%s | ${site.siteName}`,

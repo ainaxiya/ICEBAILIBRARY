@@ -6,7 +6,7 @@ import { getServerLocale, translate as t } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "分类浏览" };
+export const metadata = { title: "提示词分类浏览" };
 
 // 创作类型元信息（与详情页 /type 列表页保持一致）
 const TYPE_META: Record<string, { zh: string; en: string; icon: string; cls: string; desc: { zh: string; en: string } }> = {

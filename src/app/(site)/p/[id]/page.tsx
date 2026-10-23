@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser, getCurrentAdmin } from "@/lib/auth";
-import { CopyButton, ActionButtons, BrowserBookmarkButton } from "@/components/Buttons";
+import { CopyButton } from "@/components/Buttons";
 import PromptCard from "@/components/PromptCard";
 import AutoTranslate from "@/components/AutoTranslate";
 import MediaGallery, { SectionMedia } from "@/components/MediaGallery";
@@ -17,6 +17,7 @@ import { getCategoryMeta } from "@/lib/category-meta";
 import { getSettings } from "@/lib/settings";
 import { COMMENT } from "@/lib/comment-policy";
 import CommentSection, { type CommentData } from "@/components/CommentSection";
+import PromptToc from "@/components/PromptToc";
 
 const COMMENT_PAGE_SIZE = COMMENT.PAGE_SIZE;
 
@@ -36,7 +37,8 @@ function serializeComment(c: any): CommentData {
   if (c.status === "deleted") {
     return {
       id: c.id,
-      promptId: c.promptId,
+      targetType: c.targetType,
+      targetId: c.targetId,
       parentId: null,
       status: "deleted",
       deleted: true,
@@ -51,7 +53,8 @@ function serializeComment(c: any): CommentData {
   return {
     id: c.id,
     userId: c.userId,
-    promptId: c.promptId,
+    targetType: c.targetType,
+    targetId: c.targetId,
     content: c.content,
     parentId: c.parentId,
     status: c.status,
@@ -122,12 +125,6 @@ export default async function PromptDetail({
       .catch(() => {});
   }
 
-  const [liked, faved] = user
-    ? await Promise.all([
-        db.like.findUnique({ where: { userId_promptId: { userId: user.id, promptId: pid } } }),
-        db.favorite.findUnique({ where: { userId_promptId: { userId: user.id, promptId: pid } } }),
-      ])
-    : [null, null];
 
   // 内容源语言：以入库语言为准，缺省时实时检测
   const sourceLang = p.language || detectLang(stripHtml(p.content));
@@ -157,6 +154,12 @@ export default async function PromptDetail({
     if (sections.length === 0) sections.push({ no: 0, label: "", body: p.content.trim() });
   }
 
+  // 「本页结构」分段导航：仅多分段纯文本提示词显示
+  const showToc = !isRich && sections.length >= 2;
+  const tocSegments = showToc
+    ? sections.map((s, i) => ({ index: i, label: s.label || `第 ${i + 1} 段` }))
+    : [];
+
   // 相关推荐：同分类下随机 10 条（排除自己）
   const sameCatIds = await db.prompt.findMany({
     where: { status: "published", id: { not: pid }, category: p.category },
@@ -171,7 +174,7 @@ export default async function PromptDetail({
         where: { id: { in: shuffledIds } },
         select: {
           id: true, title: true, type: true, category: true, tags: true,
-          sourceAuthor: true, likeCount: true, coverUrl: true, featured: true,
+          sourceAuthor: true, viewCount: true, coverUrl: true, featured: true,
           description: true, content: true,
         },
       })
@@ -195,7 +198,8 @@ export default async function PromptDetail({
   // 评论设置 + 首屏评论（顶级 20 条，含已赞状态；有公开回复的已删评论显示占位）
   const settings = await getSettings();
   const commentWhere = {
-    promptId: pid,
+    targetType: "prompt",
+    targetId: pid,
     parentId: null,
     OR: [
       { status: "published" },
@@ -258,6 +262,8 @@ export default async function PromptDetail({
     <>
     {/* 布局：桌面端左右两列 — 左列（面包屑+内容+热搜词+评论 连续堆叠），右列相关推荐；手机端同序堆叠 */}
     <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+      {/* 本页结构：分段目录（桌面吸顶侧栏；中小屏折为右下角小图标弹层） */}
+      {showToc && <PromptToc segments={tocSegments} />}
       {/* 左列：内容主体 */}
       <div className="min-w-0 flex-1 space-y-6">
       <article className="self-start">
@@ -309,10 +315,6 @@ export default async function PromptDetail({
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 text-zinc-500"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
               {locale === "zh" ? "观看" : "Views"}：{viewCount}
             </span>
-            <span className="inline-flex items-center gap-1.5">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 text-zinc-500"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
-              {locale === "zh" ? "赞" : "Likes"}：{p.likeCount}
-            </span>
           </div>
           {p.status === "rejected" && p.rejectReason && (
             <p className="mt-2 rounded border border-rose-800/50 bg-rose-950/30 px-3 py-2 text-xs text-rose-300">
@@ -338,17 +340,6 @@ export default async function PromptDetail({
           </p>
         )}
 
-        {/* 点赞 / 收藏 / 浏览器收藏：靠右对齐 */}
-        <div className="mb-4 flex flex-wrap items-center justify-end gap-2.5">
-          <ActionButtons
-            promptId={p.id}
-            initialLikes={p.likeCount}
-            initialLiked={!!liked}
-            initialFaved={!!faved}
-          />
-          <BrowserBookmarkButton title={p.title} />
-        </div>
-
         <div className="space-y-3">
           {isRich ? (
             <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 sm:p-4">
@@ -366,14 +357,16 @@ export default async function PromptDetail({
               const chips = s.label ? s.label.split("｜").filter(Boolean) : [];
               const secImgs = sectionMedia.get(s.no);
               return (
-                <section key={i} className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 sm:p-4">
+                <section key={i} id={`seg-${i}`} data-seg-index={i} className="scroll-mt-24 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 sm:p-5">
                   <div className="mb-2.5 flex items-start justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {s.no > 0 && (
-                        <span className="flex h-5 min-w-5 items-center justify-center rounded bg-emerald-500 px-1 text-[11px] font-bold text-zinc-950">
-                          {s.no}
-                        </span>
-                      )}
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                      {/* 分段编号：01 / 11 两位数序号清晰标注 */}
+                      <span className="font-mono text-lg font-bold leading-none text-emerald-300">
+                        {String(i + 1).padStart(2, "0")}
+                      </span>
+                      <span className="font-mono text-xs text-zinc-600">
+                        / {String(sections.length).padStart(2, "0")}
+                      </span>
                       {chips.map((c, ci) => (
                         <span
                           key={ci}
@@ -425,7 +418,8 @@ export default async function PromptDetail({
       {/* 评论：紧随热搜词 */}
       <section className="self-start">
         <CommentSection
-          promptId={pid}
+          targetType="prompt"
+          targetId={pid}
           initialComments={comments}
           closed={commentsClosed}
           initialTotal={commentTotal}

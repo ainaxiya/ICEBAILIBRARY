@@ -11,13 +11,34 @@ type SiteData = {
   logoIcon: string;
   favicon: string;
   appIcon: string;
-  bannerPc: string;
-  bannerMobile: string;
+  optimizerApiKey: string;
+  optimizerModel: string;
+  optimizerPrompt: string;
   friendLinks: string;
   meiliSyncSeconds: number;
 };
 
-type Props = { initial: SiteData };
+type SitemapResult = {
+  id: "google" | "bing";
+  name: string;
+  ok: boolean;
+  httpStatus: number;
+  message: string;
+  durationMs: number;
+};
+
+type SitemapRecord = {
+  at: string;
+  sitemapUrl: string;
+  sitemapCheck?: { ok: boolean; httpStatus: number; urlCount: number; message: string };
+  results: SitemapResult[];
+};
+
+type Props = {
+  initial: SiteData;
+  sitemapUrl: string;
+  lastSitemapSubmit: SitemapRecord | null;
+};
 
 const inputCls =
   "w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm outline-none focus:border-indigo-500";
@@ -30,19 +51,70 @@ const UPLOAD_FILES = [
   { key: "appIcon" as const, filename: "app-icon.png", label: "App 图标", hint: "512×512 PNG" },
 ];
 
-// 首页 banner：PC 横版 + 手机竖版（webp，上限 8MB）
-const BANNER_FILES = [
-  { key: "bannerPc" as const, filename: "home-banner-pc.webp", label: "PC 版（横版）", hint: "建议 2560×1080 webp" },
-  { key: "bannerMobile" as const, filename: "home-banner-mobile.webp", label: "手机版（竖版）", hint: "建议 1024×1536 webp" },
-];
-
-export default function SiteSettingsForm({ initial }: Props) {
+export default function SiteSettingsForm({ initial, sitemapUrl, lastSitemapSubmit }: Props) {
   const [f, setF] = useState<SiteData>(initial);
   const [busy, setBusy] = useState(false);
   const [ok, setOk] = useState(false);
   const [uploading, setUploading] = useState<string | null>(null);
+  const [sitemapRecord, setSitemapRecord] = useState<SitemapRecord | null>(lastSitemapSubmit);
+  const [submitting, setSubmitting] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const set = (k: keyof SiteData, v: any) => setF({ ...f, [k]: v });
+
+  const submitSitemap = async (engine: "google" | "bing" | "all") => {
+    setSubmitting(engine);
+    try {
+      const r = await fetch("/api/admin/settings/sitemap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ engine }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "提交失败");
+      setSitemapRecord({
+        at: d.at,
+        sitemapUrl: d.sitemapUrl,
+        sitemapCheck: d.sitemapCheck,
+        results: d.results || [],
+      });
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setSubmitting(null);
+    }
+  };
+
+  const copySitemap = async () => {
+    try {
+      await navigator.clipboard.writeText(sitemapUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      alert("复制失败，请手动复制：" + sitemapUrl);
+    }
+  };
+
+  const testOptimizer = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const r = await fetch("/api/admin/settings/optimizer-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: f.optimizerApiKey }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || d.message || "连接失败");
+      setTestResult({ ok: !!d.ok, msg: d.message || (d.ok ? "连接成功" : "连接失败") });
+    } catch (e) {
+      setTestResult({ ok: false, msg: (e as Error).message });
+    } finally {
+      setTesting(false);
+    }
+  };
 
   const save = async (override?: Partial<SiteData>) => {
     const data: SiteData = { ...f, ...override };
@@ -76,7 +148,7 @@ export default function SiteSettingsForm({ initial }: Props) {
       img.src = url;
     });
 
-  const upload = async (key: "logoIcon" | "favicon" | "appIcon" | "bannerPc" | "bannerMobile", filename: string, file: File, maxMB = 2) => {
+  const upload = async (key: "logoIcon" | "favicon" | "appIcon", filename: string, file: File, maxMB = 2) => {
     setUploading(key);
     try {
       if (file.size > maxMB * 1024 * 1024) {
@@ -243,50 +315,73 @@ export default function SiteSettingsForm({ initial }: Props) {
         </div>
       </div>
 
-      {/* 首页 Banner 图 */}
+      {/* 神器·全能提示词优化器 */}
       <div className={cardCls}>
-        <h3 className="mb-1 text-sm font-medium text-zinc-300">首页 Banner 图</h3>
+        <h3 className="mb-1 text-sm font-medium text-zinc-300">神器·全能提示词优化器</h3>
         <p className="mb-4 text-xs text-zinc-500">
-          上传后首页顶部展示 banner 图（未上传则显示默认文字框）；手机端自动使用竖版，未传竖版时回退横版。
+          首页优化器工具调用 DeepSeek 模型，按内置技能文档把用户的大白话重构为专业级提示词。仅需填写 API Key，其余为默认配置。
         </p>
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-          {BANNER_FILES.map((u) => {
-            const url = f[u.key];
-            return (
-              <div key={u.key} className="rounded-lg border border-zinc-800 bg-zinc-950/50 p-3">
-                <label className="mb-2 block text-xs text-zinc-400">{u.label}</label>
-                <div className="mb-2 flex h-28 items-center justify-center overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900">
-                  {url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={url} alt={u.label} className="max-h-28 max-w-full object-contain" />
-                  ) : (
-                    <span className="text-xs text-zinc-600">未上传</span>
-                  )}
-                </div>
-                <p className="mb-2 text-xs text-zinc-500">{u.hint}</p>
-                <input
-                  type="file"
-                  accept="image/webp,image/png"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) upload(u.key, u.filename, file, 8);
-                    e.target.value = "";
-                  }}
-                  className="hidden"
-                  id={`upload-${u.key}`}
-                />
-                <label
-                  htmlFor={`upload-${u.key}`}
-                  className="block cursor-pointer rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-center text-xs text-zinc-300 hover:bg-zinc-700"
-                >
-                  {uploading === u.key ? "上传中…" : url ? "替换文件" : "选择上传"}
-                </label>
-                {url && (
-                  <p className="mt-1.5 truncate text-center text-xs text-emerald-400">{url}</p>
-                )}
-              </div>
-            );
-          })}
+        <div className="space-y-4">
+          <div>
+            <label className={labelCls}>API 接口（OpenAI 兼容）</label>
+            <input value="https://api.deepseek.com" readOnly className={`${inputCls} cursor-default opacity-70`} />
+          </div>
+          <div>
+            <label className={labelCls}>API 接口（Anthropic 兼容）</label>
+            <input value="https://api.deepseek.com/anthropic" readOnly className={`${inputCls} cursor-default opacity-70`} />
+          </div>
+          <div>
+            <label className={labelCls}>模型</label>
+            <input value={f.optimizerModel || "deepseek-flash"} readOnly className={`${inputCls} cursor-default opacity-70`} />
+          </div>
+          <div>
+            <label className={labelCls}>API Key</label>
+            <input
+              type="password"
+              value={f.optimizerApiKey}
+              onChange={(e) => set("optimizerApiKey", e.target.value)}
+              className={inputCls}
+              placeholder="sk-…（留空则使用服务器环境变量 DEEPSEEK_API_KEY）"
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={testOptimizer}
+              disabled={testing}
+              className="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+            >
+              {testing ? "测试中…" : "连接测试"}
+            </button>
+            {testResult && (
+              <span className={testResult.ok ? "text-sm text-emerald-400" : "text-sm text-amber-400"}>
+                {testResult.msg}
+              </span>
+            )}
+          </div>
+          <div>
+            <label className={labelCls}>优化技能文档（System Prompt）</label>
+            <p className="mb-2 text-xs text-zinc-500">
+              优化器调用模型时的技能文档，可随时修改更新。留空则使用内置 PromptOptimizer v2.0（8 领域专家知识库 + 负向清单）；填写后立即覆盖内置文档。
+            </p>
+            <textarea
+              value={f.optimizerPrompt}
+              onChange={(e) => set("optimizerPrompt", e.target.value)}
+              rows={12}
+              className={`${inputCls} font-mono text-xs leading-relaxed`}
+              placeholder={"留空 = 使用内置 PromptOptimizer v2.0 技能文档\n\n如需自定义，直接粘贴完整的 System Prompt（Markdown 格式），保存后立即生效"}
+            />
+            <p className="mt-1.5 text-xs text-zinc-500">
+              当前生效：{f.optimizerPrompt.trim() ? `自定义文档（${f.optimizerPrompt.trim().length} 字符）` : "内置 PromptOptimizer v2.0"}　
+              <button
+                type="button"
+                onClick={() => set("optimizerPrompt", "")}
+                className="text-amber-400 underline underline-offset-2 hover:text-amber-300"
+              >
+                恢复内置默认（清空此框并保存）
+              </button>
+            </p>
+          </div>
         </div>
       </div>
 
@@ -303,6 +398,110 @@ export default function SiteSettingsForm({ initial }: Props) {
           className={inputCls}
           placeholder={"示例：\n完整提示词|https://www.wango8.com\nAI导航|https://example.com"}
         />
+      </div>
+
+      {/* Sitemaps 提交 */}
+      <div className={cardCls}>
+        <h3 className="mb-1 text-sm font-medium text-zinc-300">Sitemaps（搜索引擎提交）</h3>
+        <p className="mb-4 text-xs text-zinc-500">
+          站点已自动生成 sitemap.xml，并在 robots.txt 中声明。点击下方按钮把 sitemap 地址推送给搜索引擎。
+        </p>
+
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/50 p-3">
+          <span className="text-xs text-zinc-500">Sitemap 地址</span>
+          <a
+            href={sitemapUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="break-all text-xs text-indigo-400 hover:text-indigo-300"
+          >
+            {sitemapUrl}
+          </a>
+          <button
+            type="button"
+            onClick={copySitemap}
+            className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-700"
+          >
+            {copied ? "已复制 ✓" : "复制"}
+          </button>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => submitSitemap("google")}
+            disabled={!!submitting}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+          >
+            {submitting === "google" ? "提交中…" : "提交到 Google"}
+          </button>
+          <button
+            type="button"
+            onClick={() => submitSitemap("bing")}
+            disabled={!!submitting}
+            className="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+          >
+            {submitting === "bing" ? "提交中…" : "提交到 Bing"}
+          </button>
+          <button
+            type="button"
+            onClick={() => submitSitemap("all")}
+            disabled={!!submitting}
+            className="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+          >
+            {submitting === "all" ? "提交中…" : "全部提交"}
+          </button>
+        </div>
+
+        <p className="mt-3 text-xs text-zinc-500">
+          Google 已于 2023 年停止 sitemap ping 接口（返回 404 属正常）。真实生效方式：
+          <a
+            href="https://search.google.com/search-console/sitemaps"
+            target="_blank"
+            rel="noreferrer"
+            className="mx-1 text-indigo-400 hover:text-indigo-300"
+          >
+            Search Console → Sitemaps
+          </a>
+          里粘贴上面的地址手动提交。
+        </p>
+
+        {sitemapRecord && (
+          <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950/50 p-3">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs text-zinc-400">
+                上次提交：{new Date(sitemapRecord.at).toLocaleString("zh-CN")}
+              </span>
+              {sitemapRecord.sitemapCheck && (
+                <span
+                  className={
+                    sitemapRecord.sitemapCheck.ok
+                      ? "text-xs text-emerald-400"
+                      : "text-xs text-amber-400"
+                  }
+                >
+                  {sitemapRecord.sitemapCheck.message}
+                </span>
+              )}
+            </div>
+            <ul className="space-y-1.5">
+              {sitemapRecord.results.map((r) => (
+                <li key={r.id} className="flex flex-wrap items-start gap-2 text-xs">
+                  <span
+                    className={
+                      r.ok
+                        ? "rounded bg-emerald-500/15 px-1.5 py-0.5 text-emerald-400"
+                        : "rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-400"
+                    }
+                  >
+                    {r.name} · HTTP {r.httpStatus || "—"}
+                  </span>
+                  <span className="flex-1 text-zinc-400">{r.message}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       {/* 保存按钮 */}

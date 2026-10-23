@@ -1,55 +1,55 @@
 @import "tailwindcss";
 
 /*
- * 完整提示词 / CompletePrompt — 全站视觉系统
+ * 冰山AI资料库 / Iceberg AI Library — 全站视觉系统 v0.80
  *
- * 配色理念：黑曜石底 + 靛蓝紫罗兰品牌色 + 琥珀金点缀
- * 与 LOGO 色彩完全统一，呈现高端科技感
+ * 配色理念：深靛藏青底 + 天蓝品牌色 + 青色聚光点缀（对齐首页工具区视觉）
+ * 深空靛蓝背景、亮天蓝强调、青色高亮，中心聚光渐变营造科技感
  *
  * 层级关系：
- *   header / footer : zinc-950（黑曜石 #0a0b14）
- *   页面主体 body    : #0c0d18（略亮黑曜石，与头/脚区分）
- *   卡片 surface     : zinc-900（#12141f，浮于主体之上）
+ *   header / footer : zinc-950（最深靛藏青 #091030）
+ *   页面主体 body    : #0b1338（略亮靛藏青，与头/脚区分）
+ *   卡片 surface     : zinc-900（#101a42，浮于主体之上）
  *   描边 / 悬浮层    : zinc-800 / zinc-700
  */
 @theme {
-  /* —— 黑曜石中性色阶（映射 zinc-*）—— */
-  --color-zinc-950: #0a0b14;
-  --color-zinc-900: #12141f;
-  --color-zinc-800: #1a1d2e;
-  --color-zinc-700: #2a2d42;
-  --color-zinc-600: #3a3e58;
-  --color-zinc-500: #525674;
-  --color-zinc-400: #787d9c;
-  --color-zinc-300: #a8acc8;
-  --color-zinc-200: #d4d7e8;
-  --color-zinc-100: #eef0f8;
-  --color-zinc-50: #f8f9fc;
+  /* —— 深靛藏青中性色阶（映射 zinc-*）—— */
+  --color-zinc-950: #091030;
+  --color-zinc-900: #101a42;
+  --color-zinc-800: #222e5e;
+  --color-zinc-700: #34406f;
+  --color-zinc-600: #4c5c94;
+  --color-zinc-500: #6c7cb4;
+  --color-zinc-400: #97a4cf;
+  --color-zinc-300: #bdc7e6;
+  --color-zinc-200: #dadff4;
+  --color-zinc-100: #eceefb;
+  --color-zinc-50: #f5f7fe;
 
-  /* —— 靛蓝紫罗兰品牌主色（映射 emerald-*）—— */
-  --color-emerald-950: #1e1b4b;
-  --color-emerald-900: #312e81;
-  --color-emerald-800: #3730a3;
-  --color-emerald-700: #4338ca;
-  --color-emerald-600: #4f46e5;
-  --color-emerald-500: #6366f1;
-  --color-emerald-400: #818cf8;
-  --color-emerald-300: #a5b4fc;
-  --color-emerald-200: #c7d2fe;
-  --color-emerald-100: #e0e7ff;
-  --color-emerald-50: #eef2ff;
+  /* —— 天蓝品牌主色（映射 emerald-*）—— */
+  --color-emerald-950: #072a4a;
+  --color-emerald-900: #0b3d68;
+  --color-emerald-800: #0f5494;
+  --color-emerald-700: #1470c4;
+  --color-emerald-600: #2290e3;
+  --color-emerald-500: #38bdf8;
+  --color-emerald-400: #5cc9f9;
+  --color-emerald-300: #86d8fb;
+  --color-emerald-200: #b8e7fd;
+  --color-emerald-100: #ddf3fe;
+  --color-emerald-50: #f0faff;
 
-  /* —— 琥珀金点缀色（映射 royal-*，用于 CTA/热门/精选）—— */
-  --color-royal-950: #1c1208;
-  --color-royal-900: #2a180c;
-  --color-royal-800: #3f2310;
-  --color-royal-700: #5b3215;
-  --color-royal-600: #824a1e;
-  --color-royal-500: #b8660f;
-  --color-royal-400: #f59e0b;
-  --color-royal-300: #fbbf24;
-  --color-royal-200: #fcd34d;
-  --color-royal-100: #fde68a;
+  /* —— 青色点缀色（映射 royal-*，用于高亮/热门/精选）—— */
+  --color-royal-950: #06303f;
+  --color-royal-900: #0a4560;
+  --color-royal-800: #0f6084;
+  --color-royal-700: #1482ab;
+  --color-royal-600: #1aa8cc;
+  --color-royal-500: #22d3ee;
+  --color-royal-400: #45ddf1;
+  --color-royal-300: #67e8f9;
+  --color-royal-200: #a5f3fc;
+  --color-royal-100: #cffafe;
 }
 
 :root {
@@ -58,35 +58,35 @@
 
 body {
   @apply text-zinc-100 antialiased;
-  background-color: #0c0d18;
+  background-color: #0b1338;
   background-image:
-    radial-gradient(1000px 500px at 80% -10%, rgba(99, 102, 241, 0.10), transparent 60%),
-    radial-gradient(800px 400px at -10% 5%, rgba(139, 92, 246, 0.08), transparent 55%),
-    radial-gradient(1200px 600px at 50% 110%, rgba(245, 158, 11, 0.04), transparent 60%);
+    radial-gradient(1100px 520px at 50% -12%, rgba(56, 189, 248, 0.15), transparent 62%),
+    radial-gradient(800px 420px at 88% 6%, rgba(34, 211, 238, 0.09), transparent 55%),
+    radial-gradient(1200px 600px at 50% 112%, rgba(59, 130, 246, 0.08), transparent 60%);
   background-attachment: fixed;
   background-repeat: no-repeat;
 }
 
 /* 品牌渐变文字（LOGO / 标题点缀） */
 .text-gold-gradient {
-  background: linear-gradient(115deg, #a5b4fc 0%, #818cf8 40%, #6366f1 100%);
+  background: linear-gradient(115deg, #a5f3fc 0%, #86d8fb 40%, #38bdf8 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 
-/* 头部底部靛蓝分隔线 + 微光晕 */
+/* 头部底部天蓝分隔线 + 微光晕 */
 .site-header {
   box-shadow:
-    0 1px 0 0 rgba(99, 102, 241, 0.50),
-    0 6px 24px -10px rgba(99, 102, 241, 0.20);
+    0 1px 0 0 rgba(56, 189, 248, 0.50),
+    0 6px 24px -10px rgba(56, 189, 248, 0.20);
 }
 
-/* 页脚与主体分隔（黑曜描边 + 顶部琥珀余光） */
+/* 页脚与主体分隔（藏青描边 + 顶部青色余光） */
 .site-footer {
   box-shadow:
-    inset 0 1px 0 0 rgba(42, 45, 66, 0.9),
-    0 -10px 30px -20px rgba(245, 158, 11, 0.20);
+    inset 0 1px 0 0 rgba(34, 46, 94, 0.9),
+    0 -10px 30px -20px rgba(34, 211, 238, 0.20);
 }
 
 /* 品牌卡片悬浮效果 */
@@ -94,14 +94,14 @@ body {
   transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
 }
 .brand-card:hover {
-  border-color: rgba(99, 102, 241, 0.40);
-  box-shadow: 0 8px 30px -12px rgba(99, 102, 241, 0.25);
+  border-color: rgba(92, 201, 249, 0.65);
+  box-shadow: 0 8px 30px -10px rgba(56, 189, 248, 0.40);
   transform: translateY(-2px);
 }
 
-/* 琥珀色热门标签发光 */
+/* 青色热门标签发光 */
 .hot-glow {
-  box-shadow: 0 0 12px -2px rgba(245, 158, 11, 0.45);
+  box-shadow: 0 0 12px -2px rgba(34, 211, 238, 0.45);
 }
 
 .prompt-content {
@@ -114,7 +114,7 @@ body {
 .rich-content p { margin: 0 0 0.75em; line-height: 1.8; }
 .rich-content p:last-child { margin-bottom: 0; }
 .rich-content h1, .rich-content h2, .rich-content h3 {
-  font-weight: 600; margin: 1em 0 0.5em; color: #eef0f8;
+  font-weight: 600; margin: 1em 0 0.5em; color: #eceefb;
 }
 .rich-content h1 { font-size: 1.25rem; }
 .rich-content h2 { font-size: 1.125rem; }
@@ -124,12 +124,12 @@ body {
 .rich-content ol { list-style: decimal; }
 .rich-content li { margin: 0.25em 0; }
 .rich-content blockquote {
-  border-left: 3px solid #6366f1;
+  border-left: 3px solid #38bdf8;
   padding: 0.25em 0 0.25em 1em;
   margin: 0 0 0.75em;
-  color: #a8acc8;
+  color: #bdc7e6;
 }
-.rich-content a { color: #818cf8; text-decoration: underline; text-underline-offset: 2px; }
+.rich-content a { color: #86d8fb; text-decoration: underline; text-underline-offset: 2px; }
 .rich-content img, .rich-content video {
   display: block; max-width: 100%; height: auto; margin: 0.75em 0; border-radius: 0.5rem;
 }
@@ -138,10 +138,10 @@ body {
   position: relative; width: 100%; margin: 0.75em 0; border-radius: 0.5rem; overflow: hidden; aspect-ratio: 16 / 9; border: 0;
 }
 .rich-content pre {
-  background: #0a0b14; padding: 0.75em 1em; border-radius: 0.5rem; overflow-x: auto; margin: 0 0 0.75em; font-size: 0.875em;
+  background: #091030; padding: 0.75em 1em; border-radius: 0.5rem; overflow-x: auto; margin: 0 0 0.75em; font-size: 0.875em;
 }
 .rich-content code {
-  background: #1a1d2e; padding: 0.1em 0.35em; border-radius: 0.25rem; font-size: 0.875em;
+  background: #222e5e; padding: 0.1em 0.35em; border-radius: 0.25rem; font-size: 0.875em;
 }
 .rich-content pre code { background: transparent; padding: 0; }
 
@@ -155,10 +155,10 @@ body {
   float: left;
   height: 0;
   pointer-events: none;
-  color: #52525b;
+  color: #6c7cb4;
 }
 .tiptap-prose .ProseMirror-selectednode {
-  outline: 2px solid rgba(99, 102, 241, 0.6);
+  outline: 2px solid rgba(56, 189, 248, 0.6);
   border-radius: 0.5rem;
 }
 /* 代码块语言标记（StarterKit 会在 pre 上加 data-language） */
@@ -169,7 +169,7 @@ body {
   font-size: 0.72em;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #71717a;
+  color: #97a4cf;
 }
 
 /* 点赞数变化时的弹跳 */
@@ -179,6 +179,12 @@ body {
   100% { transform: scale(1); }
 }
 .btn-pop { animation: btn-pop 0.28s ease-out; }
+
+/* 搜索结果卡片入场 */
+@keyframes riseIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { @apply bg-zinc-700 rounded-full; }

@@ -8,6 +8,12 @@ const nextConfig: NextConfig = {
   experimental: {
     serverActions: { bodySizeLimit: "4mb" },
   },
+  async redirects() {
+    return [
+      // v0.6：/hot 下线，热门内容并入首页精选
+      { source: "/hot", destination: "/", permanent: true },
+    ];
+  },
   async headers() {
     return [
       {

@@ -26,10 +26,15 @@ const execFileP = promisify(execFile);
 const FFMPEG_BIN = process.env.FFMPEG_PATH || "ffmpeg";
 
 const UPLOAD_ROOT = path.join(process.cwd(), "public", "uploads", "liblib");
-const IMPORTER_USERNAME = "libtv";
-const JIMENG_IMPORTER_USERNAME = "jimeng";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// importFn 查表：libtv/jimeng 走 Prompt 表
+type ImportFn = (itemId: number, importerId: number, adminId: number) => Promise<{ skipped?: boolean; [k: string]: any }>;
+const IMPORT_FNS: Record<string, ImportFn> = {
+  libtv: importLibtvItem,
+  jimeng: importJimengItem,
+};
 
 // 根据数据源选择请求头
 function headersFor(source: string) {
@@ -57,10 +62,17 @@ async function fetchRemoteBuf(url: string, source = "libtv", retry = 3): Promise
 
 const urlHash = (u: string) => crypto.createHash("sha1").update(u).digest("hex").slice(0, 16);
 
+const IMPORTERS: Record<string, { name: string; nickname: string; bio: string }> = {
+  libtv: { username: "libtv" } as any,
+  jimeng: { username: "jimeng" } as any,
+};
+
 async function ensureImporter(source: string) {
-  const username = source === "jimeng" ? JIMENG_IMPORTER_USERNAME : IMPORTER_USERNAME;
+  const username = source === "jimeng" ? "jimeng" : "libtv";
   const nickname = source === "jimeng" ? "即梦AI 采集" : "LibTV 采集";
-  const bio = source === "jimeng" ? "即梦AI 创作灵感社区自动采集账号" : "LibLib TV 官方作品自动采集账号";
+  const bio = source === "jimeng"
+    ? "即梦AI 创作灵感社区自动采集账号"
+    : "LibLib TV 官方作品自动采集账号";
   return db.user.upsert({
     where: { username },
     update: {},
@@ -383,15 +395,40 @@ async function importJimengItem(itemId: number, importerId: number, adminId: num
   return { promptId: prompt.id, mediaCount: media.length, imgOk, frameOk, coverOk };
 }
 
+// ─── 任务运行态登记：用于「中断采集」与「卡死任务自愈」 ───
+const activeJobs = new Set<number>();
+const cancelledJobs = new Set<number>();
+
+export function isJobActive(jobId: number): boolean {
+  return activeJobs.has(jobId);
+}
+
+// 请求中断：置标记后，循环在下一条目开始前退出
+export function requestCancelCrawlJob(jobId: number): void {
+  cancelledJobs.add(jobId);
+}
+
 export async function runCrawlJob(jobId: number) {
   const job = await db.crawlJob.findUnique({ where: { id: jobId } });
   if (!job) return;
   let succeeded = 0;
   let failed = 0;
-  const importFn = job.source === "jimeng" ? importJimengItem : importLibtvItem;
+  let cancelled = false;
+  const importFn = IMPORT_FNS[job.source] || importLibtvItem;
+  if (!IMPORT_FNS[job.source]) {
+    await db.crawlJob.update({
+      where: { id: jobId },
+      data: { status: "done", finishedAt: new Date(), message: `未知采集源 ${job.source}` },
+    });
+    return;
+  }
   try {
     const importer = await ensureImporter(job.source);
     for (const itemId of job.itemIds) {
+      if (cancelledJobs.has(jobId)) {
+        cancelled = true;
+        break;
+      }
       try {
         const r = await importFn(itemId, importer.id, job.adminId);
         if (!("skipped" in r)) succeeded++;
@@ -415,6 +452,20 @@ export async function runCrawlJob(jobId: number) {
         data: { done, succeeded, failed },
       });
     }
+    if (cancelled) {
+      await db.crawlJob.update({
+        where: { id: jobId },
+        data: {
+          status: "done",
+          finishedAt: new Date(),
+          done: succeeded + failed,
+          succeeded,
+          failed,
+          message: `已手动中断：已处理 ${succeeded + failed}/${job.total} 条（成功 ${succeeded}，失败 ${failed}）`,
+        },
+      });
+      return;
+    }
     await db.crawlJob.update({
       where: { id: jobId },
       data: { status: "done", finishedAt: new Date(), message: failed ? `${failed} 条失败，可在失败列表重试` : null },
@@ -431,6 +482,9 @@ export async function runCrawlJob(jobId: number) {
         failed: failed + 1,
       },
     });
+  } finally {
+    activeJobs.delete(jobId);
+    cancelledJobs.delete(jobId);
   }
 }
 
@@ -445,5 +499,20 @@ export async function reapStaleJobs(maxAgeMs = 45 * 60_000): Promise<number> {
 
 // 触发但不等待（API 路由调用后立即返回 jobId）
 export function startCrawlJobInBackground(jobId: number) {
-  void runCrawlJob(jobId).catch((e) => console.error("crawl job crashed:", e));
+  activeJobs.add(jobId);
+  void runCrawlJob(jobId).catch((e) => {
+    console.error("crawl job crashed:", e);
+    activeJobs.delete(jobId);
+    cancelledJobs.delete(jobId);
+  });
+}
+
+// 自愈：库里有 running 任务、但内存里没有对应执行句柄（服务重启/进程退出）→ 标记中断
+export async function healOrphanJob(jobId: number): Promise<boolean> {
+  if (activeJobs.has(jobId)) return false;
+  const r = await db.crawlJob.updateMany({
+    where: { id: jobId, status: "running" },
+    data: { status: "done", finishedAt: new Date(), message: "任务已中断（服务重启或进程退出，可重新发起采集）" },
+  });
+  return r.count > 0;
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { PERMISSIONS, requirePerm, logAdminAction, getClientIp } from "@/lib/rbac";
+import { bumpCommentCount } from "@/lib/comment-target";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export async function DELETE(
 
   const comment = await db.comment.findUnique({
     where: { id: cid },
-    select: { id: true, userId: true, promptId: true, status: true },
+    select: { id: true, userId: true, targetType: true, targetId: true, status: true },
   });
   if (!comment) return NextResponse.json({ error: "not found" }, { status: 404 });
 
@@ -34,10 +35,7 @@ export async function DELETE(
       await tx.comment.update({ where: { id: cid }, data: { status: "deleted" } });
       // 仅此前公开可见的评论扣减计数
       if (comment.status === "published") {
-        await tx.prompt.update({
-          where: { id: comment.promptId },
-          data: { commentCount: { decrement: 1 } },
-        });
+        await bumpCommentCount(tx, comment.targetType, comment.targetId, -1);
       }
     });
   }
@@ -48,7 +46,7 @@ export async function DELETE(
       action: "delete",
       targetType: "comment",
       targetId: cid,
-      detail: JSON.stringify({ promptId: comment.promptId, ownerId: comment.userId }),
+      detail: JSON.stringify({ commentTarget: `${comment.targetType}#${comment.targetId}`, ownerId: comment.userId }),
       ip: await getClientIp(),
     });
   }
@@ -69,7 +67,7 @@ export async function PATCH(
 
   const comment = await db.comment.findUnique({
     where: { id: cid },
-    select: { id: true, status: true, promptId: true },
+    select: { id: true, status: true, targetType: true, targetId: true },
   });
   if (!comment) return NextResponse.json({ error: "not found" }, { status: 404 });
 
@@ -85,10 +83,7 @@ export async function PATCH(
 
   await db.$transaction(async (tx) => {
     await tx.comment.update({ where: { id: cid }, data: { status } });
-    await tx.prompt.update({
-      where: { id: comment.promptId },
-      data: { commentCount: { [status === "published" ? "increment" : "decrement"]: 1 } },
-    });
+    await bumpCommentCount(tx, comment.targetType, comment.targetId, status === "published" ? 1 : -1);
   });
 
   await logAdminAction({
@@ -96,7 +91,7 @@ export async function PATCH(
     action: "update",
     targetType: "comment",
     targetId: cid,
-    detail: JSON.stringify({ from: comment.status, to: status, promptId: comment.promptId }),
+    detail: JSON.stringify({ from: comment.status, to: status, commentTarget: `${comment.targetType}#${comment.targetId}` }),
     ip: await getClientIp(),
   });
 

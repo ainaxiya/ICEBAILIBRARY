@@ -56,6 +56,7 @@ export default function CollectManager() {
   const [fetching, setFetching] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [job, setJob] = useState<JobState | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -163,6 +164,32 @@ export default function CollectManager() {
       return;
     }
     setJob({ id: d.jobId, total: d.total, done: 0, succeeded: 0, failed: 0 });
+  };
+
+  // 中断采集：置中断标记并立即把任务状态落为结束，已入库条目保留
+  const cancelJob = async () => {
+    if (!job) return;
+    if (!window.confirm(`确定中断采集任务 #${job.id} 吗？已入库的条目会保留。`)) return;
+    setCancelling(true);
+    try {
+      const res = await fetch(`/api/admin/collect/jobs/${job.id}/cancel`, { method: "POST" });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMsg({ type: "err", text: d.error || "中断失败" });
+        return;
+      }
+      if (timerRef.current) clearInterval(timerRef.current);
+      setJob({ ...job, status: "done", message: "已手动中断（已入库条目保留）" });
+      setMsg({
+        type: "ok",
+        text: `任务 #${job.id} 已中断，已完成 ${d.done ?? job.done}/${d.total ?? job.total} 条`,
+      });
+      await load();
+    } catch (e) {
+      setMsg({ type: "err", text: "中断请求失败：" + (e as Error).message });
+    } finally {
+      setCancelling(false);
+    }
   };
 
   const toggleRow = (id: number) => {
@@ -286,13 +313,25 @@ export default function CollectManager() {
       {/* 任务进度 */}
       {job && (
         <div className="rounded-xl border border-indigo-800/60 bg-indigo-950/30 p-4">
-          <div className="mb-2 flex items-center justify-between text-sm">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-sm">
             <span className="font-medium text-indigo-200">
               采集任务 #{job.id}：{job.status === "done" ? "已结束" : "进行中"}
             </span>
-            <span className="text-indigo-300">
-              {job.done}/{job.total}　成功 {job.succeeded}　失败 {job.failed}
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-indigo-300">
+                {job.done}/{job.total}　成功 {job.succeeded}　失败 {job.failed}
+              </span>
+              {job.status !== "done" && (
+                <button
+                  type="button"
+                  onClick={cancelJob}
+                  disabled={cancelling}
+                  className="rounded-md border border-rose-700/70 bg-rose-900/40 px-2.5 py-1 text-xs text-rose-200 hover:bg-rose-800/60 disabled:opacity-50"
+                >
+                  {cancelling ? "中断中…" : "中断采集"}
+                </button>
+              )}
+            </div>
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
             <div

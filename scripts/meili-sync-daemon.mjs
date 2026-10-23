@@ -1,7 +1,8 @@
 // Meilisearch 秒级增量同步守护进程（PM2 常驻）
 //
 // 作用：轮询 SiteSetting(site.meiliSyncSeconds) 配置的间隔，把数据库中
-// updatedAt 大于水位线的提示词增量推送到 Meilisearch；下线/删除的文档从索引移除。
+// updatedAt 大于水位线的记录增量推送到 Meilisearch；下线/删除的文档从索引移除。
+// v0.6 起支持多索引：prompts / skills / software，各自独立水位线。
 // 应用自身的增删改接口已实时同步，本进程是兜底（采集入库、直接改库、计数漂移等）。
 //
 // 启动：
@@ -27,30 +28,166 @@ const meili = new MeiliSearch({
   host: process.env.MEILI_HOST || "http://127.0.0.1:7700",
   apiKey: process.env.MEILI_MASTER_KEY || "",
 });
-const index = meili.index("prompts");
 
-const BATCH = 200;                 // 每批文档数
-const DEFAULT_INTERVAL = 30;       // 默认 30 秒
-const IDLE_TICK = 10_000;          // 关闭同步时的空转检查
-const RECONCILE_EVERY = 10 * 60_000; // 每 10 分钟做一次硬删除对账
+const BATCH = 200;
+const DEFAULT_INTERVAL = 30;
+const IDLE_TICK = 10_000;
+const RECONCILE_EVERY = 10 * 60_000;
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
-// ─── 水位线状态（持久化到本地文件，重启不丢） ───
-function loadWatermark() {
+function stripHtml(s) {
+  if (!s) return "";
+  return s
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// ─── 多索引配置 ───
+const INDEXES = [
+  {
+    key: "prompts",
+    index: meili.index("prompts"),
+    fetch: (watermark) =>
+      db.prompt.findMany({
+        where: { updatedAt: { gt: watermark } },
+        orderBy: { updatedAt: "asc" },
+        take: BATCH,
+        include: { user: { select: { username: true } } },
+      }),
+    toDoc: (p) => ({
+      id: p.id,
+      title: p.title,
+      content: stripHtml(p.content).slice(0, 15000),
+      description: (p.description || "").slice(0, 2000),
+      type: p.type,
+      category: p.category,
+      language: p.language,
+      tags: p.tags,
+      sourceAuthor: p.sourceAuthor || p.user?.username || null,
+      promptCode: p.promptCode,
+      coverUrl: p.coverUrl,
+      featured: p.featured,
+      likeCount: p.likeCount,
+      viewCount: p.viewCount,
+      createdAtTs: Math.floor(p.createdAt.getTime() / 1000),
+    }),
+    alive: (p) => p.status === "published",
+    checkAlive: async (id) => {
+      const r = await db.prompt.findUnique({ where: { id }, select: { status: true } });
+      return !!r && r.status === "published";
+    },
+    settings: async (idx) => {
+      await idx.updateFilterableAttributes(["type", "tags", "category", "language"]);
+      await idx.updateSortableAttributes(["likeCount", "viewCount", "createdAtTs"]);
+    },
+  },
+  {
+    key: "skills",
+    index: meili.index("skills"),
+    fetch: (watermark) =>
+      db.skill.findMany({
+        where: { updatedAt: { gt: watermark } },
+        orderBy: { updatedAt: "asc" },
+        take: BATCH,
+        include: { category: { select: { slug: true } } },
+      }),
+    toDoc: (s) => ({
+      id: s.id,
+      name: s.name,
+      summary: (s.summary || "").slice(0, 2000),
+      skillMd: (s.skillMd || "").slice(0, 15000),
+      tags: s.tags,
+      author: s.author || null,
+      categoryId: s.categoryId,
+      categorySlug: s.category?.slug || null,
+      language: s.language,
+      viewCount: s.viewCount,
+      copyCount: s.copyCount,
+      createdAtTs: Math.floor(s.createdAt.getTime() / 1000),
+    }),
+    alive: (s) => s.status === "published",
+    checkAlive: async (id) => {
+      const r = await db.skill.findUnique({ where: { id }, select: { status: true } });
+      return !!r && r.status === "published";
+    },
+    settings: async (idx) => {
+      await idx.updateFilterableAttributes(["tags", "categoryId", "categorySlug", "language"]);
+      await idx.updateSortableAttributes(["viewCount", "copyCount", "createdAtTs"]);
+    },
+  },
+  {
+    key: "software",
+    index: meili.index("software"),
+    fetch: (watermark) =>
+      db.software.findMany({
+        where: { updatedAt: { gt: watermark } },
+        orderBy: { updatedAt: "asc" },
+        take: BATCH,
+        include: { category: { select: { slug: true } } },
+      }),
+    toDoc: (s) => ({
+      id: s.id,
+      name: s.name,
+      tagline: (s.tagline || "").slice(0, 500),
+      description: stripHtml(s.description || "").slice(0, 10000),
+      tags: s.tags,
+      categoryId: s.categoryId,
+      categorySlug: s.category?.slug || null,
+      platform: s.platform || null,
+      icon: s.icon || null,
+      version: s.version || null,
+      viewCount: s.viewCount,
+      downloadCount: s.downloadCount,
+      createdAtTs: Math.floor(s.createdAt.getTime() / 1000),
+    }),
+    alive: (s) => s.status === "published",
+    checkAlive: async (id) => {
+      const r = await db.software.findUnique({ where: { id }, select: { status: true } });
+      return !!r && r.status === "published";
+    },
+    settings: async (idx) => {
+      await idx.updateFilterableAttributes(["tags", "categoryId", "categorySlug", "platform"]);
+      await idx.updateSortableAttributes(["viewCount", "downloadCount", "createdAtTs"]);
+    },
+  },
+];
+
+// ─── 水位线状态（每索引独立；兼容 v0.5 单水位格式） ───
+function loadWatermarks() {
+  const fallback = new Date(Date.now() - 120_000);
   try {
     if (existsSync(STATE_FILE)) {
       const s = JSON.parse(readFileSync(STATE_FILE, "utf8"));
-      if (s.watermark) return new Date(s.watermark);
+      if (s.watermarks) {
+        return Object.fromEntries(
+          INDEXES.map((ix) => [ix.key, s.watermarks[ix.key] ? new Date(s.watermarks[ix.key]) : fallback])
+        );
+      }
+      if (s.watermark) {
+        // v0.5 格式：prompts 沿用旧水位，其余从近 2 分钟开始
+        return Object.fromEntries(
+          INDEXES.map((ix) => [ix.key, ix.key === "prompts" ? new Date(s.watermark) : fallback])
+        );
+      }
     }
   } catch {}
-  // 首次启动：只同步近 2 分钟的变更，避免与现有索引重复全量
-  return new Date(Date.now() - 120_000);
+  return Object.fromEntries(INDEXES.map((ix) => [ix.key, fallback]));
 }
-let watermark = loadWatermark();
-function saveWatermark() {
+const watermarks = loadWatermarks();
+function saveWatermarks() {
   try {
-    writeFileSync(STATE_FILE, JSON.stringify({ watermark: watermark.toISOString() }));
+    writeFileSync(
+      STATE_FILE,
+      JSON.stringify({ watermarks: Object.fromEntries(Object.entries(watermarks).map(([k, v]) => [k, v.toISOString()])) })
+    );
   } catch (e) {
     console.error("save watermark failed:", e.message);
   }
@@ -69,74 +206,33 @@ async function getIntervalSeconds() {
   return DEFAULT_INTERVAL;
 }
 
-// ─── 索引结构（与 src/lib/meili.ts 的文档保持一致） ───
-function stripHtml(s) {
-  if (!s) return "";
-  return s
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function toDoc(p) {
-  return {
-    id: p.id,
-    title: p.title,
-    content: stripHtml(p.content).slice(0, 15000),
-    description: (p.description || "").slice(0, 2000),
-    type: p.type,
-    category: p.category,
-    language: p.language,
-    tags: p.tags,
-    sourceAuthor: p.sourceAuthor || p.user?.username || null,
-    promptCode: p.promptCode,
-    coverUrl: p.coverUrl,
-    featured: p.featured,
-    likeCount: p.likeCount,
-    viewCount: p.viewCount,
-    createdAtTs: Math.floor(p.createdAt.getTime() / 1000),
-  };
-}
-
-// ─── 增量同步一轮 ───
-async function tick() {
+// ─── 单索引增量同步一轮 ───
+async function tickIndex(ix) {
   let touched = 0;
   for (;;) {
-    const rows = await db.prompt.findMany({
-      where: { updatedAt: { gt: watermark } },
-      orderBy: { updatedAt: "asc" },
-      take: BATCH,
-      include: { user: { select: { username: true } } },
-    });
+    const rows = await ix.fetch(watermarks[ix.key]);
     if (rows.length === 0) break;
 
-    const upserts = rows.filter((p) => p.status === "published").map(toDoc);
-    const deletes = rows.filter((p) => p.status !== "published").map((p) => p.id);
+    const upserts = rows.filter(ix.alive).map(ix.toDoc);
+    const deletes = rows.filter((r) => !ix.alive(r)).map((r) => r.id);
 
-    if (upserts.length) await index.addDocuments(upserts, { primaryKey: "id" });
-    if (deletes.length) await index.deleteDocuments(deletes);
+    if (upserts.length) await ix.index.addDocuments(upserts, { primaryKey: "id" });
+    if (deletes.length) await ix.index.deleteDocuments(deletes);
 
-    watermark = rows[rows.length - 1].updatedAt;
-    saveWatermark();
+    watermarks[ix.key] = rows[rows.length - 1].updatedAt;
+    saveWatermarks();
     touched += rows.length;
     if (rows.length < BATCH) break;
   }
-  if (touched) log(`incremental sync: ${touched} changed`);
   return touched;
 }
 
 // ─── 硬删除对账：索引里存在、DB 已不存在（或已下线）的文档清掉 ───
-async function reconcile() {
+async function reconcileIndex(ix) {
   const indexedIds = new Set();
   let offset = 0;
   for (;;) {
-    const docs = await index.getDocuments({ limit: 1000, offset, fields: ["id"] });
+    const docs = await ix.index.getDocuments({ limit: 1000, offset, fields: ["id"] });
     if (!docs.results.length) break;
     for (const d of docs.results) indexedIds.add(Number(d.id));
     offset += docs.results.length;
@@ -146,28 +242,26 @@ async function reconcile() {
 
   const stale = [];
   for (const id of indexedIds) {
-    const p = await db.prompt.findUnique({ where: { id }, select: { status: true } });
-    if (!p || p.status !== "published") stale.push(id);
+    if (!(await ix.checkAlive(id))) stale.push(id);
   }
-  // 分块删除
   for (let i = 0; i < stale.length; i += 500) {
-    await index.deleteDocuments(stale.slice(i, i + 500));
+    await ix.index.deleteDocuments(stale.slice(i, i + 500));
   }
-  if (stale.length) log(`reconcile: removed ${stale.length} stale docs`);
   return stale.length;
 }
 
 async function ensureSettings() {
-  try {
-    await index.updateFilterableAttributes(["type", "tags", "category", "language"]);
-    await index.updateSortableAttributes(["likeCount", "viewCount", "createdAtTs"]);
-  } catch (e) {
-    console.error("ensure index settings failed:", e.message);
+  for (const ix of INDEXES) {
+    try {
+      await ix.settings(ix.index);
+    } catch (e) {
+      console.error(`ensure index settings failed [${ix.key}]:`, e.message);
+    }
   }
 }
 
 async function main() {
-  log("MeiliSync daemon started, host =", process.env.MEILI_HOST || "http://127.0.0.1:7700");
+  log("MeiliSync daemon started, host =", process.env.MEILI_HOST || "http://127.0.0.1:7700", "| indexes:", INDEXES.map((i) => i.key).join(","));
   await ensureSettings();
   let lastReconcile = 0;
 
@@ -175,14 +269,19 @@ async function main() {
     const interval = await getIntervalSeconds();
     try {
       if (interval > 0) {
-        await tick();
+        let totalTouched = 0;
+        for (const ix of INDEXES) totalTouched += await tickIndex(ix);
+        if (totalTouched) log(`incremental sync: ${totalTouched} changed`);
+
         if (Date.now() - lastReconcile > RECONCILE_EVERY) {
-          await reconcile();
+          for (const ix of INDEXES) {
+            const removed = await reconcileIndex(ix);
+            if (removed) log(`reconcile[${ix.key}]: removed ${removed} stale docs`);
+          }
           lastReconcile = Date.now();
         }
         await new Promise((r) => setTimeout(r, interval * 1000));
       } else {
-        // 自动同步已关闭：空转等待配置恢复
         await new Promise((r) => setTimeout(r, IDLE_TICK));
       }
     } catch (e) {
@@ -197,12 +296,11 @@ main()
     console.error(e);
     process.exit(1);
   })
-  .finally(() => {}); // 常驻进程，不主动 disconnect
+  .finally(() => {});
 
-// PM2 stop / Ctrl+C 时保存水位
 for (const sig of ["SIGINT", "SIGTERM"]) {
   process.on(sig, async () => {
-    saveWatermark();
+    saveWatermarks();
     await db.$disconnect().catch(() => {});
     process.exit(0);
   });

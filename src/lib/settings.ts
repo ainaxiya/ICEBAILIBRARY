@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { DEFAULT_OPTIMIZER_PROMPT } from "./optimizer-default-prompt";
 
 // 默认站点配置（后台"网站设置/基本设置/发布设置/会员设置"持久化到 SiteSetting）
 export const DEFAULT_SETTINGS = {
@@ -14,9 +15,12 @@ export const DEFAULT_SETTINGS = {
     logoIcon: "",
     favicon: "",
     appIcon: "",
-    // 首页 banner 图（PC 横版 / 手机竖版，/site-assets/ 下的 URL）
-    bannerPc: "",
-    bannerMobile: "",
+    // 神器·全能提示词优化器（v0.80）：DeepSeek API 配置
+    // apiKey 非空则覆盖 .env 的 DEEPSEEK_API_KEY；为空时回退环境变量
+    optimizerApiKey: "",
+    optimizerModel: "deepseek-flash",
+    // 优化技能文档：为空时使用内置默认（src/lib/optimizer-default-prompt.ts）
+    optimizerPrompt: "",
     // 友情链接：每行一条「名称|URL」，前台页脚 copyright 上方显示
     friendLinks: "",
     // 新内容自动提交 MeiliSearch 的间隔（秒）；0 = 永不自动更新
@@ -33,11 +37,11 @@ export const DEFAULT_SETTINGS = {
     },
   },
   basic: {
-    siteName: "完整提示词",
-    siteNameEn: "CompletePrompt",
+    siteName: "冰山AI资料库",
+    siteNameEn: "Iceberg AI Library",
     siteDescription:
       "收集、分享、发现优质 AI 提示词：图片生成、视频生成、音频生成、分镜脚本，真实创作过程提示词免费复制使用。",
-    footerText: "完整提示词 · 部分内容采集自公开社区，仅作学习交流",
+    footerText: "冰山AI资料库 · 部分内容采集自公开社区，仅作学习交流",
     allowRegister: true,
     defaultLocale: "zh",
   },
@@ -124,7 +128,7 @@ export const defaultSettings = DEFAULT_SETTINGS;
 
 const DEFAULT_KEYWORDS = [
   "AI提示词", "prompt", "Midjourney", "即梦", "可灵",
-  "AI绘画", "AI视频", "CompletePrompt", "完整提示词",
+  "AI绘画", "AI视频", "AI技能", "AI软件", "冰山AI资料库",
 ];
 
 /**
@@ -185,8 +189,21 @@ export async function getPublicSite() {
     appIcon,
     icon192: site.appIcon ? appIcon : "/icon-192.png",
     appleIcon: site.appIcon ? appIcon : "/apple-touch-icon.png",
-    bannerPc: (site.bannerPc || "").trim(),
-    bannerMobile: (site.bannerMobile || "").trim(),
     friendLinks,
+  };
+}
+
+/**
+ * 提示词优化器配置（服务端专用，API Key 不下发前台）。
+ * 取值优先级：后台「网站设置」> .env 的 DEEPSEEK_API_KEY > 内置默认。
+ */
+export async function getOptimizerConfig() {
+  const s = await getSettings();
+  const site = s.site;
+  return {
+    baseUrl: "https://api.deepseek.com",
+    model: (site.optimizerModel || "").trim() || "deepseek-flash",
+    apiKey: (site.optimizerApiKey || "").trim() || (process.env.DEEPSEEK_API_KEY || "").trim(),
+    systemPrompt: (site.optimizerPrompt || "").trim() || DEFAULT_OPTIMIZER_PROMPT,
   };
 }

@@ -56,7 +56,7 @@ export function TextCover({ text, type = "text" }: { text: string; type?: string
 
 export function Placeholder() {
   return (
-    <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_30%_20%,rgba(99,102,241,0.15),transparent_60%)] text-zinc-500">
+    <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_30%_20%,rgba(56,189,248,0.15),transparent_60%)] text-zinc-500">
       <svg
         viewBox="0 0 24 24"
         fill="none"

@@ -1,4 +1,5 @@
 import PromptCard from "@/components/PromptCard";
+import PromptOptimizer from "@/components/PromptOptimizer";
 import { db } from "@/lib/db";
 import { getServerLocale, translate as t } from "@/lib/i18n";
 import { getPublicSite } from "@/lib/settings";
@@ -21,44 +22,45 @@ export default async function Home() {
     
     orderBy: [
       { updatedAt: "desc" },
-      { likeCount: "desc" },
+      { viewCount: "desc" },
     ],
     take: HOME_TAKE,
     select: {
       id: true, title: true, type: true, category: true, tags: true,
-      sourceAuthor: true, likeCount: true, content: true, description: true,
+      sourceAuthor: true, viewCount: true, content: true, description: true,
       coverUrl: true, featured: true,
     },
   });
 
+  // 神器·全能提示词优化器 统计条：库存提示词数 / 技能数
+  const [promptCount, skillCount] = await Promise.all([
+    db.prompt.count({ where: { status: "published" } }),
+    db.skill.count(),
+  ]);
+
   return (
     <div>
-      {site.bannerPc ? (
-        // 后台「网站设置 → 首页 banner 图」已上传：PC 横版 / 手机竖版自适应
-        <div className="relative mb-8 overflow-hidden rounded-2xl border border-emerald-700/40">
-          <picture>
-            <source media="(max-width: 767px)" srcSet={site.bannerMobile || site.bannerPc} />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={site.bannerPc}
-              alt={t(locale, "home.featured")}
-              className="block w-full"
-              loading="eager"
-            />
-          </picture>
+      {/* 神器·全能提示词优化器（v0.80 替换原 banner 大图区） */}
+      <PromptOptimizer
+        source="home"
+        siteName={site.siteName}
+        promptCount={promptCount}
+        skillCount={skillCount}
+      />
+
+      {/* 栏目大标题：精选提示词展示（英文眉题 + 两侧渐变细线 + 金色渐变外发光标题） */}
+      <div className="mb-6 mt-2 text-center">
+        <div className="flex items-center justify-center gap-3">
+          <span className="h-px w-10 bg-gradient-to-r from-transparent to-amber-400/60 sm:w-16" />
+          <span className="text-[10px] font-semibold uppercase tracking-[0.35em] text-amber-300/80 sm:text-xs">
+            Featured Prompts
+          </span>
+          <span className="h-px w-10 bg-gradient-to-l from-transparent to-amber-400/60 sm:w-16" />
         </div>
-      ) : (
-      <div className="relative mb-8 overflow-hidden rounded-2xl border border-emerald-700/40 bg-zinc-900/70 px-5 py-8 text-center sm:px-6 sm:py-10">
-        <div className="pointer-events-none absolute -top-24 left-1/2 h-56 w-[36rem] -translate-x-1/2 rounded-full bg-emerald-500/15 blur-3xl" />
-        <div className="pointer-events-none absolute -top-20 right-1/4 h-40 w-72 rounded-full bg-royal-500/10 blur-3xl" />
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-500/70 to-royal-400/50 to-transparent" />
-        <h1 className="relative flex items-center justify-center gap-2 text-2xl font-bold tracking-tight text-zinc-50">
-          <span className="text-royal-400 drop-shadow-[0_0_10px_rgba(245,158,11,0.6)]">★</span>
-          {t(locale, "home.featured")}
-        </h1>
-        <p className="relative mt-2 text-sm text-zinc-400">{t(locale, "home.featuredSub")}</p>
+        <h2 className="mt-2 bg-gradient-to-r from-amber-200 via-yellow-400 to-orange-400 bg-clip-text text-2xl font-black tracking-tight text-transparent drop-shadow-[0_0_18px_rgba(251,191,36,0.45)] sm:text-4xl">
+          精选提示词展示
+        </h2>
       </div>
-      )}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {prompts.map((p) => (
