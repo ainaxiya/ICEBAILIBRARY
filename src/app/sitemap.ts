@@ -14,24 +14,25 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: base + "/search", changeFrequency: "daily", priority: 0.5 },
   ];
   try {
+    // 百度/谷歌 sitemap 限制：单文件 ≤50,000 URL、≤10MB——按上限留量，内容再涨需拆 sitemap index
     const [prompts, skills, software] = await Promise.all([
       db.prompt.findMany({
         where: { status: "published" },
         select: { id: true, updatedAt: true },
         orderBy: { id: "asc" },
-        take: 20000,
+        take: 35000,
       }),
       db.skill.findMany({
         where: { status: "published" },
         select: { id: true, slug: true, updatedAt: true },
         orderBy: { id: "asc" },
-        take: 5000,
+        take: 14000,
       }),
       db.software.findMany({
         where: { status: "published" },
         select: { slug: true, updatedAt: true },
         orderBy: { id: "asc" },
-        take: 5000,
+        take: 1000,
       }),
     ]);
     return [
