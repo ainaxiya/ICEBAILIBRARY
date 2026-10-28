@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 
 // ─── 神器·全能提示词优化器（首页工具区，替换原 banner）───
 // 排版：统计条（单行一块）→ 大标题（一行）→ 英文名 → 介绍 → 输入框（按钮内嵌）→ 图标行 → 输出框（SKILL.md 样式，顶栏带复制/下载）
@@ -11,7 +12,19 @@ type Props = {
   skillCount: number;
   // 使用记录来源：home=首页神器区 / shenqi=单页工具页（/shenqi）
   source?: "home" | "shenqi";
+  // 神器滚动文字：多条宣传语无缝上下滚动（后台「网站设置」可配；空数组用默认六条）
+  rotatingLines?: string[];
 };
+
+// 默认六条滚动宣传语（后台未配置时使用，与 src/lib/settings.ts DEFAULT_ROTATING_LINES 一致）
+const DEFAULT_LINES = [
+  "把你的任意大白话瞬间重构为视频 设计 编程 写作 音乐 办公 营销 金融等全行业提示词",
+  "你是完全新手小白也没问题，问题也可以在这直接提，直接给你教程",
+  "神器的功能不等于一般聊天AI，神器只专注于把新手一句话想法优化大师级可行方案",
+  "各行各业的专业术语太多，少了术语AI执行效果差强人意，神器给你补上缺口",
+  "你完全不懂？没关系，你仅有一点点想法？没关系，神器给你完善成最优方案",
+  "想做AI视频？AI设计？又不懂步骤，直接问神器，神器给你保姆级教学+预算成本",
+];
 
 // 可使用优化结果的模型/工具图标行（内联 SVG，全站无站外资源）
 // 数量按"桌面单行整齐排下"精简为 8 个（含 LIBLIB / 即梦）
@@ -37,12 +50,28 @@ function Glyph({ kind, color }: { kind: "spark" | "star" | "wave" | "cube"; colo
   );
 }
 
-export default function PromptOptimizer({ siteName, promptCount, skillCount, source = "home" }: Props) {
+export default function PromptOptimizer({ siteName, promptCount, skillCount, source = "home", rotatingLines = [] }: Props) {
   const [input, setInput] = useState("");
   const [output, setOutput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const outputRef = useRef<HTMLPreElement>(null);
+
+  // 流式输出时始终跟随最新文字；输出完成后不再主动滚动。
+  useEffect(() => {
+    const outputEl = outputRef.current;
+    if (outputEl) outputEl.scrollTop = outputEl.scrollHeight;
+  }, [output]);
+
+  // 宣传语逐条播放：一条快速滚入 → 停留 8 秒 → 滚出下一条，循环
+  const lines = rotatingLines.length ? rotatingLines : DEFAULT_LINES;
+  const [lineIdx, setLineIdx] = useState(0);
+  useEffect(() => {
+    if (lines.length <= 1) return;
+    const t = setInterval(() => setLineIdx((i) => (i + 1) % lines.length), 8000);
+    return () => clearInterval(t);
+  }, [lines.length]);
 
   const optimize = async () => {
     const text = input.trim();
@@ -125,24 +154,8 @@ export default function PromptOptimizer({ siteName, promptCount, skillCount, sou
 
   return (
     <section className="relative mb-10 overflow-hidden rounded-3xl border border-blue-400/20">
-      {/* 向中心聚光的渐变背景 */}
-      <div
-        className="absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(ellipse 900px 480px at 50% -12%, rgba(59,130,246,0.32), transparent 62%), radial-gradient(ellipse 700px 380px at 50% 112%, rgba(34,211,238,0.14), transparent 60%), linear-gradient(180deg, #0d1740 0%, #0a1235 55%, #091030 100%)",
-        }}
-      />
-      {/* 背景图（30% 透明度，叠在聚光渐变之上） */}
-      <div
-        className="absolute inset-0 bg-cover bg-center opacity-30"
-        style={{ backgroundImage: "url(/site-assets/shenqi-bg.png)" }}
-      />
-      {/* 四角暗角，强化聚光 */}
-      <div
-        className="absolute inset-0"
-        style={{ background: "radial-gradient(ellipse at 50% 45%, transparent 38%, rgba(4,7,22,0.55) 100%)" }}
-      />
+      {/* 神器背景图（65%透明度；按设备切换横版/竖版） */}
+      <div className="shenqi-bg absolute inset-0" style={{ opacity: 0.65 }} />
 
       <div className="relative px-4 py-8 text-center sm:px-8 sm:py-12">
         {/* 第一行：统计条（单块单行，手机端不换行） */}
@@ -165,7 +178,7 @@ export default function PromptOptimizer({ siteName, promptCount, skillCount, sou
 
         {/* 第二行：大标题（一行显示完） */}
         <h1 className="mt-6 whitespace-nowrap text-[26px] font-black tracking-tight text-white sm:text-5xl lg:text-6xl">
-          <span className="bg-gradient-to-r from-cyan-300 via-sky-400 to-blue-400 bg-clip-text text-transparent drop-shadow-[0_0_28px_rgba(56,189,248,0.45)]">
+          <span className="bg-gradient-to-r from-cyan-300 via-sky-400 to-blue-400 bg-clip-text text-transparent">
             神器
           </span>
           <span className="mx-1.5 text-lg font-light text-cyan-200/70 sm:mx-3 sm:text-4xl">·</span>
@@ -173,47 +186,54 @@ export default function PromptOptimizer({ siteName, promptCount, skillCount, sou
         </h1>
 
         {/* 第三行：英文 */}
-        <p className="mt-2.5 whitespace-nowrap text-xs font-semibold tracking-[0.15em] text-sky-400 sm:text-2xl sm:tracking-[0.22em]">
+        <p className="mt-2.5 whitespace-nowrap text-xs font-bold text-sky-400 sm:text-2xl">
           Master Prompt Optimizer
         </p>
 
-        {/* 补充介绍文字（桌面一行显示完） */}
-        <p className="mx-auto mt-3 max-w-4xl text-[11px] leading-relaxed text-cyan-100/75 sm:whitespace-nowrap sm:text-sm">
-          把你的任意大白话，瞬间重构为全行业万能专业级提示词,碰到问题也可以在这直接提
-        </p>
+        {/* 补充介绍：宣传语逐条播放（一条快速滚入 → 停留 8 秒 → 下一条；后台可配，默认六条） */}
+        <div className="mx-auto mt-3 h-7 max-w-4xl overflow-hidden px-2 text-[11px] leading-relaxed text-cyan-100/75 sm:h-8 sm:text-sm">
+          <p key={lineIdx} className="marquee-enter truncate sm:whitespace-nowrap" title={lines[lineIdx]}>
+            {lines[lineIdx]}
+          </p>
+        </div>
 
-        {/* 第四行：输入框（未聚焦=半透明玻璃态，聚焦=白底+蓝光；优化按钮一体化贴右侧全高） */}
-        <div className="mx-auto mt-6 w-full max-w-3xl">
-          <div className="relative rounded-2xl border border-white/25 bg-white/10 shadow-[0_18px_50px_-12px_rgba(2,8,30,0.75)] backdrop-blur-md transition focus-within:border-sky-400 focus-within:bg-white focus-within:ring-4 focus-within:ring-sky-400/25">
+        {/* 第四行：长条蓝光输入框 + 图片化机械按钮 */}
+        <div className="mx-auto mt-1 w-full max-w-4xl">
+          <div className="optimizer-input-shell relative rounded-[28px] border px-4 py-1.5 pr-[142px] shadow-[0_14px_42px_-18px_rgba(0,12,42,0.9)] transition duration-200 sm:rounded-[34px] sm:px-7 sm:py-2 sm:pr-[206px]">
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               rows={2}
-              placeholder="例：抖音上的引流视频帮我写剧本分镜脚本 或 怎么用提示词生成视频?"
-              className="min-h-[62px] w-full resize-y rounded-2xl bg-transparent py-3 pl-5 pr-[118px] text-left text-sm leading-relaxed text-white outline-none transition-colors placeholder:text-white/55 focus:text-slate-800 focus:placeholder:text-sky-400/80 sm:pr-[138px]"
+              placeholder="输入你的提示词..."
+              aria-label="输入你的提示词"
+              className="min-h-[76px] w-full resize-y bg-transparent py-4 text-left text-base leading-relaxed text-white outline-none placeholder:text-slate-300/75 focus:placeholder:text-slate-300/60 sm:min-h-[88px] sm:py-5 sm:text-lg"
             />
             <button
+              type="button"
               onClick={optimize}
               disabled={loading}
-              className="group absolute right-0 top-0 flex h-full items-center gap-1.5 overflow-hidden rounded-r-2xl bg-gradient-to-b from-[#1772d6] to-[#0c5cbf] px-4 text-sm font-bold text-white shadow-[0_10px_26px_-6px_rgba(12,92,190,0.55)] transition hover:shadow-[0_14px_32px_-6px_rgba(12,92,190,0.75)] disabled:cursor-not-allowed disabled:opacity-60 sm:px-5 sm:text-base"
+              aria-busy={loading}
+              className="optimizer-button group absolute right-[-5px] top-1/2 z-10 flex h-[92px] w-[142px] items-center justify-center text-white transition duration-150 disabled:cursor-not-allowed sm:right-[-8px] sm:h-[126px] sm:w-[204px]"
             >
-              <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-white/25 to-transparent opacity-0 transition group-hover:opacity-100" />
-              {loading ? (
-                <>
-                  <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" className="opacity-25" />
-                    <path d="M21 12a9 9 0 00-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-                  </svg>
-                  优化中…
-                </>
-              ) : (
-                <>
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 2l2.2 6.2L20 10l-5.8 1.8L12 18l-2.2-6.2L4 10l5.8-1.8z" />
-                  </svg>
-                  优化
-                </>
-              )}
+              <span aria-hidden="true" className="optimizer-button-skin absolute inset-0" />
+              <span className="relative z-10 flex items-center gap-2 text-base font-bold drop-shadow-[0_1px_4px_rgba(0,20,70,0.9)] transition-colors group-active:text-cyan-100 sm:gap-3 sm:text-2xl">
+                {loading ? (
+                  <>
+                    <svg className="h-5 w-5 animate-spin sm:h-7 sm:w-7" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+                      <path d="M21 12a9 9 0 00-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                    </svg>
+                    <span>优化中…</span>
+                  </>
+                ) : (
+                  <>
+                    <svg viewBox="0 0 24 24" className="h-6 w-6 transition group-active:drop-shadow-[0_0_7px_rgba(103,232,249,0.95)] sm:h-8 sm:w-8" fill="currentColor" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 2l2.2 6.2L20 10l-5.8 1.8L12 18l-2.2-6.2L4 10l5.8-1.8z" />
+                    </svg>
+                    <span>优化</span>
+                  </>
+                )}
+              </span>
             </button>
           </div>
         </div>
@@ -244,8 +264,17 @@ export default function PromptOptimizer({ siteName, promptCount, skillCount, sou
         {/* 输出框：SKILL.md 样式（顶栏 + 只读等宽正文 + 内部滚动） */}
         <div className="mx-auto mt-6 max-w-3xl rounded-xl border border-zinc-800 bg-zinc-950/80 text-left shadow-[0_18px_50px_-12px_rgba(2,8,30,0.75)]">
           <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3.5">
-            <span className="whitespace-nowrap bg-gradient-to-r from-violet-300 via-fuchsia-400 to-pink-400 bg-clip-text text-lg font-semibold tracking-tight text-transparent drop-shadow-[0_0_12px_rgba(232,121,249,0.55)]">
-              神器优化后结果输出
+            <span className="inline-flex min-w-0 items-center gap-2 whitespace-nowrap">
+              <Image
+                src="/site-assets/shu.webp"
+                alt=""
+                aria-hidden="true"
+                width={36}
+                height={36}
+                className="h-8 w-8 shrink-0 object-contain drop-shadow-[0_0_8px_rgba(251,146,60,0.35)] sm:h-9 sm:w-9"
+              />
+              <span className="bg-gradient-to-r from-amber-200 via-orange-400 to-red-500 bg-clip-text text-lg font-semibold tracking-tight text-transparent drop-shadow-[0_0_10px_rgba(249,115,22,0.3)]">
+                神器输出：              </span>
             </span>
             <div className="flex shrink-0 items-center gap-2">
               <button
@@ -277,7 +306,7 @@ export default function PromptOptimizer({ siteName, promptCount, skillCount, sou
               </button>
             </div>
           </div>
-          <pre className="min-h-[150px] max-h-[240px] overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-xs leading-relaxed text-zinc-300">
+          <pre ref={outputRef} className="min-h-[150px] max-h-[240px] overflow-auto whitespace-pre-wrap break-words p-4 font-sans text-xs font-normal leading-relaxed text-white">
             {output || (
               <span className="text-zinc-600">
                 神器优化后的专业级提示词将显示在这里（不可编辑，击右上角「复制」或「下载txt」推荐直接下载文档保证完整性）

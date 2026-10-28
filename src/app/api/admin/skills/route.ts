@@ -64,6 +64,7 @@ const upsertSchema = z.object({
   license: z.string().max(50).nullable().optional(),
   language: z.string().max(10).optional(),
   status: z.enum(["published", "pending", "rejected"]).optional(),
+  featured: z.boolean().optional(),
   viewCount: z.number().int().min(0).max(100_000_000).optional(),
   copyCount: z.number().int().min(0).max(100_000_000).optional(),
   downloadCount: z.number().int().min(0).max(100_000_000).optional(),

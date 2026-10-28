@@ -57,10 +57,43 @@ export async function POST(req: NextRequest) {
     // content 或 reasoning_content 任一有内容即视为连通（HTTP 200 + choices 存在）
     const chatOk = chatRes.ok && !!chatData.choices?.length && !!(msg0.content || msg0.reasoning_content);
 
+    // 连通后再查 API 余额（DeepSeek /user/balance；失败不阻断，只附注不可用）
+    let balanceText = "";
+    if (chatOk) {
+      try {
+        const balRes = await fetch(`${cfg.baseUrl}/user/balance`, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(10000),
+        });
+        if (balRes.ok) {
+          const bal = await balRes.json().catch(() => null);
+          const balances = Array.isArray(bal?.balance_infos)
+            ? bal.balance_infos.flatMap((info: { currency?: string; total_balance?: string }) => {
+                if (typeof info.total_balance !== "string" || !info.total_balance.trim()) return [];
+                const amount = Number(info.total_balance);
+                if (!info.currency || !Number.isFinite(amount)) return [];
+                const symbol = info.currency === "CNY" ? "¥" : info.currency === "USD" ? "$" : `${info.currency} `;
+                return [`${symbol}${amount.toFixed(2)}`];
+              })
+            : [];
+          if (balances.length) {
+            // total_balance 已包含赠金和充值余额，不要再减 granted_balance。
+            balanceText = ` · 余额 ${balances.join(" / ")}${bal?.is_available === false ? "（不可用）" : ""}`;
+          } else {
+            balanceText = " · 余额查询无数据";
+          }
+        } else {
+          balanceText = ` · 余额查询失败（HTTP ${balRes.status}）`;
+        }
+      } catch {
+        balanceText = " · 余额查询超时";
+      }
+    }
+
     return NextResponse.json({
       ok: chatOk,
       message: chatOk
-        ? `连接成功 · 模型 ${cfg.model} 可用`
+        ? `连接成功 · 模型 ${cfg.model} 可用${balanceText}`
         : `连接失败（HTTP ${chatRes.status}）：${(chatData.error?.message || JSON.stringify(chatData).slice(0, 200) || "模型无响应内容")}`,
       models: modelIds,
     });

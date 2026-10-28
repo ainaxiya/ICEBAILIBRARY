@@ -32,6 +32,15 @@ const TYPE_META: Record<string, { zh: string; en: string; icon: string; cls: str
 export const dynamic = "force-dynamic";
 
 // 将 Prisma Comment（含 Date 字段）序列化为可传给 client 组件的 plain object
+// 富文本「本页结构」跳转锚点：在每个 [N] 分段标记前插入空锚点 span
+// 锚点 id/序号与侧栏分段一一对应（最多注入 count 个，富文本内 [N] 数应与分段数一致）
+function injectSegAnchors(html: string, count: number): string {
+  let i = 0;
+  return html.replace(/\[(\d+)\]/g, (m) =>
+    i < count ? `<span id="seg-${i}" data-seg-index="${i++}" class="block h-1"></span>${m}` : m
+  );
+}
+
 function serializeComment(c: any): CommentData {
   // 有公开回复的已删顶级评论：渲染占位
   if (c.status === "deleted") {
@@ -120,9 +129,8 @@ export default async function PromptDetail({
   if (!canSee) notFound();
 
   if (p.status === "published") {
-    db.prompt
-      .update({ where: { id: pid }, data: { viewCount: { increment: 1 } } })
-      .catch(() => {});
+    // 原生 SQL 自增，不触 updatedAt（避免 Meili 守护进程每次浏览都重复推送该文档）
+    db.$executeRaw`UPDATE "Prompt" SET "viewCount" = "viewCount" + 1 WHERE id = ${pid}`.catch(() => {});
   }
 
 
@@ -135,36 +143,85 @@ export default async function PromptDetail({
   const plainText = isRich ? stripHtml(p.content).trim() : "";
 
   // 解析提示词分节：[N] 标签行 -> 正文直到下一个 [N] 之前
+  // 纯文本直接用原文解析；富文本用剥离 HTML 后的纯文本解析（富文本整体渲染，仅用分段提取标题/锚点）
   const sections: { no: number; label: string; body: string }[] = [];
-  if (!isRich) {
+  {
+    const secText = isRich ? plainText : p.content;
     const re = /^\[(\d+)\]\s*(.+)$/gm;
     const marks: { idx: number; no: number; label: string }[] = [];
     let m: RegExpExecArray | null;
-    while ((m = re.exec(p.content))) marks.push({ idx: m.index, no: +m[1], label: m[2] });
+    while ((m = re.exec(secText))) marks.push({ idx: m.index, no: +m[1], label: m[2] });
     for (let i = 0; i < marks.length; i++) {
-      const nl = p.content.indexOf("\n", marks[i].idx);
+      const nl = secText.indexOf("\n", marks[i].idx);
       const bodyStart = nl < 0 ? marks[i].idx : nl + 1;
-      const end = i + 1 < marks.length ? marks[i + 1].idx : p.content.length;
+      const end = i + 1 < marks.length ? marks[i + 1].idx : secText.length;
       sections.push({
         no: marks[i].no,
         label: marks[i].label,
-        body: p.content.slice(bodyStart, end).trim(),
+        body: secText.slice(bodyStart, end).trim(),
       });
     }
-    if (sections.length === 0) sections.push({ no: 0, label: "", body: p.content.trim() });
+    if (sections.length === 0) sections.push({ no: 0, label: "", body: secText.trim() });
   }
 
-  // 「本页结构」分段导航：仅多分段纯文本提示词显示
-  const showToc = !isRich && sections.length >= 2;
+  // 「本页结构」分段导航：纯文本或富文本，只要分段 >=2 都显示侧栏
+  const showToc = sections.length >= 2;
   const tocSegments = showToc
     ? sections.map((s, i) => ({ index: i, label: s.label || `第 ${i + 1} 段` }))
     : [];
 
-  // 相关推荐：同分类下随机 10 条（排除自己）
-  const sameCatIds = await db.prompt.findMany({
-    where: { status: "published", id: { not: pid }, category: p.category },
-    select: { id: true },
-  });
+  // 富文本分段跳转：在每个 [N] 标记前注入锚点 span（数量对齐侧栏分段数）
+  const richHtmlWithSegs = isRich && showToc ? injectSegAnchors(richHtml, sections.length) : richHtml;
+
+  // 相关推荐 + 热搜词 + 评论设置 + 首屏评论：互不依赖，全部并行
+  const commentWhere = {
+    targetType: "prompt",
+    targetId: pid,
+    parentId: null,
+    OR: [
+      { status: "published" },
+      { status: "deleted", replies: { some: { status: "published" } } },
+    ],
+  };
+  const likedSelect = user ? { likes: { where: { userId: user.id }, select: { id: true } } } : {};
+  const [sameCatIds, tagRows, settings, [rawComments, commentTotal]] = await Promise.all([
+    // 相关推荐候选：同分类已发布（排除自己），上限 200 条参与随机，避免大分类全量拉取
+    db.prompt.findMany({
+      where: { status: "published", id: { not: pid }, category: p.category },
+      select: { id: true },
+      take: 200,
+    }),
+    // 热搜词：从全站已发布提示词的 tags 中随机抽 15 个
+    db.prompt.findMany({
+      where: { status: "published", tags: { isEmpty: false } },
+      select: { tags: true },
+      take: 500,
+    }),
+    getSettings(),
+    // 首屏评论（顶级 20 条，含已赞状态；有公开回复的已删评论显示占位）
+    Promise.all([
+      db.comment.findMany({
+        where: commentWhere,
+        include: {
+          user: { select: { id: true, username: true, nickname: true, avatar: true } },
+          ...likedSelect,
+          replies: {
+            include: {
+              user: { select: { id: true, username: true, nickname: true, avatar: true } },
+              ...likedSelect,
+            },
+            where: { status: "published" },
+            orderBy: { createdAt: "asc" },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: COMMENT_PAGE_SIZE,
+      }),
+      db.comment.count({ where: commentWhere }),
+    ]),
+  ]);
+
+  // 相关推荐：候选中随机 10 条
   const shuffledIds = sameCatIds
     .map((r) => r.id)
     .sort(() => Math.random() - 0.5)
@@ -185,48 +242,10 @@ export default async function PromptDetail({
     (a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0)
   );
 
-  // 热搜词：从全站已发布提示词的 tags 中随机抽 15 个
-  const tagRows = await db.prompt.findMany({
-    where: { status: "published", tags: { isEmpty: false } },
-    select: { tags: true },
-    take: 500,
-  });
   const tagSet = new Set<string>();
   tagRows.forEach((r) => r.tags.forEach((tg) => tagSet.add(tg)));
   const hotTags = [...tagSet].sort(() => Math.random() - 0.5).slice(0, 15);
 
-  // 评论设置 + 首屏评论（顶级 20 条，含已赞状态；有公开回复的已删评论显示占位）
-  const settings = await getSettings();
-  const commentWhere = {
-    targetType: "prompt",
-    targetId: pid,
-    parentId: null,
-    OR: [
-      { status: "published" },
-      { status: "deleted", replies: { some: { status: "published" } } },
-    ],
-  };
-  const likedSelect = user ? { likes: { where: { userId: user.id }, select: { id: true } } } : {};
-  const [rawComments, commentTotal] = await Promise.all([
-    db.comment.findMany({
-      where: commentWhere,
-      include: {
-        user: { select: { id: true, username: true, nickname: true, avatar: true } },
-        ...likedSelect,
-        replies: {
-          include: {
-            user: { select: { id: true, username: true, nickname: true, avatar: true } },
-            ...likedSelect,
-          },
-          where: { status: "published" },
-          orderBy: { createdAt: "asc" },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-      take: COMMENT_PAGE_SIZE,
-    }),
-    db.comment.count({ where: commentWhere }),
-  ]);
   const comments = rawComments.map(serializeComment);
   const commentsClosed = !settings.comment.enabled || p.commentsClosed;
 
@@ -348,7 +367,7 @@ export default async function PromptDetail({
               </div>
               <div
                 className="rich-content text-sm leading-relaxed text-zinc-300"
-                dangerouslySetInnerHTML={{ __html: richHtml }}
+                dangerouslySetInnerHTML={{ __html: richHtmlWithSegs }}
               />
               <AutoTranslate text={plainText} source={sourceLang as "zh" | "en"} index={0} />
             </section>

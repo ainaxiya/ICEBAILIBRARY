@@ -67,6 +67,60 @@ body {
   background-repeat: no-repeat;
 }
 
+/* 前台品牌蓝提亮：仅作用于站点路由，后台继续使用原有主题变量。 */
+.site-theme {
+  --color-emerald-950: #062848;
+  --color-emerald-900: #0a3d70;
+  --color-emerald-800: #0e5aa0;
+  --color-emerald-700: #0d77ce;
+  --color-emerald-600: #168fea;
+  --color-emerald-500: #2aa8ff;
+  --color-emerald-400: #58beff;
+  --color-emerald-300: #8acfff;
+  --color-emerald-200: #b7e5ff;
+  --color-emerald-100: #d7f1ff;
+  --color-emerald-50: #f1faff;
+
+  --color-royal-950: #073343;
+  --color-royal-900: #07516b;
+  --color-royal-800: #087a9c;
+  --color-royal-700: #0a9dbf;
+  --color-royal-600: #13b7db;
+  --color-royal-500: #36d5f4;
+  --color-royal-400: #63e1fa;
+  --color-royal-300: #8cebfc;
+  --color-royal-200: #baf5ff;
+  --color-royal-100: #d8faff;
+
+  background-color: #0a1438;
+  background-image:
+    radial-gradient(1250px 720px at 50% 0%, rgba(37, 137, 255, 0.11), transparent 70%),
+    radial-gradient(900px 620px at 96% 42%, rgba(34, 211, 238, 0.07), transparent 70%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+
+.site-theme .text-gold-gradient {
+  background-image: linear-gradient(115deg, #b6f2ff 0%, #81d8ff 42%, #2aa8ff 100%);
+}
+
+.site-theme .site-header {
+  box-shadow:
+    0 1px 0 0 rgba(56, 189, 248, 0.72),
+    0 6px 28px -10px rgba(56, 189, 248, 0.32);
+}
+
+.site-theme .site-footer {
+  box-shadow:
+    inset 0 1px 0 0 rgba(34, 46, 94, 0.9),
+    0 -10px 32px -18px rgba(34, 211, 238, 0.27);
+}
+
+.site-theme .brand-card:hover {
+  border-color: rgba(88, 190, 255, 0.78);
+  box-shadow: 0 8px 32px -10px rgba(42, 168, 255, 0.52);
+}
+
 /* 品牌渐变文字（LOGO / 标题点缀） */
 .text-gold-gradient {
   background: linear-gradient(115deg, #a5f3fc 0%, #86d8fb 40%, #38bdf8 100%);
@@ -186,6 +240,59 @@ body {
   to { opacity: 1; transform: none; }
 }
 
+/* 神器宣传语：单条从下方快速滚入（切换新 key 时触发；配合 8 秒定时器逐条播放） */
+@keyframes marquee-enter {
+  from { transform: translateY(110%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.marquee-enter { animation: marquee-enter 0.65s ease-out; }
+
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { @apply bg-zinc-700 rounded-full; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* 神器区背景图：PC 用横向全幅图；手机竖屏换成竖版构图（小孩+机器人完整可见），避免 cover 裁掉两端主体 */
+.shenqi-bg {
+  background-image: url(/site-assets/shenqi-bg.png);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+@media (max-width: 767px) {
+  .shenqi-bg {
+    background-image: url(/site-assets/shenqi-bg-mobile.webp);
+    background-size: cover;
+    background-position: center;
+  }
+}
+
+/* 首页神器：细蓝描边长输入槽，右侧按钮使用独立机械质感图片。 */
+.optimizer-input-shell {
+  border-color: rgba(96, 165, 250, 0.72);
+  background: linear-gradient(105deg, rgba(6, 23, 55, 0.68), rgba(8, 31, 71, 0.48));
+  box-shadow: inset 0 1px 0 rgba(191, 219, 254, 0.08), 0 14px 42px -18px rgba(0, 12, 42, 0.9);
+  backdrop-filter: blur(8px);
+}
+.optimizer-input-shell:focus-within {
+  border-color: rgba(96, 165, 250, 0.98);
+  box-shadow: inset 0 1px 0 rgba(191, 219, 254, 0.12), 0 0 0 3px rgba(37, 99, 235, 0.16), 0 16px 44px -16px rgba(15, 75, 180, 0.46);
+}
+.optimizer-button {
+  transform: translateY(-50%);
+  filter: drop-shadow(0 8px 10px rgba(0, 8, 32, 0.62));
+}
+.optimizer-button-skin {
+  background: url('/site-assets/optimizer-button.webp') center / 100% 100% no-repeat;
+  transition: filter 160ms ease, transform 160ms ease;
+}
+.optimizer-button:hover:not(:disabled) {
+  transform: translateY(calc(-50% - 2px));
+  filter: drop-shadow(0 11px 12px rgba(0, 8, 32, 0.72)) brightness(1.08);
+}
+.optimizer-button:active:not(:disabled) {
+  transform: translateY(calc(-50% + 1px)) scale(0.97);
+  filter: drop-shadow(0 4px 6px rgba(0, 8, 32, 0.72)) brightness(0.88) saturate(1.2);
+}
+.optimizer-button:disabled {
+  filter: drop-shadow(0 6px 8px rgba(0, 8, 32, 0.56)) brightness(0.82);
+}

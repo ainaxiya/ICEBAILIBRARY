@@ -25,6 +25,8 @@ export const DEFAULT_SETTINGS = {
     friendLinks: "",
     // 新内容自动提交 MeiliSearch 的间隔（秒）；0 = 永不自动更新
     meiliSyncSeconds: 30,
+    // 神器滚动文字播放：多条宣传语无缝上下滚动（[] = 显示默认六条）
+    rotatingLines: [] as string[],
   },
   // 注册设置（后台「注册设置」页）
   register: {
@@ -131,6 +133,16 @@ const DEFAULT_KEYWORDS = [
   "AI绘画", "AI视频", "AI技能", "AI软件", "冰山AI资料库",
 ];
 
+// 神器滚动文字默认六条（后台未配置时使用）
+export const DEFAULT_ROTATING_LINES = [
+  "把你的任意大白话瞬间重构为视频 设计 编程 写作 音乐 办公 营销 金融等全行业提示词",
+  "你是完全新手小白也没问题，问题也可以在这直接提，直接给你教程",
+  "神器的功能不等于一般聊天AI，神器只专注于把新手一句话想法优化大师级可行方案",
+  "各行各业的专业术语太多，少了术语AI执行效果差强人意，神器给你补上缺口",
+  "你完全不懂？没关系，你仅有一点点想法？没关系，神器给你完善成最优方案",
+  "想做AI视频？AI设计？又不懂步骤，直接问神器，神器给你保姆级教学+预算成本",
+];
+
 /**
  * 前台统一配置：后台「网站设置」(site 键) 的非空值覆盖 basic 默认值。
  * 所有前台页面/元信息/注册开关都应只读这里，保证后台改了立即生效。
@@ -190,6 +202,10 @@ export async function getPublicSite() {
     icon192: site.appIcon ? appIcon : "/icon-192.png",
     appleIcon: site.appIcon ? appIcon : "/apple-touch-icon.png",
     friendLinks,
+    // 神器滚动文字：后台配置（每行一条）覆盖默认六条
+    rotatingLines: Array.isArray(site.rotatingLines) && site.rotatingLines.length
+      ? site.rotatingLines.map((l: string) => l.trim()).filter(Boolean)
+      : DEFAULT_ROTATING_LINES,
   };
 }
 

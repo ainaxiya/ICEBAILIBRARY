@@ -21,13 +21,16 @@ export default async function ShenqiToolPage() {
   ]);
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-6">
-      <PromptOptimizer
-        source="shenqi"
-        siteName={site.siteName}
-        promptCount={promptCount}
-        skillCount={skillCount}
-      />
-    </main>
+    <div className="site-theme min-h-screen">
+      <main className="mx-auto w-full max-w-6xl px-4 py-6">
+        <PromptOptimizer
+          source="shenqi"
+          siteName={site.siteName}
+          promptCount={promptCount}
+          skillCount={skillCount}
+          rotatingLines={site.rotatingLines}
+        />
+      </main>
+    </div>
   );
 }

@@ -41,7 +41,12 @@ function AdminLoginInner() {
         setErr(d.error || "登录失败");
         return;
       }
-      const next = sp.get("next") || ADMIN_BASE;
+      const rawNext = sp.get("next") || ADMIN_BASE;
+      // 仅允许站内路径，防开放重定向
+      const next =
+        rawNext.startsWith("/") && !rawNext.startsWith("//") && !rawNext.startsWith("/\\")
+          ? rawNext
+          : ADMIN_BASE;
       router.replace(next);
       router.refresh();
     } catch {

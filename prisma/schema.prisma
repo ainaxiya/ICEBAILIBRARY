@@ -346,6 +346,8 @@ model Skill {
   language      String   @default("zh")
   // published | pending | rejected
   status        String   @default("published")
+  // 精选（后台开关，首页「精选技能展示」只取 featured=true）
+  featured      Boolean  @default(false)
   viewCount     Int      @default(0)
   commentCount  Int      @default(0)
   copyCount     Int      @default(0)

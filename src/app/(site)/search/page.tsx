@@ -5,6 +5,13 @@ import Pagination from "@/components/Pagination";
 import { getServerLocale, translate as t } from "@/lib/i18n";
 import { db } from "@/lib/db";
 import { skillHref } from "@/lib/skill-link";
+import {
+  SEARCH_BAR_BUTTON_CLASS,
+  SEARCH_BAR_BUTTON_ICON_CLASS,
+  SEARCH_BAR_FORM_CLASS,
+  SEARCH_BAR_ICON_CLASS,
+  SEARCH_BAR_INPUT_CLASS,
+} from "@/lib/search-bar-style";
 
 export const dynamic = "force-dynamic";
 
@@ -218,8 +225,11 @@ export default async function SearchPage({
     return "/search?" + new URLSearchParams(base).toString();
   };
 
-  // ── 类型筛选树计数（仅按关键词统计，不含类型/分类筛选）──
+  // ── 类型筛选树计数 + 结果查询：互不依赖，并行发起 ──
   const facetCounts: Record<string, { total: number; subs: Record<string, number> }> = {};
+  let rows: Row[] = [];
+  let total = 0;
+  let error = "";
   if (q) {
     const facetQueries = TYPES.map((tp) => ({
       indexUid: TYPE_CFG[tp].index,
@@ -228,8 +238,46 @@ export default async function SearchPage({
       facets: [TYPE_CFG[tp].facet],
       attributesToRetrieve: ["id"],
     }));
-    try {
-      const fr = await meili.multiSearch({ queries: facetQueries });
+
+    const hlOf = (idx: string) => {
+      const cfg = (HL_CFG as Record<string, { hl: readonly string[]; crop: readonly string[] }>)[idx];
+      return {
+        attributesToHighlight: [...cfg.hl],
+        attributesToCrop: [...cfg.crop],
+        cropLength: 32,
+        cropMarker: "…",
+        highlightPreTag: HL_PRE,
+        highlightPostTag: HL_POST,
+      };
+    };
+
+    const wanted: TypeKey[] = type ? [type] : [...TYPES];
+    const catFilter = (tp: TypeKey) => {
+      if (!category) return undefined;
+      const field = tp === "prompt" ? "category" : "categorySlug";
+      return `${field} = "${category}"`;
+    };
+    const resultQueries = wanted.map((tp) => ({
+      indexUid: TYPE_CFG[tp].index,
+      q,
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
+      filter: catFilter(tp),
+      ...(sort === "new" ? { sort: ["createdAtTs:desc"] } : {}),
+      showRankingScore: true,
+      ...hlOf(TYPE_CFG[tp].index),
+    }));
+
+    // facet 失败仅不显示计数；结果失败显示错误文案
+    const [fr, rr] = await Promise.all([
+      meili.multiSearch({ queries: facetQueries }).catch(() => null),
+      meili.multiSearch({ queries: resultQueries }).catch((e: any) => {
+        error = t(locale, "search.engineDown", { msg: e?.message || e });
+        return null;
+      }),
+    ]);
+
+    if (fr) {
       TYPES.forEach((tp, i) => {
         const r = (fr.results || [])[i] || {};
         const dist = (r.facetDistribution || {})[TYPE_CFG[tp].facet] || {};
@@ -238,48 +286,9 @@ export default async function SearchPage({
           subs: dist as Record<string, number>,
         };
       });
-    } catch {
-      // 引擎不可用时筛选树仅不显示计数
     }
-  }
-  const facetTotal = TYPES.reduce((n, tp) => n + (facetCounts[tp]?.total || 0), 0);
 
-  // ── 结果查询 ──
-  const hlOf = (idx: string) => {
-    const cfg = (HL_CFG as Record<string, { hl: readonly string[]; crop: readonly string[] }>)[idx];
-    return {
-      attributesToHighlight: [...cfg.hl],
-      attributesToCrop: [...cfg.crop],
-      cropLength: 32,
-      cropMarker: "…",
-      highlightPreTag: HL_PRE,
-      highlightPostTag: HL_POST,
-    };
-  };
-
-  const wanted: TypeKey[] = type ? [type] : [...TYPES];
-  const catFilter = (tp: TypeKey) => {
-    if (!category) return undefined;
-    const field = tp === "prompt" ? "category" : "categorySlug";
-    return `${field} = "${category}"`;
-  };
-
-  let rows: Row[] = [];
-  let total = 0;
-  let error = "";
-  if (q) {
-    try {
-      const resultQueries = wanted.map((tp) => ({
-        indexUid: TYPE_CFG[tp].index,
-        q,
-        limit: pageSize,
-        offset: (page - 1) * pageSize,
-        filter: catFilter(tp),
-        ...(sort === "new" ? { sort: ["createdAtTs:desc"] } : {}),
-        showRankingScore: true,
-        ...hlOf(TYPE_CFG[tp].index),
-      }));
-      const rr = await meili.multiSearch({ queries: resultQueries });
+    if (rr) {
       const merged: (Row & { rank: number })[] = [];
       wanted.forEach((tp, i) => {
         const r = (rr.results || [])[i] || {};
@@ -309,10 +318,9 @@ export default async function SearchPage({
         return (b.ts ?? 0) - (a.ts ?? 0);
       });
       rows = merged.slice(0, pageSize).map(({ rank: _rank, ...row }) => row);
-    } catch (e: any) {
-      error = t(locale, "search.engineDown", { msg: e?.message || e });
     }
   }
+  const facetTotal = TYPES.reduce((n, tp) => n + (facetCounts[tp]?.total || 0), 0);
 
   // 技能/软件的详情链接需要 slug，索引缺失时回查数据库
   const skillIds = rows.filter((r) => r.tp === "skill" && !r.slug).map((r) => r.id);
@@ -334,26 +342,15 @@ export default async function SearchPage({
   return (
     <main className="mx-auto w-full max-w-6xl px-4 pb-16 pt-6 sm:px-6">
       {/* ── HERO：搜索头部 ── */}
-      <section className="relative overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900/70 px-6 py-8 sm:px-10 sm:py-10">
+      <section className="relative mx-auto max-w-5xl overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/70 px-4 py-4 sm:px-6 sm:py-5">
         <div aria-hidden className="pointer-events-none absolute -top-28 -right-20 h-72 w-72 rounded-full bg-emerald-500/25 blur-3xl" />
         <div aria-hidden className="pointer-events-none absolute -bottom-32 -left-16 h-80 w-80 rounded-full bg-royal-400/15 blur-3xl" />
         <div className="relative">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.4em] text-emerald-300/80">
-            {zh ? "站 内 搜 索" : "SITE SEARCH"}
-          </p>
-          <h1 className="mt-3 max-w-3xl break-words text-3xl font-bold leading-tight sm:text-4xl">
-            {q ? (
-              <span className="text-gold-gradient">&ldquo;{q}&rdquo;</span>
-            ) : (
-              <span className="text-gold-gradient">{t(locale, "search.title")}</span>
-            )}
-          </h1>
-
           {/* 搜索框 */}
-          <form action="/search" method="GET" className="mt-6 flex max-w-2xl items-center gap-2 rounded-full border border-zinc-700 bg-zinc-950/80 py-1.5 pl-5 pr-1.5 shadow-[0_10px_40px_-16px_rgba(56,189,248,0.45)] transition focus-within:border-emerald-400/70">
+          <form action="/search" method="GET" className={SEARCH_BAR_FORM_CLASS}>
             {type && <input type="hidden" name="type" value={type} />}
             {category && <input type="hidden" name="category" value={category} />}
-            <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 text-zinc-500" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <svg viewBox="0 0 24 24" className={SEARCH_BAR_ICON_CLASS} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
               <circle cx="11" cy="11" r="7" />
               <path d="m21 21-4.3-4.3" />
             </svg>
@@ -361,11 +358,11 @@ export default async function SearchPage({
               name="q"
               defaultValue={q}
               placeholder={t(locale, "search.placeholder")}
-              className="min-w-0 flex-1 bg-transparent px-2 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
+              className={SEARCH_BAR_INPUT_CLASS}
             />
-            <button type="submit" className="flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-400">
+            <button type="submit" className={SEARCH_BAR_BUTTON_CLASS}>
               {t(locale, "search.button")}
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+              <svg viewBox="0 0 24 24" className={SEARCH_BAR_BUTTON_ICON_CLASS} fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
                 <path d="M5 12h14M13 6l6 6-6 6" />
               </svg>
             </button>
@@ -373,7 +370,7 @@ export default async function SearchPage({
 
           {/* 结果概览 + 已选筛选 + 排序 */}
           {q && (
-            <div className="mt-5 flex flex-wrap items-center gap-2.5">
+            <div className="mt-4 flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-200">
                 {t(locale, "search.results", { n: total })}
               </span>

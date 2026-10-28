@@ -8,6 +8,7 @@ import { skillHref } from "@/lib/skill-link";
 type Cat = { id: number; name: string; slug: string };
 type SkillRow = {
   id: number; slug: string; name: string; summary: string; status: string;
+  featured: boolean;
   viewCount: number; copyCount: number; downloadCount: number; commentCount: number;
   publishedAt: string | null; createdAt: string;
   category: Cat;
@@ -83,6 +84,23 @@ export default function SkillList({ cats }: { cats: Cat[] }) {
     }
   };
 
+  // 精选开关：首页「精选技能展示」只展示 featured=true 的技能
+  const toggleFeatured = async (s: SkillRow) => {
+    try {
+      const r = await fetch(`/api/admin/skills/${s.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ featured: !s.featured }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "操作失败");
+      flash("ok", s.featured ? "已取消精选" : "已设为精选（将展示在首页）");
+      load();
+    } catch (e) {
+      flash("err", (e as Error).message);
+    }
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const statusBadge = (st: string) =>
     st === "published"
@@ -143,7 +161,12 @@ export default function SkillList({ cats }: { cats: Cat[] }) {
             {rows.map((s) => (
               <tr key={s.id} className="hover:bg-zinc-800/30">
                 <td className="px-4 py-3">
-                  <div className="font-medium text-zinc-100">{s.name}</div>
+                  <div className="flex items-center gap-1.5 font-medium text-zinc-100">
+                    {s.featured && (
+                      <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-bold text-emerald-300" title="首页精选展示中">★ 精选</span>
+                    )}
+                    {s.name}
+                  </div>
                   <div className="mt-0.5 max-w-md truncate text-xs text-zinc-500" title={s.summary}>{s.summary}</div>
                 </td>
                 <td className="px-4 py-3 text-zinc-400">{s.category.name}</td>
@@ -154,6 +177,9 @@ export default function SkillList({ cats }: { cats: Cat[] }) {
                 <td className="px-4 py-3 text-right">
                   <a href={skillHref(s.slug, s.id)} target="_blank" rel="noreferrer" className="mr-2 text-zinc-400 hover:underline">预览</a>
                   <Link href={`${ADMIN_BASE}/skills/${s.id}/edit`} className="mr-2 text-sky-400 hover:underline">编辑</Link>
+                  <button type="button" onClick={() => toggleFeatured(s)} className={`mr-2 hover:underline ${s.featured ? "text-amber-400" : "text-zinc-500 hover:text-amber-400"}`}>
+                    {s.featured ? "取消精选" : "设精选"}
+                  </button>
                   {s.status !== "published" && (
                     <button type="button" onClick={() => setSt(s, "published")} className="mr-2 text-emerald-400 hover:underline">发布</button>
                   )}

@@ -14,6 +14,18 @@ type Status = {
   log: string;
 };
 
+// fetch 超时（AbortController）：防止接口异常时页面一直处于"等待"状态
+async function fetchJSON(url: string, init?: RequestInit): Promise<any> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 10000);
+  try {
+    const r = await fetch(url, { ...init, cache: "no-store", signal: ctl.signal });
+    return await r.json().catch(() => null);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export default function MeiliReindexToolbar() {
   const [status, setStatus] = useState<Status | null>(null);
   const [msg, setMsg] = useState("");
@@ -21,8 +33,8 @@ export default function MeiliReindexToolbar() {
 
   const poll = async () => {
     try {
-      const r = await fetch("/api/admin/meili-reindex", { cache: "no-store" });
-      const d: Status = await r.json();
+      const d = await fetchJSON("/api/admin/meili-reindex");
+      if (!d) return; // 超时/失败静默，下一轮再试
       setStatus(d);
       if (!d.running && timer.current) {
         clearInterval(timer.current);
@@ -47,10 +59,13 @@ export default function MeiliReindexToolbar() {
   const start = async () => {
     setMsg("");
     try {
-      const r = await fetch("/api/admin/meili-reindex", { method: "POST" });
-      const d = await r.json();
-      if (!r.ok) {
-        setMsg(d.error || "启动失败");
+      const d = await fetchJSON("/api/admin/meili-reindex", { method: "POST" });
+      if (!d) {
+        setMsg("启动失败：请求超时，请稍后重试");
+        return;
+      }
+      if (d.error) {
+        setMsg(d.error);
         return;
       }
       setMsg("已开始全量重建…");

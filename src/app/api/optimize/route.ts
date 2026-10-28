@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getOptimizerConfig } from "@/lib/settings";
-import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { db } from "@/lib/db";
+import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { getOptimizerConfig } from "@/lib/settings";
+import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
           { role: "user", content: text },
         ],
         temperature: 0.7,
-        max_tokens: 4096,
+        max_tokens: 65536,
         stream: true,
       }),
       signal: AbortSignal.timeout(300000),

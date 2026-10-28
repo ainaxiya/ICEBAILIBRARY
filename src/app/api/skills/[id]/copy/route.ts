@@ -18,10 +18,10 @@ export async function POST(
   const sid = Number(id);
   if (!sid) return NextResponse.json({ error: "bad id" }, { status: 400 });
 
-  const rows = await db.$queryRaw<{ copy_count: number }[]>`
-    UPDATE "Skill" SET copy_count = copy_count + 1
+  const rows = await db.$queryRaw<{ copyCount: number }[]>`
+    UPDATE "Skill" SET "copyCount" = "copyCount" + 1
     WHERE id = ${sid} AND status = 'published'
-    RETURNING copy_count`;
+    RETURNING "copyCount"`;
   if (!rows.length) return NextResponse.json({ error: "not found" }, { status: 404 });
-  return NextResponse.json({ copyCount: rows[0].copy_count });
+  return NextResponse.json({ copyCount: rows[0].copyCount });
 }

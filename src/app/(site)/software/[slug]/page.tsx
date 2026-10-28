@@ -64,19 +64,10 @@ export default async function SoftwareDetail({ params }: { params: Promise<{ slu
 
   // 浏览量 +1：原生 SQL 自增，不触 updatedAt（避免 Meili 重复推送）
   if (soft.status === "published") {
-    db.$executeRaw`UPDATE "Software" SET view_count = view_count + 1 WHERE id = ${soft.id}`.catch(() => {});
+    db.$executeRaw`UPDATE "Software" SET "viewCount" = "viewCount" + 1 WHERE id = ${soft.id}`.catch(() => {});
   }
 
-  // 相关软件：同分类随机 6 条
-  const sameCat = await db.software.findMany({
-    where: { status: "published", id: { not: soft.id }, categoryId: soft.categoryId },
-    select: { id: true, slug: true, name: true, version: true, tagline: true, icon: true, viewCount: true, downloadCount: true },
-    take: 30,
-  });
-  const related = sameCat.sort(() => Math.random() - 0.5).slice(0, 6);
-
-  // 评论
-  const settings = await getSettings();
+  // 相关软件 + 评论设置 + 评论列表/总数：互不依赖，并行发起
   const commentWhere = {
     targetType: "software",
     targetId: soft.id,
@@ -87,7 +78,13 @@ export default async function SoftwareDetail({ params }: { params: Promise<{ slu
     ],
   };
   const likedSelect = user ? { likes: { where: { userId: user.id }, select: { id: true } } } : {};
-  const [rawComments, commentTotal] = await Promise.all([
+  const [sameCat, settings, rawComments, commentTotal] = await Promise.all([
+    db.software.findMany({
+      where: { status: "published", id: { not: soft.id }, categoryId: soft.categoryId },
+      select: { id: true, slug: true, name: true, version: true, tagline: true, icon: true, viewCount: true, downloadCount: true },
+      take: 30,
+    }),
+    getSettings(),
     db.comment.findMany({
       where: commentWhere,
       include: {
@@ -107,6 +104,7 @@ export default async function SoftwareDetail({ params }: { params: Promise<{ slu
     }),
     db.comment.count({ where: commentWhere }),
   ]);
+  const related = sameCat.sort(() => Math.random() - 0.5).slice(0, 6);
   const comments = rawComments.map(serializeComment);
   const commentsClosed = !settings.comment.enabled;
 

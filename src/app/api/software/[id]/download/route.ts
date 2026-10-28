@@ -39,8 +39,8 @@ export async function GET(
   }
 
   // 计数自增（原生 SQL 不触 updatedAt，避免 Meili 重复推送）
-  db.$executeRaw`UPDATE "Software" SET download_count = download_count + 1 WHERE id = ${soft.id}`.catch(() => {});
-  db.$executeRaw`UPDATE "SoftwareDownload" SET download_count = download_count + 1 WHERE id = ${dl.id}`.catch(() => {});
+  db.$executeRaw`UPDATE "Software" SET "downloadCount" = "downloadCount" + 1 WHERE id = ${soft.id}`.catch(() => {});
+  db.$executeRaw`UPDATE "SoftwareDownload" SET "downloadCount" = "downloadCount" + 1 WHERE id = ${dl.id}`.catch(() => {});
 
   if (dl.storageType === "bucket") {
     if (!dl.bucket || !dl.objectKey || !dl.bucket.enabled) {

@@ -80,13 +80,17 @@ const INDEXES = [
       createdAtTs: Math.floor(p.createdAt.getTime() / 1000),
     }),
     alive: (p) => p.status === "published",
-    checkAlive: async (id) => {
-      const r = await db.prompt.findUnique({ where: { id }, select: { status: true } });
-      return !!r && r.status === "published";
+    aliveBatch: async (ids) => {
+      const rows = await db.prompt.findMany({ where: { id: { in: ids } }, select: { id: true, status: true } });
+      return new Set(rows.filter((r) => r.status === "published").map((r) => r.id));
     },
     settings: async (idx) => {
-      await idx.updateFilterableAttributes(["type", "tags", "category", "language"]);
-      await idx.updateSortableAttributes(["likeCount", "viewCount", "createdAtTs"]);
+      await Promise.all([
+        idx.updateFilterableAttributes(["type", "tags", "category", "language"]),
+        idx.updateSortableAttributes(["likeCount", "viewCount", "createdAtTs"]),
+        // 与 reindex-meili.mjs 保持一致：标题/描述优先参与排名，正文兜底
+        idx.updateSearchableAttributes(["title", "description", "tags", "content", "promptCode", "sourceAuthor"]),
+      ]);
     },
   },
   {
@@ -114,13 +118,16 @@ const INDEXES = [
       createdAtTs: Math.floor(s.createdAt.getTime() / 1000),
     }),
     alive: (s) => s.status === "published",
-    checkAlive: async (id) => {
-      const r = await db.skill.findUnique({ where: { id }, select: { status: true } });
-      return !!r && r.status === "published";
+    aliveBatch: async (ids) => {
+      const rows = await db.skill.findMany({ where: { id: { in: ids } }, select: { id: true, status: true } });
+      return new Set(rows.filter((r) => r.status === "published").map((r) => r.id));
     },
     settings: async (idx) => {
-      await idx.updateFilterableAttributes(["tags", "categoryId", "categorySlug", "language"]);
-      await idx.updateSortableAttributes(["viewCount", "copyCount", "createdAtTs"]);
+      await Promise.all([
+        idx.updateFilterableAttributes(["tags", "categoryId", "categorySlug", "language"]),
+        idx.updateSortableAttributes(["viewCount", "copyCount", "createdAtTs"]),
+        idx.updateSearchableAttributes(["name", "summary", "tags", "skillMd"]),
+      ]);
     },
   },
   {
@@ -149,13 +156,16 @@ const INDEXES = [
       createdAtTs: Math.floor(s.createdAt.getTime() / 1000),
     }),
     alive: (s) => s.status === "published",
-    checkAlive: async (id) => {
-      const r = await db.software.findUnique({ where: { id }, select: { status: true } });
-      return !!r && r.status === "published";
+    aliveBatch: async (ids) => {
+      const rows = await db.software.findMany({ where: { id: { in: ids } }, select: { id: true, status: true } });
+      return new Set(rows.filter((r) => r.status === "published").map((r) => r.id));
     },
     settings: async (idx) => {
-      await idx.updateFilterableAttributes(["tags", "categoryId", "categorySlug", "platform"]);
-      await idx.updateSortableAttributes(["viewCount", "downloadCount", "createdAtTs"]);
+      await Promise.all([
+        idx.updateFilterableAttributes(["tags", "categoryId", "categorySlug", "platform"]),
+        idx.updateSortableAttributes(["viewCount", "downloadCount", "createdAtTs"]),
+        idx.updateSearchableAttributes(["name", "tagline", "tags", "description"]),
+      ]);
     },
   },
 ];
@@ -228,6 +238,7 @@ async function tickIndex(ix) {
 }
 
 // ─── 硬删除对账：索引里存在、DB 已不存在（或已下线）的文档清掉 ───
+// 存活检查改为批量查询（1000/批），替代逐条 findUnique，消除 N+1
 async function reconcileIndex(ix) {
   const indexedIds = new Set();
   let offset = 0;
@@ -240,10 +251,14 @@ async function reconcileIndex(ix) {
   }
   if (indexedIds.size === 0) return 0;
 
-  const stale = [];
-  for (const id of indexedIds) {
-    if (!(await ix.checkAlive(id))) stale.push(id);
+  const ids = [...indexedIds];
+  const alive = new Set();
+  for (let i = 0; i < ids.length; i += 1000) {
+    const chunk = ids.slice(i, i + 1000);
+    for (const id of await ix.aliveBatch(chunk)) alive.add(id);
   }
+
+  const stale = ids.filter((id) => !alive.has(id));
   for (let i = 0; i < stale.length; i += 500) {
     await ix.index.deleteDocuments(stale.slice(i, i + 500));
   }

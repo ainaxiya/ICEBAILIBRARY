@@ -116,10 +116,10 @@ curl -X POST "https://meili.qiukuzi.com/dumps" -F "file=@dump.sql"
 ## 8. 项目 .env（服务器版）
 
 ```env
-DATABASE_URL="postgresql://woshizhou:dJKHY8aSRMhPhDhD@127.0.0.1:35432/prompthub"
+DATABASE_URL="postgresql://用户名:数据库密码@127.0.0.1:35432/prompthub"
 JWT_SECRET="生成一个新的随机字符串"
 MEILI_HOST="https://meili.qiukuzi.com"
-MEILI_MASTER_KEY="4a9f8b2c6d8e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e"
+MEILI_MASTER_KEY="xxx****xxx（填你实际生成的 48 位 hex，勿写入文档/仓库）"
 NEXT_PUBLIC_SITE_URL="https://your-domain.com"
 ```
 

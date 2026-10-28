@@ -17,6 +17,10 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     description: site.description,
     keywords: site.keywords,
+    // Bing 站长验证（msvalidate.01）
+    other: {
+      "msvalidate.01": "3C18526CAAF6F9910D2C2C1C841D8F73",
+    },
     icons: {
       icon: site.favicon,
       apple: site.appleIcon,

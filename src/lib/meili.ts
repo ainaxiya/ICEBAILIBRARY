@@ -6,28 +6,6 @@ export const meili = new MeiliSearch({
   apiKey: process.env.MEILI_MASTER_KEY || "",
 });
 
-export async function searchPrompts(
-  q: string,
-  opts: { page?: number; type?: string; category?: string; language?: string; tag?: string; sort?: string } = {}
-) {
-  const index = meili.index("prompts");
-  const page = opts.page || 1;
-  const filter: string[] = [];
-  if (opts.type) filter.push(`type = "${opts.type}"`);
-  if (opts.category) filter.push(`category = "${opts.category}"`);
-  if (opts.language) filter.push(`language = "${opts.language}"`);
-  if (opts.tag) filter.push(`tags = "${opts.tag}"`);
-  const sort: string[] = [];
-  if (opts.sort === "new") sort.push("createdAtTs:desc");
-  const res = await index.search(q, {
-    page,
-    hitsPerPage: 24,
-    filter: filter.length ? filter : undefined,
-    sort: sort.length ? sort : undefined,
-  });
-  return res;
-}
-
 // 把一条 prompt 完整同步进索引（审核通过/后台编辑后调用）
 export async function syncPromptToMeili(p: {
   id: number; title: string; content: string; description: string | null;

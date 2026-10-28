@@ -56,16 +56,19 @@ export async function POST(
   }
 
   const delta = active ? 1 : -1;
-  const updated = await db.prompt.update({
-    where: { id: pid },
-    data: isLike
-      ? { likeCount: { increment: delta } }
-      : { favoriteCount: { increment: delta } },
-    select: { likeCount: true, favoriteCount: true },
-  });
+  // 计数原生 SQL 自增：不触发 updatedAt（前台交互不改内容时间，首页精选排序用热度分）
+  // 列名来自内部 isLike 枚举（非外部输入），值参数化，无注入面
+  const col = isLike ? "likeCount" : "favoriteCount";
+  await db.$executeRawUnsafe(
+    `UPDATE "Prompt" SET "${col}" = "${col}" + $1 WHERE id = $2`,
+    delta,
+    pid
+  ).catch(() => {});
+  // 读取最新计数返回（并发小窗口内可能旧 1，可接受；下一轮展示自动校准）
+  const row = await db.$queryRaw<{ likeCount: number; favoriteCount: number }[]>`
+    SELECT "likeCount", "favoriteCount" FROM "Prompt" WHERE id = ${pid}
+  `;
+  const count = isLike ? row[0]?.likeCount ?? 0 : row[0]?.favoriteCount ?? 0;
 
-  return NextResponse.json({
-    active,
-    count: isLike ? updated.likeCount : updated.favoriteCount,
-  });
+  return NextResponse.json({ active, count });
 }

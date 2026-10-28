@@ -22,6 +22,8 @@ const DEFAULT_SITE = {
   optimizerPrompt: "",
   friendLinks: "",
   meiliSyncSeconds: 30,
+  // 神器滚动文字播放：每行一条宣传语（前端神器区无缝上下滚动）
+  rotatingLines: [] as string[],
 };
 
 // GET /api/admin/settings/site
@@ -59,6 +61,8 @@ const siteSchema = z.object({
   friendLinks: z.string().max(8000).optional(),
   // Meilisearch 自动同步间隔（秒）：0 = 关闭自动同步，仅手动重建索引
   meiliSyncSeconds: z.coerce.number().int().min(0).max(86400).optional(),
+  // 神器滚动文字播放：数组，每条一条；空数组 = 使用默认六条
+  rotatingLines: z.array(z.string().max(200)).max(50).optional(),
 });
 
 // PUT /api/admin/settings/site

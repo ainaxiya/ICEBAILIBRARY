@@ -16,6 +16,8 @@ type SiteData = {
   optimizerPrompt: string;
   friendLinks: string;
   meiliSyncSeconds: number;
+  // 神器滚动文字播放：每行一条宣传语（前端神器区无缝上下滚动）
+  rotatingLines: string; // 表单内用换行分隔的字符串
 };
 
 type SitemapResult = {
@@ -34,8 +36,11 @@ type SitemapRecord = {
   results: SitemapResult[];
 };
 
+// 外部传入的初始值：rotatingLines 为数组（后端持久化格式）
+type SiteInitial = Omit<SiteData, "rotatingLines"> & { rotatingLines: string[] | string };
+
 type Props = {
-  initial: SiteData;
+  initial: SiteInitial;
   sitemapUrl: string;
   lastSitemapSubmit: SitemapRecord | null;
 };
@@ -52,7 +57,13 @@ const UPLOAD_FILES = [
 ];
 
 export default function SiteSettingsForm({ initial, sitemapUrl, lastSitemapSubmit }: Props) {
-  const [f, setF] = useState<SiteData>(initial);
+  // rotatingLines 存储为数组（后端），表单编辑用字符串（每行一条）
+  const [f, setF] = useState<SiteData>({
+    ...initial,
+    rotatingLines: Array.isArray(initial.rotatingLines)
+      ? initial.rotatingLines.join("\n")
+      : String(initial.rotatingLines || ""),
+  });
   const [busy, setBusy] = useState(false);
   const [ok, setOk] = useState(false);
   const [uploading, setUploading] = useState<string | null>(null);
@@ -120,10 +131,18 @@ export default function SiteSettingsForm({ initial, sitemapUrl, lastSitemapSubmi
     const data: SiteData = { ...f, ...override };
     setBusy(true);
     try {
+      // rotatingLines 以 textarea 字符串存储，保存时按行拆分为数组（空→空数组=前端用默认六条）
+      const payload: any = {
+        ...data,
+        rotatingLines: data.rotatingLines
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(Boolean),
+      };
       const r = await fetch("/api/admin/settings/site", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify(payload),
       });
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
@@ -358,6 +377,19 @@ export default function SiteSettingsForm({ initial, sitemapUrl, lastSitemapSubmi
                 {testResult.msg}
               </span>
             )}
+          </div>
+          <div>
+            <label className={labelCls}>神器滚动文字播放</label>
+            <p className="mb-2 text-xs text-zinc-500">
+              首页与神器单页工具区的多条宣传语，将无缝上下滚动展示。每行一条；留空则使用内置默认六条；保存后前台立即生效。
+            </p>
+            <textarea
+              value={f.rotatingLines}
+              onChange={(e) => set("rotatingLines", e.target.value)}
+              rows={6}
+              placeholder={"每行一条宣传语，例如：\n把你的任意大白话瞬间重构为视频 设计 编程 写作 音乐 办公 营销 金融等全行业提示词\n想做AI视频？AI设计？又不懂步骤，直接问神器，神器给你保姆级教学+预算成本"}
+              className={inputCls}
+            />
           </div>
           <div>
             <label className={labelCls}>优化技能文档（System Prompt）</label>

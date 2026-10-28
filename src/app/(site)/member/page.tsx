@@ -28,7 +28,7 @@ export default async function MemberPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login?next=/member");
 
-  const [myPosts, postCount] = await Promise.all([
+  const [myPosts, postCount, viewAgg] = await Promise.all([
     db.prompt.findMany({
       where: { userId: user.id },
       orderBy: { id: "desc" },
@@ -39,6 +39,8 @@ export default async function MemberPage() {
       },
     }),
     db.prompt.count({ where: { userId: user.id } }),
+    // 总浏览统计全部投稿（含第 10 条之后），不依赖列表截断
+    db.prompt.aggregate({ where: { userId: user.id }, _sum: { viewCount: true } }),
   ]);
 
   const stat = (label: string, value: number | string) => (
@@ -79,7 +81,7 @@ export default async function MemberPage() {
       {/* 统计 */}
       <div className="mb-8 grid grid-cols-2 gap-3">
         {stat(t(locale, "member.myPosts"), postCount)}
-        {stat(locale === "zh" ? "总浏览" : "Total views", myPosts.reduce((s, p) => s + p.viewCount, 0))}
+        {stat(locale === "zh" ? "总浏览" : "Total views", viewAgg._sum.viewCount ?? 0)}
       </div>
 
       {/* 我的发布 */}

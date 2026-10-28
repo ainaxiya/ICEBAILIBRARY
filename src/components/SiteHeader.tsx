@@ -4,6 +4,13 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useLocale, translate as t } from "@/lib/i18n-client";
+import {
+  SEARCH_BAR_BUTTON_CLASS,
+  SEARCH_BAR_BUTTON_ICON_CLASS,
+  SEARCH_BAR_FORM_CLASS,
+  SEARCH_BAR_ICON_CLASS,
+  SEARCH_BAR_INPUT_CLASS,
+} from "@/lib/search-bar-style";
 import LanguageSwitcher from "./LanguageSwitcher";
 import UserMenu from "./UserMenu";
 
@@ -127,33 +134,22 @@ export default function SiteHeader({
   };
 
   const searchBox = (big: boolean) => (
-    <form onSubmit={submitSearch} role="search" className={big ? "mx-auto w-full max-w-2xl" : "w-full"}>
-      <div
-        className={`group flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/80 pr-1.5 transition focus-within:border-emerald-500 focus-within:shadow-[0_0_0_3px_rgba(56,189,248,0.18)] ${
-          big ? "px-5 py-2.5" : "px-4 py-2"
-        }`}
-      >
-        <Icon name="search" className={big ? "h-5 w-5 shrink-0 text-zinc-500" : "h-4 w-4 shrink-0 text-zinc-500"} />
-        <input
-          ref={big ? undefined : inputRef}
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder={t(locale, "search.placeholder")}
-          aria-label={t(locale, "search.button")}
-          className={`w-full bg-transparent text-zinc-100 placeholder:text-zinc-500 outline-none ${
-            big ? "text-sm" : "text-sm"
-          }`}
-        />
-        <button
-          type="submit"
-          className={`flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500 font-medium text-zinc-950 transition hover:bg-emerald-400 ${
-            big ? "px-5 py-2 text-sm" : "px-3.5 py-1.5 text-xs"
-          }`}
-        >
-          <Icon name="search" className="h-4 w-4" />
-          <span className="hidden sm:inline">{t(locale, "search.button")}</span>
-        </button>
-      </div>
+    <form onSubmit={submitSearch} role="search" className={SEARCH_BAR_FORM_CLASS}>
+      <Icon name="search" className={SEARCH_BAR_ICON_CLASS} />
+      <input
+        ref={big ? undefined : inputRef}
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder={t(locale, "search.placeholder")}
+        aria-label={t(locale, "search.button")}
+        className={SEARCH_BAR_INPUT_CLASS}
+      />
+      <button type="submit" className={SEARCH_BAR_BUTTON_CLASS}>
+        {t(locale, "search.button")}
+        <svg viewBox="0 0 24 24" className={SEARCH_BAR_BUTTON_ICON_CLASS} fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5 12h14M13 6l6 6-6 6" />
+        </svg>
+      </button>
     </form>
   );
 

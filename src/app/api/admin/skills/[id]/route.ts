@@ -44,6 +44,7 @@ const patchSchema = z.object({
   license: z.string().max(50).nullable().optional(),
   language: z.string().max(10).optional(),
   status: z.enum(["published", "pending", "rejected"]).optional(),
+  featured: z.boolean().optional(),
   viewCount: z.number().int().min(0).max(100_000_000).optional(),
   copyCount: z.number().int().min(0).max(100_000_000).optional(),
   downloadCount: z.number().int().min(0).max(100_000_000).optional(),
@@ -90,6 +91,7 @@ export async function PATCH(
   if (d.license !== undefined) data.license = d.license || null;
   if (d.language !== undefined) data.language = d.language;
   if (d.status !== undefined) data.status = d.status;
+  if (d.featured !== undefined) data.featured = d.featured;
   if (d.viewCount !== undefined) data.viewCount = d.viewCount;
   if (d.copyCount !== undefined) data.copyCount = d.copyCount;
   if (d.downloadCount !== undefined) data.downloadCount = d.downloadCount;

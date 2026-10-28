@@ -37,10 +37,14 @@ export async function GET(req: NextRequest) {
   const pageSize = [50, 100, 200, 500].includes(rawSize) ? rawSize : 100;
   const q = (searchParams.get("q") || "").trim().toLowerCase();
 
-  // 聚合所有提示词的 tags 及关联数量
-  const rows = await db.prompt.findMany({ select: { tags: true } });
+  // 聚合所有提示词的 tags 及关联数量：下推到数据库，避免全表行传输
+  const rows = await db.$queryRaw<{ name: string; count: number }[]>`
+    SELECT t AS name, COUNT(*)::int AS count
+    FROM "Prompt", unnest("tags") AS t
+    GROUP BY t
+  `;
   const counts = new Map<string, number>();
-  rows.forEach((r) => r.tags.forEach((t) => counts.set(t, (counts.get(t) || 0) + 1)));
+  rows.forEach((r) => counts.set(r.name, r.count));
 
   const presets = await getPresets();
   presets.forEach((t) => {

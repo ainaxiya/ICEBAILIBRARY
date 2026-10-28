@@ -21,6 +21,7 @@ const DEFAULT_SITE = {
   optimizerPrompt: "",
   friendLinks: "",
   meiliSyncSeconds: 30,
+  rotatingLines: [] as string[],
 };
 
 type SitemapSubmitRecord = {

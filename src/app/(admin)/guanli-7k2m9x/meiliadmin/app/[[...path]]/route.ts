@@ -93,6 +93,12 @@ async function serveStatic(rel: string[]) {
 }
 
 async function handler(req: NextRequest, segs: string[]) {
+  // 静态资源（css/js/字体等）无敏感数据，公开提供——iframe 内加载失败会白屏转圈，
+  // 且不应受登录态/第三方 cookie 影响
+  if (segs[0] === "assets") {
+    return serveStatic(segs);
+  }
+
   const admin = await requireAdmin();
   if (!admin) {
     // 相对 Location：反代后 req.url 是内部地址（localhost:3000），不能作为重定向基址
@@ -102,9 +108,6 @@ async function handler(req: NextRequest, segs: string[]) {
     });
   }
 
-  if (segs[0] === "assets") {
-    return serveStatic(segs);
-  }
   // SPA 入口 / Ember 路由回退
   try {
     const html = await readFile(path.join(DIST, "index.html"), "utf8");

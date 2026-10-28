@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function SiteLayout({ children }: { children: React.ReactNode }) {
   const site = await getPublicSite();
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="site-theme flex min-h-screen flex-col">
       <SiteHeader siteName={site.siteName} logoIcon={site.logoIcon || undefined} />
       {/* pb-24：为手机端底部 Tab 栏（52px + 安全区）预留空间，md 起 Tab 隐藏恢复常规 */}
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-24 pt-8 md:pb-8">{children}</main>

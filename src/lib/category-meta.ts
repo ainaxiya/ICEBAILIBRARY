@@ -141,6 +141,36 @@ export const CATEGORY_META: Record<string, CategoryMeta> = {
     name: { zh: "其他", en: "Other" },
     desc: { zh: "其他类型提示词", en: "Miscellaneous prompts" },
   },
+  life: {
+    icon: "agent",
+    bg: "bg-emerald-500/15",
+    fg: "text-emerald-300",
+    name: { zh: "人生管理", en: "Life & Growth" },
+    desc: {
+      zh: "习惯养成、时间管理、目标计划、自我提升等个人成长提示词",
+      en: "Habits, time management, goals and personal growth prompts",
+    },
+  },
+  content: {
+    icon: "video",
+    bg: "bg-pink-500/15",
+    fg: "text-pink-300",
+    name: { zh: "内容创作", en: "Content Creation" },
+    desc: {
+      zh: "自媒体运营、账号定位、选题策划、直播话术等创作运营提示词",
+      en: "Self-media, content strategy and creator operation prompts",
+    },
+  },
+  edu: {
+    icon: "office",
+    bg: "bg-blue-500/15",
+    fg: "text-blue-300",
+    name: { zh: "教育学习", en: "Education" },
+    desc: {
+      zh: "教学设计、课程辅导、语言学习、科普讲解等教育学习提示词",
+      en: "Teaching, tutoring, language learning and education prompts",
+    },
+  },
   pj: {
     icon: "security",
     bg: "bg-purple-500/15",

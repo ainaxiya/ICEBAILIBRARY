@@ -34,13 +34,15 @@ function serializeComment(c: any): CommentData {
 }
 
 // slug 允许重复：优先精确 slug 匹配（兼容旧链接，同 slug 取最新），
-// 其次解析 `slug-id` 形式按 id 精确定位
+// 其次解析 `slug-id` 形式按 id 精确定位；一次性带出详情页所需 category
+const SKILL_INCLUDE = { category: { select: { name: true, nameEn: true, slug: true } } } as const;
+
 async function resolveSkill(param: string) {
-  const bySlug = await db.skill.findFirst({ where: { slug: param }, orderBy: { id: "desc" } });
+  const bySlug = await db.skill.findFirst({ where: { slug: param }, orderBy: { id: "desc" }, include: SKILL_INCLUDE });
   if (bySlug) return bySlug;
   const m = param.match(/^(.+)-(\d+)$/);
   if (m) {
-    const byId = await db.skill.findUnique({ where: { id: Number(m[2]) } });
+    const byId = await db.skill.findUnique({ where: { id: Number(m[2]) }, include: SKILL_INCLUDE });
     if (byId && byId.slug === m[1]) return byId;
   }
   return null;
@@ -63,36 +65,22 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 export default async function SkillDetail({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const locale = await getServerLocale();
-  const [base, admin, user] = await Promise.all([
+  const [skill, admin, user] = await Promise.all([
     resolveSkill(slug),
     getCurrentAdmin(),
     getCurrentUser(),
   ]);
-  if (!base) notFound();
-  const skill = await db.skill.findUnique({
-    where: { id: base.id },
-    include: { category: { select: { name: true, nameEn: true, slug: true } } },
-  });
   if (!skill) notFound();
   if (skill.status !== "published" && !admin) notFound();
 
   // 浏览量 +1：原生 SQL 自增，不触 updatedAt（避免 Meili 重复推送）
   if (skill.status === "published") {
-    db.$executeRaw`UPDATE "Skill" SET view_count = view_count + 1 WHERE id = ${skill.id}`.catch(() => {});
+    db.$executeRaw`UPDATE "Skill" SET "viewCount" = "viewCount" + 1 WHERE id = ${skill.id}`.catch(() => {});
   }
 
   const files = (Array.isArray(skill.files) ? skill.files : []) as unknown as FileEntry[];
 
-  // 相关技能：同分类随机 6 条
-  const sameCat = await db.skill.findMany({
-    where: { status: "published", id: { not: skill.id }, categoryId: skill.categoryId },
-    select: { id: true, slug: true, name: true, summary: true, viewCount: true, copyCount: true },
-    take: 30,
-  });
-  const related = sameCat.sort(() => Math.random() - 0.5).slice(0, 6);
-
-  // 评论
-  const settings = await getSettings();
+  // 相关技能 + 评论设置 + 评论列表/总数：互不依赖，并行发起
   const commentWhere = {
     targetType: "skill",
     targetId: skill.id,
@@ -103,7 +91,13 @@ export default async function SkillDetail({ params }: { params: Promise<{ slug: 
     ],
   };
   const likedSelect = user ? { likes: { where: { userId: user.id }, select: { id: true } } } : {};
-  const [rawComments, commentTotal] = await Promise.all([
+  const [sameCat, settings, rawComments, commentTotal] = await Promise.all([
+    db.skill.findMany({
+      where: { status: "published", id: { not: skill.id }, categoryId: skill.categoryId },
+      select: { id: true, slug: true, name: true, summary: true, viewCount: true, copyCount: true },
+      take: 30,
+    }),
+    getSettings(),
     db.comment.findMany({
       where: commentWhere,
       include: {
@@ -123,6 +117,7 @@ export default async function SkillDetail({ params }: { params: Promise<{ slug: 
     }),
     db.comment.count({ where: commentWhere }),
   ]);
+  const related = sameCat.sort(() => Math.random() - 0.5).slice(0, 6);
   const comments = rawComments.map(serializeComment);
   const commentsClosed = !settings.comment.enabled;
 

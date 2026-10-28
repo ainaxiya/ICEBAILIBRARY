@@ -35,14 +35,18 @@ export async function getCommentTarget(targetType: string, targetId: number) {
 }
 
 // 评论计数通用增减（在事务内调用；目标表必须存在 commentCount 列）
+// 原生 SQL 自增：不触发 @updatedAt（前台评论不应改变内容更新时间的语义；后台编辑才更新）
 export async function bumpCommentCount(
   tx: any,
   targetType: string,
   targetId: number,
   delta: 1 | -1
 ) {
-  const data = { commentCount: delta > 0 ? { increment: 1 } : { decrement: 1 } };
-  if (targetType === "prompt") await tx.prompt.update({ where: { id: targetId }, data });
-  else if (targetType === "skill") await tx.skill.update({ where: { id: targetId }, data });
-  else if (targetType === "software") await tx.software.update({ where: { id: targetId }, data });
+  const table = targetType === "prompt" ? "Prompt" : targetType === "skill" ? "Skill" : "Software";
+  const inc = delta > 0 ? 1 : -1;
+  await tx.$executeRawUnsafe(
+    `UPDATE "${table}" SET "commentCount" = "commentCount" + $1 WHERE id = $2`,
+    inc,
+    targetId
+  );
 }

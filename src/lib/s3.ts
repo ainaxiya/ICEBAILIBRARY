@@ -31,13 +31,22 @@ export function bucketToConfig(b: StorageBucket): BucketConfig {
   };
 }
 
+// S3Client 幂等可复用：按桶维度缓存，避免预签名/下载等高频路径重复建连
+const s3Cache = new Map<string, S3Client>();
+
 export function makeS3(cfg: BucketConfig): S3Client {
-  return new S3Client({
+  // secretKey 一并入 key：凭证轮换后不沿用旧客户端
+  const key = `${cfg.endpoint}|${cfg.region}|${cfg.bucket}|${cfg.accessKey}|${cfg.secretKey}`;
+  const cached = s3Cache.get(key);
+  if (cached) return cached;
+  const client = new S3Client({
     endpoint: cfg.endpoint,
     region: cfg.region,
     credentials: { accessKeyId: cfg.accessKey, secretAccessKey: cfg.secretKey },
     forcePathStyle: true, // MinIO 必须 path-style；S3 兼容
   });
+  s3Cache.set(key, client);
+  return client;
 }
 
 // 测试连接：HeadBucket + 列前 5 个对象
