@@ -23,6 +23,7 @@ export default function SoftwareList({ cats }: { cats: Cat[] }) {
   const [categoryId, setCategoryId] = useState("");
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const pageSize = 30;
 
   const flash = (kind: "ok" | "err", text: string) => {
@@ -83,6 +84,50 @@ export default function SoftwareList({ cats }: { cats: Cat[] }) {
     }
   };
 
+  const toggleSelect = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (selected.size === rows.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(rows.map((r) => r.id)));
+    }
+  };
+
+  const batchAction = async (action: string) => {
+    if (selected.size === 0) return;
+    const labels: Record<string, string> = {
+      publish: "发布",
+      unpublish: "下线",
+      delete: "删除",
+    };
+    if (action === "delete") {
+      if (!confirm(`确认批量${labels[action]}选中的 ${selected.size} 个软件？此操作不可恢复。`)) return;
+    } else {
+      if (!confirm(`确认对选中的 ${selected.size} 个软件执行「${labels[action]}」？`)) return;
+    }
+    const r = await fetch("/api/admin/software/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: [...selected], action }),
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      flash("err", d.error || "批量操作失败");
+      return;
+    }
+    setSelected(new Set());
+    flash("ok", `已${labels[action]} ${selected.size} 个软件`);
+    load();
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const statusBadge = (st: string) =>
     st === "published"
@@ -122,10 +167,43 @@ export default function SoftwareList({ cats }: { cats: Cat[] }) {
         <span className="ml-auto text-xs text-zinc-500">共 {total} 条</span>
       </div>
 
+      {/* 批量操作栏 */}
+      {selected.size > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-indigo-700/50 bg-indigo-950/40 px-4 py-2.5">
+          <span className="text-sm text-indigo-300">已选 {selected.size} 项</span>
+          <div className="mx-2 h-4 w-px bg-zinc-700" />
+          <button type="button" onClick={() => batchAction("publish")}
+            className="rounded bg-emerald-700 px-2.5 py-1 text-xs text-white hover:bg-emerald-600">
+            发布
+          </button>
+          <button type="button" onClick={() => batchAction("unpublish")}
+            className="rounded bg-zinc-700 px-2.5 py-1 text-xs text-zinc-200 hover:bg-zinc-600">
+            下线
+          </button>
+          <button type="button" onClick={() => batchAction("delete")}
+            className="rounded bg-rose-600 px-2.5 py-1 text-xs text-white hover:bg-rose-500">
+            删除
+          </button>
+          <button type="button" onClick={() => setSelected(new Set())}
+            className="ml-auto text-xs text-zinc-400 hover:text-zinc-200">
+            取消选择
+          </button>
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/40">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-zinc-800 text-left text-xs text-zinc-500">
+              <th className="w-8 px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={rows.length > 0 && selected.size === rows.length}
+                  ref={(el) => { if (el) el.indeterminate = selected.size > 0 && selected.size < rows.length; }}
+                  onChange={toggleAll}
+                  className="accent-indigo-500"
+                />
+              </th>
               <th className="px-4 py-3">软件</th>
               <th className="px-4 py-3 w-28">分类</th>
               <th className="px-4 py-3 w-20">状态</th>
@@ -135,13 +213,21 @@ export default function SoftwareList({ cats }: { cats: Cat[] }) {
           </thead>
           <tbody className="divide-y divide-zinc-800/70">
             {!loading && rows.length === 0 && (
-              <tr><td colSpan={5} className="px-4 py-10 text-center text-zinc-600">暂无软件，点击右上角「新增软件」</td></tr>
+              <tr><td colSpan={6} className="px-4 py-10 text-center text-zinc-600">暂无软件，点击右上角「新增软件」</td></tr>
             )}
             {loading && (
-              <tr><td colSpan={5} className="px-4 py-10 text-center text-zinc-600">加载中…</td></tr>
+              <tr><td colSpan={6} className="px-4 py-10 text-center text-zinc-600">加载中…</td></tr>
             )}
             {rows.map((s) => (
               <tr key={s.id} className="hover:bg-zinc-800/30">
+                <td className="px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(s.id)}
+                    onChange={() => toggleSelect(s.id)}
+                    className="accent-indigo-500"
+                  />
+                </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2.5">
                     {s.icon ? (
