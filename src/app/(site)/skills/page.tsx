@@ -80,12 +80,12 @@ export default async function SkillsPage({ searchParams }: { searchParams: Searc
 
   return (
     <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-      {/* 左侧：分类侧栏（桌面） / 顶部横向滚动（手机） */}
-      <aside className="w-full shrink-0 lg:w-52">
+      {/* 左侧：分类侧栏（桌面端 sticky 跟随滚动） / 顶部横向滚动（手机） */}
+      <aside className="w-full shrink-0 lg:sticky lg:top-20 lg:w-52">
         <h2 className="mb-3 hidden text-sm font-medium text-zinc-400 lg:block">
           {locale === "zh" ? "技能分类" : "Categories"}
         </h2>
-        <div className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
+        <div className="flex gap-2 overflow-x-auto pb-1 lg:max-h-[calc(100vh-7rem)] lg:flex-col lg:overflow-x-visible lg:overflow-y-auto lg:pb-0">
           <Link
             href="/skills"
             className={`shrink-0 inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm transition ${!cat ? "bg-gradient-to-r from-emerald-500 to-teal-500 font-medium text-white shadow-lg shadow-emerald-600/25" : "bg-zinc-800/70 text-zinc-300 hover:bg-zinc-700"}`}
@@ -197,8 +197,8 @@ export default async function SkillsPage({ searchParams }: { searchParams: Searc
                     </span>
                   </div>
 
-                  {/* 大按钮 */}
-                  <span className="mt-2.5 flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-600/25 transition group-hover:brightness-110">
+                  {/* 大按钮（#2563eb 蓝渐变） */}
+                  <span className="mt-2.5 flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-[#2563eb] to-[#3b82f6] py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition group-hover:brightness-110">
                     {locale === "zh" ? "使用技能" : "Use Skill"} →
                   </span>
                 </Link>

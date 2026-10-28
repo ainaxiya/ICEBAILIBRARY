@@ -65,7 +65,7 @@ export default function PromptCard({
           <Placeholder />
         )}
         {p.featured && (
-          <span className="absolute right-2 top-2 rounded-md bg-emerald-500/95 px-1.5 py-0.5 text-[10px] font-bold text-zinc-950 shadow-[0_2px_10px_rgba(34,211,238,0.5)]">
+          <span className="absolute right-2 top-2 rounded-md bg-[#bf360c] px-1.5 py-0.5 text-[10px] font-bold text-white shadow-[0_2px_10px_rgba(191,54,12,0.45)]">
             ★ 精选
           </span>
         )}
