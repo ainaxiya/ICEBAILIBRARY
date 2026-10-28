@@ -264,17 +264,11 @@ export default async function SkillDetail({ params }: { params: Promise<{ slug: 
             </section>
           )}
 
-          {/* 来源 */}
+          {/* 来源（纯文字，不带超链接） */}
           {(skill.sourceUrl || skill.sourceSite) && (
             <section className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-sm text-zinc-400">
               <span className="text-zinc-500">{locale === "zh" ? "来源：" : "Source: "}</span>
-              {skill.sourceUrl ? (
-                <a href={skill.sourceUrl} target="_blank" rel="noopener nofollow" className="text-emerald-400 hover:underline">
-                  {skill.sourceSite || skill.sourceUrl}
-                </a>
-              ) : (
-                skill.sourceSite
-              )}
+              {skill.sourceSite || skill.sourceUrl}
             </section>
           )}
 
