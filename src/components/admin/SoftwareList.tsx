@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ADMIN_BASE } from "@/lib/admin-path";
+import Pagination from "@/components/Pagination";
 
 type Cat = { id: number; name: string; slug: string };
 type SoftRow = {
@@ -266,13 +267,7 @@ export default function SoftwareList({ cats }: { cats: Cat[] }) {
         </table>
       </div>
 
-      {totalPages > 1 && (
-        <div className="mt-4 flex items-center gap-2 text-sm">
-          <button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded border border-zinc-700 px-2.5 py-1 disabled:opacity-40">上一页</button>
-          <span className="text-zinc-500">{page} / {totalPages}</span>
-          <button type="button" disabled={page >= totalPages} onClick={() => setPage(page + 1)} className="rounded border border-zinc-700 px-2.5 py-1 disabled:opacity-40">下一页</button>
-        </div>
-      )}
+      <Pagination page={page} totalPages={totalPages} onPage={setPage} />
     </div>
   );
 }
