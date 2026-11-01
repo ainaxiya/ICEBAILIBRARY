@@ -1,4 +1,4 @@
-# 冰山AI资料库 Iceberg AI Library（v0.85）
+# 冰山AI资料库 Iceberg AI Library（v0.90）
 
 原「完整提示词 CompletePrompt」升级版。收集、分享、发现优质 AI 提示词 / AI 技能 / AI 软件的资料库网站。内置 20000+ 条真实创作过程提示词（图片/视频/音频/文本）与 600+ 条 AI 技能（SKILL.md），其中大量条目含与提示词分段精确对应的实拍效果图与视频截图，全部本地化存储。
 
@@ -21,6 +21,9 @@
 - **用户系统**：注册登录（独立 JWT，HttpOnly Cookie）、个人中心、发布提示词；注册字段后台可配
 - **评论系统**：两级嵌套回复、评论点赞、限频验证码防刷、敏感词屏蔽、单篇关评；评论通用化支持提示词/技能/软件
 - **会员体系**：free / Pro / VIP 三级，权益与价格后台可配置；软件下载可设会员专享
+- **会员积分与聚合网关（v0.90）**：整数积分计费（ceil 取整、预扣/结算/封顶退补），OpenAI 兼容聚合网关 `/v1/chat/completions`（SSE 流式透传）与 `/v1/images/generations`，站内会员与 `sk-` API Key 双通道鉴权；充值（积分包/会员订阅/支付单）、用量明细、生成产物转存（默认桶 30 天生命周期）
+- **用户中心（v0.90）**：余额/充值/积分流水/用量记录/生成资产/消息工单/API Key 管理六大板块
+- **站务单页（v0.90）**：帮助/关于/联系/服务条款/隐私政策 5 单页 + API 文档页，后台可视化编辑，Footer 三列导航
 - **响应式**：PC / 平板 / 手机三档自适应；手机端底部 Tab 导航，适配 iPhone 安全区
 - **页脚友情链接**：后台配置，前台 copyright 上方一排小字展示
 
@@ -33,6 +36,8 @@
 - 网站设置：站点信息 / SEO 关键字 / 页脚文字 / LOGO 与图标上传 / 神器·全能提示词优化器（DeepSeek API Key + 连接测试 + 优化技能文档可编辑）/ 友情链接 / Meili 同步间隔
 - **Sitemaps 提交**：设置页一键把 `sitemap.xml` 推送给搜索引擎，提交前自动自检 sitemap 可达性与 URL 条数，记录提交时间与各引擎 HTTP 状态（Google / Bing 官方已停止 ping 接口，页内附 Search Console 直达入口）
 - **搜索管理**：内嵌 Meiliadmin v1.4.0（`/guanli-7k2m9x/meiliadmin`），Tag 标签管理下方直达，免登录预认证进入索引 / 任务 / 密钥 / 转储管理；API 走同源代理由服务端注入鉴权头，Master Key 不下发浏览器
+- **模型库管理（v0.90）**：厂商 → 厂商 Key → 模型 → 端点四级结构，Key 密文存储（`enc:v1:` AES-GCM）明文只进不出，Key-模型绑定（优先级/权重路由、失败降级换 Key ≤3 次），调价历史（fxRateE8 / multiplierBps / meterBase 成本换算）
+- **运营完善（v0.90）**：用量成本报表、积分包配置、消息群发/工单、支付渠道配置（微信/支付宝/自定义/Stripe/加密货币 adapter）、运营告警看板、站点单页编辑
 
 ## 一键采集
 
@@ -87,6 +92,19 @@ pm2 start ecosystem.config.cjs
 - 部署后 `chown -R www:www public/uploads`（PM2 以 www 用户运行）
 
 ## 更新日志
+
+### v0.90
+
+> 依据《CompletePrompt 会员订阅额度与聚合网关方案 v2.4》P0~P6 分期落地，**全部本地开发完成、暂未部署上线**（commit `ebcc548`）。
+
+- **P0 站务改版**：Footer 三列（产品目录/支持/法律）+ 中英 i18n；帮助/关于/联系/服务条款/隐私政策 5 单页（后台 SitePage 可视化编辑、进 sitemap）+ API 文档页 `/api-docs`
+- **P1 原生网关底座**：`/v1/chat/completions` OpenAI 兼容 SSE 流式透传、`/v1/images/generations`；key_model_binding 优先级/权重路由、失败降级换 Key（≤3 次）；usage_record 计量入库；站内会员 / `sk-` API Key 统一鉴权
+- **P2 会员积分闭环**：整数积分计费（`src/lib/credits.ts`，BigInt、ceil 取整、流水幂等）——预扣/结算退差/补扣封顶 est×3/失败整数退回；<200 积分禁生图/生视频；CreditPack/CreditGrant/CreditLedger/PayOrder/MemberPlan/UserSubscription 表；支付 5 通道 adapter（微信/支付宝/自定义/Stripe/加密货币 stub）
+- **P3 模型库管理**：AiVendor → VendorApiKey → AiModel → ModelEndpoint 四级 + KeyModelBinding + ModelPricing 调价历史；后台模型库页与用量成本报表（成本毫积分换算：计量值×单价×fxRateE8/1e8×100积分/元×1000毫/积分÷meterBase，标价=ceil(成本×multiplierBps)）
+- **P4 用户中心**：会员中心 6 Tab（余额/充值/用量/资产/消息工单/API Key）+ 充值页 + 消息中心；导航栏未读消息数
+- **P5 站外双通道**：API Key 管理（`sk-` 生成/sha256 存储/明文一次性展示）、图/视频 adapter（同步/异步任务两模式）、生成产物转存默认桶（`generated/{uid}/` 路径、30 天生命周期、签名 URL 私有读）
+- **P6 运营完善**：运营告警（OperationalAlert）、消息群发、发票/工单处理、PRO 权益开关；站点单页后台编辑
+- 版本号升级 `v0.90`（`src/lib/version.ts`）/ `0.90.0`（package.json）；`npm run build` 全量通过
 
 ### v0.85
 

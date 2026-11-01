@@ -1,8 +1,8 @@
-# 数据库结构文档（v0.85）
+# 数据库结构文档（v0.90）
 
 > 与 `prisma/schema.prisma` 同步（PostgreSQL，Prisma 6 `db push` 无 migrations）。
 > 连接：`127.0.0.1:35432`（Docker 容器 postgresql_18_kpJt 端口映射），库名 `prompthub`。
-> 更新时间：2026-10-23（v0.85 发布）
+> 更新时间：2026-11-02（v0.90 会员积分与聚合网关系统落地）
 
 ## 表总览
 
@@ -23,6 +23,15 @@
 | SoftwareCategory / Software / SoftwareDownload | AI 软件三件套 |
 | StorageBucket | 对象存储桶（MinIO / S3，SecretKey AES-256-GCM 加密） |
 | OptimizerLog | 神器·全能提示词优化器使用记录（v0.85） |
+| SitePage | 站务单页（help/about/contact/terms/privacy 固定白名单，v0.90） |
+| AiVendor / VendorApiKey / AiModel / ModelEndpoint | 模型库四级结构：厂商 → 厂商 Key（密文）→ 模型 → 端点（v0.90） |
+| KeyModelBinding / ModelPricing | Key-模型路由绑定（优先级/权重）与调价历史（v0.90） |
+| UsageRecord | 网关调用日志（requestId 幂等，costMilli 毫积分 + paidCredits 整数积分，v0.90） |
+| CreditPack / CreditGrant / CreditLedger | 积分包 / 积分授予（余额真源）/ 积分流水（只增，v0.90） |
+| PayOrder / MemberPlan / UserSubscription | 充值订单 / 订阅计划 / 用户订阅（后两者表就绪暂不售卖，v0.90） |
+| UserMessage / GeneratedAsset | 消息·工单（双向会话）/ 生成资产（30 天过期，v0.90） |
+| UserApiKey | 站外会员 API Key（sha256 存储，明文一次性，v0.90） |
+| OperationalAlert | 运营告警（积分池余额/毛利/单用户异常消耗，v0.90） |
 
 ## 核心表字段
 
@@ -83,6 +92,38 @@
 - **不关联用户账号**（登录会员也不记录账号），仅供后台「优化器使用记录」页查看
 - 后台列表 20 条/页，`createdAt desc` 排序；索引 `(createdAt)`
 - 写入为 fire-and-forget（`.catch(()=>{})`），不阻塞优化响应
+
+## v0.90 新增表（会员积分与聚合网关）
+
+### SitePage（站务单页）
+- `slug` 主键固定白名单：help / about / contact / terms / privacy；`content` 富文本 HTML（sanitize 净化），后台可视化编辑
+
+### AiVendor / VendorApiKey / AiModel / ModelEndpoint（模型库四级）
+- AiVendor：`slug` 标识、`apiBase` 上游地址、`protocol`(openai)、`status`(online|deprecated|offline)
+- VendorApiKey：`keyCipher` 密文（`enc:v1:iv:tag:cipher`）**不回显**，`keyPrefix` 明文前缀仅识别用
+- AiModel：`@@unique([vendorId, name])`，`endpointType`(chat|image|video|audio)；ModelEndpoint：`path` + `@@unique([modelId, path])`
+
+### KeyModelBinding / ModelPricing（路由与计费真源）
+- KeyModelBinding：`@@unique([apiKeyId, modelId])`，路由按 `priority` 小值优先、同级按 `weight`，失败降级换 Key ≤3 次
+- ModelPricing 调价历史：多行按 `effectiveAt` 取最新生效；成本换算（毫积分）= 计量值×单价×`fxRateE8`/1e8×100积分/元×1000毫/积分÷`meterBase`，标价 = ceil(成本×`multiplierBps`/10000)
+
+### UsageRecord（网关调用日志）
+- `requestId` 唯一幂等；`costMilli` 内部成本（毫积分，毛利报表）、`paidCredits` 用户实扣整数积分（ceil 最低 1 分）
+- `channel`(onsite|apikey)、`modelSnapshot` 调用时点模型名快照、`status`(success|failed|blocked)
+
+### CreditPack / CreditGrant / CreditLedger / PayOrder（积分闭环）
+- CreditGrant 为**余额真源**：余额 = 有效 grant 的 `remainingCredits` 之和；`@@unique([userId, grantType, sourceRef])` 幂等；消费按 `expiresAt` 先过期先扣（NULLS LAST）
+- CreditLedger 只增不改，`requestId` 唯一幂等；`changeAmount` 正=入账负=扣减，`reason`(grant|consume|refund|admin_adjust)
+- PayOrder：`orderNo` 对外幂等、`providerEventId` 回调幂等、`channel`(wechat|alipay|custom|stripe|crypto)、`amountCents` 人民币分
+- 计费语义（`src/lib/gateway/billing.ts`）：预扣 est → 结算退差/补扣（总扣分封顶 est×3）→ 失败整数退回；<200 积分禁生图/生视频
+
+### MemberPlan / UserSubscription（订阅，表就绪暂不售卖）
+
+### UserMessage / GeneratedAsset / UserApiKey / OperationalAlert（用户中心与运营）
+- UserMessage 双向合一：`direction`(user_to_admin|admin_to_user)、会话 = 根消息 + `replyToId` 回复串、`ticketStatus` 维护在根消息（open|replied|closed）、`batchId` 群发批次、`readAt` 未读判定
+- GeneratedAsset：`status`(temp|deleted)、`expireAt` 默认创建后 30 天、转存路径 `generated/{uid}/{yymm}/{uuid}.{ext}`，`sourceUrl` 仅转存失败留存供重试
+- UserApiKey：明文 `sk-` 创建时一次性返回，库内只存 `keyHash`(sha256 unique) + `keyPrefix`
+- OperationalAlert：`alertType`(credit_pool|gross_margin|user_burst)、`payload` 巡检快照 JSON、`ackAt` 确认标记
 
 ## 设计约定
 
