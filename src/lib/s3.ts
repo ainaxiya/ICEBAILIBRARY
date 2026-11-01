@@ -77,3 +77,21 @@ export async function deleteObject(cfg: BucketConfig, key: string): Promise<void
   const s3 = makeS3(cfg);
   await s3.send(new DeleteObjectCommand({ Bucket: cfg.bucket, Key: key }));
 }
+
+// 服务端直传（生成产物转存等服务端写入场景）
+export async function putObject(
+  cfg: BucketConfig,
+  key: string,
+  body: Buffer | Uint8Array,
+  contentType: string
+): Promise<void> {
+  const s3 = makeS3(cfg);
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: cfg.bucket,
+      Key: key,
+      Body: body,
+      ContentType: contentType,
+    })
+  );
+}

@@ -26,6 +26,10 @@ export const PERMISSIONS = {
   LOG_READ: "log:read",
   SETTING_READ: "setting:read",
   SETTING_WRITE: "setting:write",
+  // P3 模型库管理（厂商/Key/模型/定价/绑定）与消费报表
+  MODELS_READ: "models:read",
+  MODELS_WRITE: "models:write",
+  REPORT_READ: "report:read",
 } as const;
 
 export const ALL_PERMISSIONS = Object.values(PERMISSIONS);
@@ -41,6 +45,8 @@ export const PERMISSION_GROUPS = [
   { label: "软件管理", perms: ["software:manage"] },
   { label: "存储桶管理", perms: ["storage:manage"] },
   { label: "优化器使用记录", perms: ["optimizerlog:read"] },
+  { label: "模型库管理", perms: ["models:read", "models:write"] },
+  { label: "消费报表", perms: ["report:read"] },
   { label: "操作日志", perms: ["log:read"] },
   { label: "站点设置", perms: ["setting:read", "setting:write"] },
 ];

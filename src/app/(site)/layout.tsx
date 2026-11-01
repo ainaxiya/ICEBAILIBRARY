@@ -2,7 +2,10 @@ import Link from "next/link";
 import Script from "next/script";
 import SiteHeader from "@/components/SiteHeader";
 import MobileTabBar from "@/components/MobileTabBar";
+import { db } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth";
 import { getPublicSite } from "@/lib/settings";
+import { getServerLocale, translate as t } from "@/lib/i18n";
 import { APP_VERSION } from "@/lib/version";
 
 export const dynamic = "force-dynamic";
@@ -10,9 +13,17 @@ export const dynamic = "force-dynamic";
 // 前台布局：导航 + 主内容 + 页脚（后台不走此布局）
 export default async function SiteLayout({ children }: { children: React.ReactNode }) {
   const site = await getPublicSite();
+  const locale = await getServerLocale();
+  // P4 导航消息入口：登录用户查未读数（管理员发来的消息），未登录不显示
+  const currentUser = await getCurrentUser();
+  const messageUnread = currentUser
+    ? await db.userMessage.count({
+        where: { userId: currentUser.id, direction: "admin_to_user", readAt: null },
+      })
+    : null;
   return (
     <div className="site-theme flex min-h-screen flex-col">
-      <SiteHeader siteName={site.siteName} logoIcon={site.logoIcon || undefined} />
+      <SiteHeader siteName={site.siteName} logoIcon={site.logoIcon || undefined} messageUnread={messageUnread} />
       {/* pb-24：为手机端底部 Tab 栏（52px + 安全区）预留空间，md 起 Tab 隐藏恢复常规 */}
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-24 pt-8 md:pb-8">{children}</main>
 
@@ -38,25 +49,83 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
               <p className="mt-2 text-xs tracking-wider text-zinc-600">ICEBERG AI {APP_VERSION}</p>
             </div>
 
-            <nav className="grid grid-cols-2 gap-x-12 gap-y-2 text-sm sm:grid-cols-3">
-              <Link href="/" className="text-zinc-400 transition hover:text-emerald-300">
-                首页
-              </Link>
-              <Link href="/categories" className="text-zinc-400 transition hover:text-emerald-300">
-                提示词
-              </Link>
-              <Link href="/skills" className="text-zinc-400 transition hover:text-emerald-300">
-                AI 技能
-              </Link>
-              <Link href="/software" className="text-zinc-400 transition hover:text-emerald-300">
-                AI 软件
-              </Link>
-              <Link href="/search" className="text-zinc-400 transition hover:text-emerald-300">
-                搜索
-              </Link>
-              <Link href="/member" className="text-zinc-400 transition hover:text-emerald-300">
-                会员中心
-              </Link>
+            <nav className="grid grid-cols-2 gap-x-10 gap-y-8 text-sm sm:grid-cols-3">
+              {/* 产品目录 */}
+              <div>
+                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  {t(locale, "footer.colDirectory")}
+                </h3>
+                <ul className="space-y-2">
+                  <li>
+                    <Link href="/#shenqi" className="text-zinc-400 transition hover:text-emerald-300">
+                      {t(locale, "footer.lnkOptimizer")}
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href="/" className="text-zinc-400 transition hover:text-emerald-300">
+                      {t(locale, "footer.lnkPrompts")}
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href="/skills" className="text-zinc-400 transition hover:text-emerald-300">
+                      {t(locale, "footer.lnkSkills")}
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href="/software" className="text-zinc-400 transition hover:text-emerald-300">
+                      {t(locale, "footer.lnkSoftware")}
+                    </Link>
+                  </li>
+                </ul>
+              </div>
+
+              {/* 支持 */}
+              <div>
+                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  {t(locale, "footer.colSupport")}
+                </h3>
+                <ul className="space-y-2">
+                  <li>
+                    <Link href="/api-docs" className="text-zinc-400 transition hover:text-emerald-300">
+                      {t(locale, "footer.lnkApiDocs")}
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href="/help" className="text-zinc-400 transition hover:text-emerald-300">
+                      {t(locale, "page.help.title")}
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href="/about" className="text-zinc-400 transition hover:text-emerald-300">
+                      {t(locale, "page.about.title")}
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href="/contact" className="text-zinc-400 transition hover:text-emerald-300">
+                      {t(locale, "page.contact.title")}
+                    </Link>
+                  </li>
+                </ul>
+              </div>
+
+              {/* 法律 */}
+              <div>
+                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  {t(locale, "footer.colLegal")}
+                </h3>
+                <ul className="space-y-2">
+                  <li>
+                    <Link href="/terms" className="text-zinc-400 transition hover:text-emerald-300">
+                      {t(locale, "page.terms.title")}
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href="/privacy" className="text-zinc-400 transition hover:text-emerald-300">
+                      {t(locale, "page.privacy.title")}
+                    </Link>
+                  </li>
+                </ul>
+              </div>
             </nav>
           </div>
 

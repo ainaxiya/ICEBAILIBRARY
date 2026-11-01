@@ -153,7 +153,7 @@ export default function PromptOptimizer({ siteName, promptCount, skillCount, sou
   };
 
   return (
-    <section className="relative mb-10 overflow-hidden rounded-3xl border border-blue-400/20">
+    <section id="shenqi" className="relative mb-10 overflow-hidden rounded-3xl border border-blue-400/20">
       {/* 神器背景图（65%透明度；按设备切换横版/竖版） */}
       <div className="shenqi-bg absolute inset-0" style={{ opacity: 0.65 }} />
 

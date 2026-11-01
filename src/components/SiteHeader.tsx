@@ -76,6 +76,13 @@ function Icon({ name, className = "h-4 w-4" }: { name: string; className?: strin
           <path d="M20 20l-3.5-3.5" />
         </svg>
       );
+    case "bell":
+      return (
+        <svg {...common}>
+          <path d="M6 9a6 6 0 1 1 12 0c0 4 1.5 5.5 2 6H4c.5-.5 2-2 2-6z" />
+          <path d="M10 19a2 2 0 0 0 4 0" />
+        </svg>
+      );
     default:
       return null;
   }
@@ -84,9 +91,12 @@ function Icon({ name, className = "h-4 w-4" }: { name: string; className?: strin
 export default function SiteHeader({
   siteName,
   logoIcon = "/logo/icon.png",
+  messageUnread = null,
 }: {
   siteName: string;
   logoIcon?: string;
+  // P4 消息入口：null = 未登录（不显示）；数字 = 未读消息数
+  messageUnread?: number | null;
 }) {
   const locale = useLocale();
   const pathname = usePathname();
@@ -177,6 +187,22 @@ export default function SiteHeader({
         </nav>
 
         <div className="ml-auto flex items-center gap-1">
+          {/* P4 消息入口：登录才显示，带未读数角标 */}
+          {messageUnread !== null && (
+            <Link
+              href="/member?tab=messages"
+              title={t(locale, "nav.messages")}
+              aria-label={t(locale, "nav.messages")}
+              className="relative rounded-lg p-2 text-zinc-300 hover:bg-zinc-800 hover:text-white"
+            >
+              <Icon name="bell" className="h-5 w-5" />
+              {messageUnread > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold leading-none text-white">
+                  {messageUnread > 99 ? "99+" : messageUnread}
+                </span>
+              )}
+            </Link>
+          )}
           {/* 移动端搜索切换（搜索页隐藏，hero 已有搜索框） */}
           {!onSearchPage && (
             <button

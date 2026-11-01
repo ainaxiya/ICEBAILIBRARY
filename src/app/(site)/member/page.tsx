@@ -2,7 +2,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { getBalance } from "@/lib/credits";
 import LogoutButton from "@/components/LogoutButton";
+import MemberCenter from "@/components/member/MemberCenter";
 import { getServerLocale, translate as t } from "@/lib/i18n";
 import { getCategoryMeta } from "@/lib/category-meta";
 
@@ -10,25 +12,25 @@ export const dynamic = "force-dynamic";
 
 export const metadata = { title: "会员中心" };
 
-const STATUS_BADGE: Record<string, string> = {
-  published: "bg-emerald-500/15 text-emerald-300",
-  pending: "bg-amber-500/15 text-amber-300",
-  rejected: "bg-rose-500/15 text-rose-300",
-  draft: "bg-zinc-700 text-zinc-300",
-};
-const STATUS_TEXT: Record<string, string> = {
-  published: "已发布",
-  pending: "审核中",
-  rejected: "已驳回",
-  draft: "草稿",
-};
-
-export default async function MemberPage() {
+// P4 用户中心：账号卡片 + 统计 + 会员中心分区
+// （余额 / 充值记录 / 用量明细 / 我的资产 / 消息·工单 / 我的发布 + 发票说明条）
+export default async function MemberPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
   const locale = await getServerLocale();
   const user = await getCurrentUser();
   if (!user) redirect("/login?next=/member");
+  const sp = await searchParams;
 
-  const [myPosts, postCount, viewAgg] = await Promise.all([
+  const [balance, grants, myPosts, postCount, viewAgg] = await Promise.all([
+    getBalance(user.id),
+    db.creditGrant.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    }),
     db.prompt.findMany({
       where: { userId: user.id },
       orderBy: { id: "desc" },
@@ -84,43 +86,29 @@ export default async function MemberPage() {
         {stat(locale === "zh" ? "总浏览" : "Total views", viewAgg._sum.viewCount ?? 0)}
       </div>
 
-      {/* 我的发布 */}
-      <h2 className="mb-3 text-base font-semibold text-zinc-200">{t(locale, "member.myPosts")}</h2>
-      <div className="mb-8 overflow-hidden rounded-xl border border-zinc-800">
-        {myPosts.length === 0 ? (
-          <div className="p-6 text-center text-sm text-zinc-500">
-            {t(locale, "member.noPosts")}　
-            <Link href="/publish" className="text-emerald-400 hover:underline">
-              {t(locale, "member.goPublish")}
-            </Link>
-          </div>
-        ) : (
-          <table className="w-full text-sm">
-            <tbody className="divide-y divide-zinc-800/70">
-              {myPosts.map((p) => (
-                <tr key={p.id} className="hover:bg-zinc-900/40">
-                  <td className="px-3 py-2.5">
-                    <Link href={`/p/${p.id}`} className="text-zinc-200 hover:text-emerald-300">
-                      {p.title}
-                    </Link>
-                    {p.status === "rejected" && p.rejectReason && (
-                      <p className="mt-0.5 text-xs text-rose-400">{p.rejectReason}</p>
-                    )}
-                  </td>
-                  <td className="hidden px-3 py-2.5 text-xs text-zinc-500 sm:table-cell">{getCategoryMeta(p.category).name[locale]}</td>
-                  <td className="px-3 py-2.5 text-xs text-zinc-500">👁 {p.viewCount} · 💬 {p.commentCount}</td>
-                  <td className="px-3 py-2.5 text-right">
-                    <span className={`rounded px-1.5 py-0.5 text-xs ${STATUS_BADGE[p.status]}`}>
-                      {STATUS_TEXT[p.status] || p.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
+      {/* 会员中心分区（余额 / 充值记录 / 用量明细 / 我的资产 / 消息·工单 / 我的发布） */}
+      <MemberCenter
+        balance={Number(balance)}
+        grants={grants.map((g) => ({
+          id: g.id,
+          grantType: g.grantType,
+          total: Number(g.totalCredits),
+          remaining: Number(g.remainingCredits),
+          expiresAt: g.expiresAt?.toISOString() ?? null,
+        }))}
+        posts={myPosts.map((p) => ({
+          id: p.id,
+          title: p.title,
+          status: p.status,
+          viewCount: p.viewCount,
+          commentCount: p.commentCount,
+          createdAt: p.createdAt.toISOString(),
+          category: p.category,
+          categoryName: getCategoryMeta(p.category).name[locale],
+          rejectReason: p.rejectReason,
+        }))}
+        initialTab={sp.tab}
+      />
     </div>
   );
 }

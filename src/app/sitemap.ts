@@ -12,6 +12,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: base + "/skills", changeFrequency: "daily", priority: 0.7 },
     { url: base + "/software", changeFrequency: "daily", priority: 0.7 },
     { url: base + "/search", changeFrequency: "daily", priority: 0.5 },
+    // 固定站务单页（帮助/关于/联系/条款/隐私）
+    { url: base + "/help", changeFrequency: "monthly", priority: 0.3 },
+    { url: base + "/about", changeFrequency: "monthly", priority: 0.3 },
+    { url: base + "/contact", changeFrequency: "monthly", priority: 0.3 },
+    { url: base + "/terms", changeFrequency: "monthly", priority: 0.3 },
+    { url: base + "/privacy", changeFrequency: "monthly", priority: 0.3 },
   ];
   try {
     // 百度/谷歌 sitemap 限制：单文件 ≤50,000 URL、≤10MB——按上限留量，内容再涨需拆 sitemap index

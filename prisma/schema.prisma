@@ -42,6 +42,14 @@ model User {
   commentLikes    CommentLike[]
   adminLogs       AdminLog[]
   skills          Skill[]
+  usageRecords    UsageRecord[]
+  creditGrants    CreditGrant[]
+  ledger          CreditLedger[]
+  payOrders       PayOrder[]
+  subscriptions   UserSubscription[]
+  messages        UserMessage[]
+  generatedAssets GeneratedAsset[]
+  apiKeys         UserApiKey[]
 }
 
 // 后台管理员（与会员体系完全独立）
@@ -469,6 +477,7 @@ model StorageBucket {
   updatedAt    DateTime @updatedAt
 
   downloads SoftwareDownload[]
+  generatedAssets GeneratedAsset[]
 }
 
 // ─── v0.85 神器·全能提示词优化器使用记录 ───
@@ -484,4 +493,381 @@ model OptimizerLog {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+// ─── P0 站务改版：固定单页 ───
+// 固定单页（帮助/关于/联系/条款/隐私，后台可编辑富文本）
+model SitePage {
+  slug      String   @id                  // help | about | contact | terms | privacy（固定白名单）
+  title     String                       // 中文标题（后台可改）
+  content   String   @default("") @db.Text // 富文本 HTML（sanitize 净化）
+  updatedAt DateTime @updatedAt
+
+  @@map("site_page")
+}
+
+// ─── P1 聚合网关：模型库管理（计费真源） ───
+
+// AI 厂商（上游渠道）
+model AiVendor {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique          // 厂商显示名：DeepSeek / 多模型平台
+  slug      String   @unique          // deepseek | siliconflow 等
+  apiBase   String                    // 上游 API Base URL
+  protocol  String   @default("openai") // openai=OpenAI 兼容
+  status    String   @default("online") // online | deprecated | offline
+  remark    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  keys      VendorApiKey[]
+  models    AiModel[]
+  @@map("ai_vendor")
+}
+
+// 上游 API Key（密文存储，不回显）
+model VendorApiKey {
+  id         Int      @id @default(autoincrement())
+  vendorId   Int
+  vendor     AiVendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  name       String                    // 管理备注名
+  keyPrefix  String                    // 明文前缀（识别用，如 sk-abc***）
+  keyCipher  String                    // 密文 enc:v1:iv:tag:cipher
+  // active | disabled
+  status     String   @default("active")
+  remark     String?
+  lastUsedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  bindings   KeyModelBinding[]
+  @@index([vendorId])
+  @@map("vendor_api_key")
+}
+
+// AI 模型
+model AiModel {
+  id           Int      @id @default(autoincrement())
+  vendorId     Int
+  vendor       AiVendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  name         String                    // 上游模型名（调用透传）
+  displayName  String                    // 展示名
+  // chat | image | video | audio
+  endpointType String   @default("chat")
+  // online | deprecated | offline
+  status       String   @default("online")
+  remark       String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  endpoints    ModelEndpoint[]
+  bindings     KeyModelBinding[]
+  pricings     ModelPricing[]
+  @@unique([vendorId, name])
+  @@map("ai_model")
+}
+
+// 模型端点
+model ModelEndpoint {
+  id        Int      @id @default(autoincrement())
+  modelId   Int
+  model     AiModel  @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  // chat_completions | image_generations | video_generations
+  path      String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  @@unique([modelId, path])
+  @@map("model_endpoint")
+}
+
+// Key-模型绑定（路由依据：优先级小值优先，同优先级按权重）
+model KeyModelBinding {
+  id        Int      @id @default(autoincrement())
+  apiKeyId  Int
+  apiKey    VendorApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+  modelId   Int
+  model     AiModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  priority  Int      @default(0)
+  weight    Int      @default(1)
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  @@unique([apiKeyId, modelId])
+  @@index([modelId, enabled, priority])
+  @@map("key_model_binding")
+}
+
+// 模型定价（调价历史：多行按 effectiveAt 取最新生效）
+model ModelPricing {
+  id            Int      @id @default(autoincrement())
+  modelId       Int
+  model         AiModel  @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  // 计量基数：per_1m_token=1000000、per_image/per_video_second/per_request=1
+  meterBase     Int      @default(1000000)
+  // token | image | video_second | request
+  unit          String   @default("token")
+  inputPrice    Decimal  @default(0) @db.Decimal(18, 8)  // 输入单价（供应商币种/计量基数）
+  outputPrice   Decimal  @default(0) @db.Decimal(18, 8)  // 输出单价
+  currency      String   @default("CNY")
+  fxRateE8      BigInt   @default(100000000)             // 汇率放大 1e8（兑人民币）
+  multiplierBps Int      @default(150)                   // 加价系数基点（150=1.5x）
+  effectiveAt   DateTime @default(now())                 // 调价生效时间
+  createdAt     DateTime @default(now())
+  @@index([modelId, effectiveAt(sort: Desc)])
+  @@map("model_pricing")
+}
+
+// ─── P1 聚合网关：调用日志（方案第 4 章 usage_record） ───
+// 每次网关调用一条；cost_milli 为内部成本（毛利报表用），paid_credits 为用户实扣整数积分（ceil）
+// api_key_id/model_id 按方案为 bigint 无外键（站外 Key 表 user_api_key 随 P5 落库）
+model UsageRecord {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  user          User     @relation(fields: [userId], references: [id])
+  apiKeyId      BigInt?
+  // onsite | apikey
+  channel       String
+  modelId       BigInt?
+  // chat | image | video | audio
+  endpointType  String
+  vendorKeyId   BigInt?
+  // 模型名快照（调用时点）
+  modelSnapshot String
+  promptTokens  Int      @default(0)
+  outputTokens  Int      @default(0)
+  unitCount     Int      @default(1)
+  // 内部成本，毫积分（1 积分 = 1000 毫）
+  costMilli     BigInt   @default(0)
+  // 用户实扣整数积分（ceil，最低 1 分）
+  paidCredits   BigInt   @default(0)
+  latencyMs     Int?
+  // success | failed | blocked
+  status        String
+  requestId     String
+  createdAt     DateTime @default(now())
+
+  @@unique([requestId], map: "uk_usage_request")
+  @@index([userId, createdAt(sort: Desc)], map: "idx_usage_user_daily")
+  @@index([modelId, createdAt(sort: Desc)], map: "idx_usage_model_daily")
+  @@map("usage_record")
+}
+
+// ─── P2 会员积分闭环（方案第 4 章） ───
+
+// 积分包（充值商品，价格单位：分）
+model CreditPack {
+  id         Int      @id @default(autoincrement())
+  // 商品码：p30 / p50 / p200
+  packCode   String   @unique
+  // 价格（人民币分）
+  priceCents BigInt
+  // 到账积分（整数积分，含赠送）
+  credits    BigInt
+  isActive   Boolean  @default(true)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  payOrders PayOrder[]
+
+  @@map("credit_pack")
+}
+
+// 积分授予（余额真源：有效 grant 的 remainingCredits 求和）
+model CreditGrant {
+  id               Int       @id @default(autoincrement())
+  userId           Int
+  user             User      @relation(fields: [userId], references: [id])
+  // subscription | topup | gift | trial
+  grantType        String
+  totalCredits     BigInt
+  remainingCredits BigInt
+  // 有效期（null = 永不过期）
+  expiresAt        DateTime?
+  // 来源幂等键（订单号 / 活动标识等，与 userId+grantType 联合唯一）
+  sourceRef        String
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([userId, grantType, sourceRef])
+  // 消费扫描：idx_credit_grant_consume（按先过期先扣，NULLS LAST）
+  @@index([userId, expiresAt], map: "idx_credit_grant_consume")
+  @@map("credit_grant")
+}
+
+// 积分流水（只增不改；requestId 幂等）
+model CreditLedger {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  user         User     @relation(fields: [userId], references: [id])
+  // 变动量（正=入账，负=扣减）
+  changeAmount BigInt
+  balanceAfter BigInt
+  // grant | consume | refund | admin_adjust
+  reason       String
+  refType      String?
+  refId        String?
+  // 幂等键（唯一索引冲突则跳过写入）
+  requestId    String?  @unique(map: "uk_credit_ledger_req")
+  createdAt    DateTime @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("credit_ledger")
+}
+
+// 充值订单（充值记录订单号语义必需）
+model PayOrder {
+  id              Int        @id @default(autoincrement())
+  // 订单号（对外幂等键）
+  orderNo         String     @unique
+  userId          Int
+  user            User       @relation(fields: [userId], references: [id])
+  packId          Int
+  pack            CreditPack @relation(fields: [packId], references: [id])
+  // 应付金额（人民币分）
+  amountCents     BigInt
+  // wechat | alipay | custom | stripe | crypto
+  channel         String
+  // pending | paid | failed | closed
+  status          String     @default("pending")
+  // 支付回调事件号（回调幂等）
+  providerEventId String?    @unique(map: "uk_pay_order_event")
+  paidAt          DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status, createdAt])
+  @@map("pay_order")
+}
+
+// 会员订阅计划（表结构就绪，暂不启用售卖）
+model MemberPlan {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  // 价格（人民币分）
+  priceCents  BigInt
+  // month | year
+  period      String   @default("month")
+  description String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  subscriptions UserSubscription[]
+
+  @@map("member_plan")
+}
+
+// 用户订阅（表结构就绪，暂不启用）
+model UserSubscription {
+  id        Int        @id @default(autoincrement())
+  userId    Int
+  user      User       @relation(fields: [userId], references: [id])
+  planId    Int
+  plan      MemberPlan @relation(fields: [planId], references: [id])
+  // active | expired | canceled
+  status    String     @default("active")
+  startsAt  DateTime
+  endsAt    DateTime
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@index([userId, status])
+  @@map("user_subscription")
+}
+
+// ─── P4 用户中心：消息·工单（双向合一） ───
+// 会话 = 根消息（replyToId NULL）+ 回复（replyToId 指向会话根消息，串成对话）
+// 工单状态 ticketStatus 维护在会话根消息上：open=待管理员处理 / replied=管理员已回 / closed=已关闭
+model UserMessage {
+  id           BigInt       @id @default(autoincrement())
+  userId       Int
+  user         User         @relation(fields: [userId], references: [id])
+  // user_to_admin | admin_to_user
+  direction    String
+  // ticket | notice
+  msgType      String
+  subject      String?
+  body         String       @db.Text
+  // open | replied | closed（仅工单会话根消息维护）
+  ticketStatus String?
+  // 自关联：回复指向会话根消息（NULL = 根消息）
+  replyToId    BigInt?
+  replyTo      UserMessage? @relation("MessageThread", fields: [replyToId], references: [id])
+  replies      UserMessage[] @relation("MessageThread")
+  // 群发批次号（uuid，单发为 NULL）
+  batchId      String?
+  // 已读时间（NULL = 未读；只对 admin_to_user 方向有意义）
+  readAt       DateTime?
+  createdAt    DateTime     @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([direction, ticketStatus, createdAt])
+  @@map("user_message")
+}
+
+// ─── P4 用户中心：生成资产（P5 生成链路写入，本期建表 + 我的资产列表页） ───
+// 生成物默认 30 天过期（expireAt），软删（status=deleted）不物理删除
+model GeneratedAsset {
+  id            BigInt         @id @default(autoincrement())
+  userId        Int
+  user          User           @relation(fields: [userId], references: [id])
+  // 关联调用日志（P5 写入，无外键对齐 usage_record.id 语义）
+  usageRecordId BigInt?
+  // image | video | audio | file
+  assetType     String
+  bucketId      Int?
+  bucket        StorageBucket? @relation(fields: [bucketId], references: [id])
+  storageKey    String
+  sizeBytes     BigInt         @default(0)
+  sha256Hex     String?
+  // temp | deleted
+  status        String         @default("temp")
+  // 过期时间（默认创建后 30 天，NULL = 不过期）
+  expireAt      DateTime?
+  // 上游产物 URL（仅转存失败 status=deleted 时留存，供用户重试拉取一次）
+  sourceUrl     String?        @db.Text
+  createdAt     DateTime       @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("generated_asset")
+}
+
+// ─── P5 站外双通道：站外会员 Key ───
+// 明文 sk-xxx 只在创建时返回一次，库内只存 sha256（keyHash）
+model UserApiKey {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  user       User      @relation(fields: [userId], references: [id])
+  // 明文前缀（识别展示用，如 sk-ab12cd34）
+  keyPrefix  String
+  // sha256(明文)，hex 64 位
+  keyHash    String    @unique
+  // active | revoked
+  status     String    @default("active")
+  // 过期时间（NULL = 永不过期）
+  expiresAt  DateTime?
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@map("user_api_key")
+}
+
+// ─── P6 运营告警（余额/毛利/单用户异常消耗巡检记录） ───
+// checkOperationalAlerts（src/lib/alerts.ts）巡检命中后写入；ackAt 非空 = 已确认
+model OperationalAlert {
+  id        Int       @id @default(autoincrement())
+  // credit_pool=积分池余额告警 | gross_margin=毛利告警 | user_burst=单用户异常消耗
+  alertType String
+  // warn | critical
+  level     String
+  message   String
+  // 巡检快照 JSON（阈值/实测值，user_burst 含 userId 供去重）
+  payload   String    @default("{}")
+  // 确认时间（NULL = 未确认）
+  ackAt     DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([alertType, createdAt(sort: Desc)])
+  @@index([ackAt, createdAt(sort: Desc)])
+  @@map("operational_alert")
 }

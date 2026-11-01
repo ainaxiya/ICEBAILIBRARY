@@ -3,6 +3,8 @@ import { requireAdmin } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { ADMIN_BASE } from "@/lib/admin-path";
 import SiteSettingsForm from "@/components/admin/SiteSettingsForm";
+import SitePagesModal from "@/components/admin/SitePagesModal";
+import CreditPacksAdmin from "@/components/admin/CreditPacksAdmin";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "网站设置" };
@@ -65,6 +67,10 @@ export default async function AdminSiteSettingsPage() {
         sitemapUrl={`${siteBase}/sitemap.xml`}
         lastSitemapSubmit={lastSitemapSubmit}
       />
+      {/* 单页内容修改（帮助/关于/联系/条款/隐私） */}
+      <SitePagesModal />
+      {/* P2 积分包管理 */}
+      <CreditPacksAdmin />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { signToken, setAuthCookie } from "@/lib/auth";
 import { getPublicSite } from "@/lib/settings";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
+import { getCreditsConfig, grant } from "@/lib/credits";
 
 export const dynamic = "force-dynamic";
 
@@ -88,6 +89,16 @@ export async function POST(req: NextRequest) {
       registerIp: clientIp(req),
     },
   });
+  // P2 注册赠送积分（SiteSetting key="credits_config"，默认关闭不发放）
+  try {
+    const cfg = await getCreditsConfig();
+    if (cfg.trialEnabled && cfg.trialCredits > 0) {
+      await grant(user.id, "trial", BigInt(cfg.trialCredits), `register:${user.id}`);
+    }
+  } catch (e) {
+    console.error("trial grant error:", e);
+  }
+
   await setAuthCookie(await signToken(user.id));
   return NextResponse.json({ id: user.id, username: user.username });
 }
