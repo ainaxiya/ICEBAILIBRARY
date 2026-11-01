@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { ADMIN_BASE } from "@/lib/admin-path";
 import SiteSettingsForm from "@/components/admin/SiteSettingsForm";
 import SitePagesModal from "@/components/admin/SitePagesModal";
+import PayChannelsAdmin from "@/components/admin/PayChannelsAdmin";
 import CreditPacksAdmin from "@/components/admin/CreditPacksAdmin";
 
 export const dynamic = "force-dynamic";
@@ -69,6 +70,8 @@ export default async function AdminSiteSettingsPage() {
       />
       {/* 单页内容修改（帮助/关于/联系/条款/隐私） */}
       <SitePagesModal />
+      {/* 支付渠道配置（五通道接入参数） */}
+      <PayChannelsAdmin />
       {/* P2 积分包管理 */}
       <CreditPacksAdmin />
     </div>

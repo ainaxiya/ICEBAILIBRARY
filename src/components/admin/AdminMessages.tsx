@@ -74,6 +74,8 @@ export default function AdminMessages() {
   const [tickets, setTickets] = useState<Ticket[] | null>(null);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  // 批量选择（工单队列复选框选中项）
+  const [sel, setSel] = useState<string[]>([]);
   // 对话弹层
   const [threadId, setThreadId] = useState<string | null>(null);
   const [thread, setThread] = useState<{ subject: string | null; ticketStatus: string | null; user: Ticket["user"] } | null>(null);
@@ -278,6 +280,35 @@ export default function AdminMessages() {
     }
   };
 
+  // ── 批量关闭 / 批量删除工单会话 ──
+  const toggleSel = (id: string) =>
+    setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+
+  const runBatch = async (op: "close" | "delete") => {
+    if (sel.length === 0 || busy) return;
+    if (op === "delete" && !confirm(`确定删除选中的 ${sel.length} 个工单会话吗？将连同全部回复一并删除，不可恢复。`)) return;
+    setBusy(true);
+    setError("");
+    try {
+      const r = await fetch("/api/admin/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "batch", op, threadIds: sel }),
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setSel([]);
+        loadTickets(status, page);
+      } else {
+        setError(d.error || "操作失败");
+      }
+    } catch {
+      setError("操作失败，请稍后重试");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const th = "px-3 py-2.5 text-left text-xs font-medium text-zinc-500";
   const td = "px-3 py-2.5 text-sm text-zinc-300";
   const inputCls =
@@ -322,7 +353,7 @@ export default function AdminMessages() {
               <button
                 key={k}
                 type="button"
-                onClick={() => setStatus(k)}
+                onClick={() => { setStatus(k); setSel([]); }}
                 className={`rounded-lg px-3 py-1.5 text-sm ${
                   status === k ? "bg-zinc-800 text-emerald-300" : "text-zinc-500 hover:bg-zinc-800"
                 }`}
@@ -332,6 +363,29 @@ export default function AdminMessages() {
             ))}
             <span className="ml-auto text-xs text-zinc-500">共 {total} 条</span>
           </div>
+
+          {/* 批量操作条 */}
+          {tickets != null && tickets.length > 0 && (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs text-zinc-500">已选 {sel.length} 项</span>
+              <button
+                type="button"
+                onClick={() => runBatch("close")}
+                disabled={busy || sel.length === 0}
+                className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+              >
+                批量关闭
+              </button>
+              <button
+                type="button"
+                onClick={() => runBatch("delete")}
+                disabled={busy || sel.length === 0}
+                className="rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-1.5 text-xs text-red-300 hover:bg-red-900/40 disabled:opacity-50"
+              >
+                批量删除
+              </button>
+            </div>
+          )}
 
           <div className="overflow-hidden rounded-xl border border-zinc-800">
             {tickets == null ? (
@@ -343,6 +397,15 @@ export default function AdminMessages() {
                 <table className="w-full">
                   <thead className="bg-zinc-900/60">
                     <tr>
+                      <th className={th}>
+                        <input
+                          type="checkbox"
+                          checked={tickets.length > 0 && tickets.every((tk) => sel.includes(tk.id))}
+                          onChange={() =>
+                            setSel(tickets.every((tk) => sel.includes(tk.id)) ? [] : tickets.map((tk) => tk.id))
+                          }
+                        />
+                      </th>
                       <th className={th}>用户</th>
                       <th className={th}>标题</th>
                       <th className={th}>最新内容</th>
@@ -354,6 +417,9 @@ export default function AdminMessages() {
                   <tbody className="divide-y divide-zinc-800/70">
                     {tickets.map((tk) => (
                       <tr key={tk.id} className="hover:bg-zinc-900/40">
+                        <td className={td}>
+                          <input type="checkbox" checked={sel.includes(tk.id)} onChange={() => toggleSel(tk.id)} />
+                        </td>
                         <td className={`${td} text-xs`}>
                           {tk.user.nickname || tk.user.username}
                           <span className="ml-1 text-zinc-600">#{tk.userId}</span>
@@ -395,7 +461,7 @@ export default function AdminMessages() {
               <button
                 type="button"
                 disabled={page <= 1}
-                onClick={() => loadTickets(status, page - 1)}
+                onClick={() => { setSel([]); loadTickets(status, page - 1); }}
                 className="rounded-lg border border-zinc-700 px-3 py-1 hover:bg-zinc-800 disabled:opacity-40"
               >
                 上一页
@@ -406,7 +472,7 @@ export default function AdminMessages() {
               <button
                 type="button"
                 disabled={page >= Math.ceil(total / PAGE_SIZE)}
-                onClick={() => loadTickets(status, page + 1)}
+                onClick={() => { setSel([]); loadTickets(status, page + 1); }}
                 className="rounded-lg border border-zinc-700 px-3 py-1 hover:bg-zinc-800 disabled:opacity-40"
               >
                 下一页

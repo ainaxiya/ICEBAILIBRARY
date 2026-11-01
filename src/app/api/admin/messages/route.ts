@@ -118,6 +118,7 @@ export async function GET(req: NextRequest) {
 // POST /api/admin/messages —— 动作分发：
 // { action: "reply",   threadId, body }                       回复工单（admin_to_user）
 // { action: "close",   threadId }                             关闭工单
+// { action: "batch",   op: "close"|"delete", threadIds[] }    批量关闭/批量删除会话
 // { action: "broadcast", subject, body, target, userIds[] }   群发通知（batchId 批次）
 // { action: "notice",  userId, subject, body }                单发通知
 export async function POST(req: NextRequest) {
@@ -344,6 +345,48 @@ export async function POST(req: NextRequest) {
       ip,
     });
     return NextResponse.json({ ok: true, message: msgJson(created) });
+  }
+
+  // ── 批量操作（op=close 批量关闭 / op=delete 批量删除会话） ──
+  if (action === "batch") {
+    const op = body?.op === "close" || body?.op === "delete" ? (body.op as "close" | "delete") : "";
+    if (!op) return NextResponse.json({ error: "未知批量操作" }, { status: 400 });
+    const rawIds: unknown[] = Array.isArray(body?.threadIds) ? body.threadIds : [];
+    if (rawIds.length === 0) return NextResponse.json({ error: "请选择要操作的工单" }, { status: 400 });
+    if (rawIds.length > 200) return NextResponse.json({ error: "单次最多操作 200 条" }, { status: 400 });
+    const rootIds: bigint[] = [];
+    for (const v of rawIds) {
+      const id = parseId(v);
+      if (!id) return NextResponse.json({ error: "参数错误" }, { status: 400 });
+      rootIds.push(id);
+    }
+
+    let affected = 0;
+    if (op === "close") {
+      // 批量把根消息 ticketStatus 置 closed（仅工单会话根消息生效）
+      affected = (
+        await db.userMessage.updateMany({
+          where: { id: { in: rootIds }, msgType: "ticket", replyToId: null },
+          data: { ticketStatus: "closed" },
+        })
+      ).count;
+    } else {
+      // 批量删除会话：根消息 + 全部回复
+      affected = (
+        await db.userMessage.deleteMany({
+          where: { OR: [{ id: { in: rootIds } }, { replyToId: { in: rootIds } }] },
+        })
+      ).count;
+    }
+
+    await logAdminAction({
+      adminId: admin.id,
+      action: op === "delete" ? "delete" : "update",
+      targetType: "message",
+      detail: JSON.stringify({ section: "ticket_batch", op, threadIds: rootIds.map(String), affected }),
+      ip,
+    });
+    return NextResponse.json({ ok: true, affected });
   }
 
   return NextResponse.json({ error: "未知操作" }, { status: 400 });

@@ -1,6 +1,6 @@
 "use client";
 
-// 用户管理（前台会员）：搜索、新建、详情全字段修改、重置密码、快捷启禁用/发布权限、删除
+// 用户管理（前台会员）：搜索、新建、详情全字段修改、重置密码、积分调整、快捷启禁用/发布权限、批量操作、删除
 import { useCallback, useEffect, useState } from "react";
 import OptionDropdown from "@/components/OptionDropdown";
 import Pagination from "@/components/Pagination";
@@ -48,6 +48,9 @@ export default function UserManager() {
   const [total, setTotal] = useState(0);
   const [editing, setEditing] = useState<Row | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  // 表格勾选（批量操作）与批量请求进行中标记
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
 
   const load = useCallback(async () => {
     const ps = new URLSearchParams({ page: String(page) });
@@ -55,6 +58,8 @@ export default function UserManager() {
     const r = await fetch("/api/admin/users?" + ps.toString()).then((x) => x.json());
     setRows(r.list || []);
     setTotal(r.total || 0);
+    // 列表刷新后清空勾选，避免残留已变更/已删除的 id
+    setSelected(new Set());
   }, [page, q]);
 
   useEffect(() => {
@@ -74,6 +79,56 @@ export default function UserManager() {
       return true;
     }
     return false;
+  };
+
+  // 当前页勾选状态（全选/半选依据）
+  const pageSelectedCount = rows.filter((u) => selected.has(u.id)).length;
+  const allSelected = rows.length > 0 && pageSelectedCount === rows.length;
+
+  const toggleOne = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allSelected) rows.forEach((u) => next.delete(u.id));
+      else rows.forEach((u) => next.add(u.id));
+      return next;
+    });
+  };
+
+  // 批量操作：调批量接口，完成后刷新列表
+  const batch = async (action: "status" | "allowPublish" | "commentBanned" | "delete", value?: boolean | string) => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    if (action === "delete") {
+      if (!confirm(`确认删除选中的 ${ids.length} 个会员？仅删除名下无提示词的账号，有提示词的将跳过。`)) return;
+    }
+    setBatchBusy(true);
+    try {
+      const r = await fetch("/api/admin/users/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, value, ids }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert(d.error || "批量操作失败");
+        return;
+      }
+      if (d.skipped) {
+        alert(`批量删除完成：成功 ${d.affected} 个，跳过 ${d.skipped} 个（有提示词或非会员账号）`);
+      }
+      load();
+    } finally {
+      setBatchBusy(false);
+    }
   };
 
   const totalPages = Math.ceil(total / 30);
@@ -108,9 +163,22 @@ export default function UserManager() {
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-zinc-800">
-        <table className="w-full min-w-[860px] text-sm">
+        <table className="w-full min-w-[900px] text-sm">
           <thead className="bg-zinc-900/70 text-left text-xs text-zinc-500">
             <tr>
+              <th className="w-10 px-4 py-3">
+                <input
+                  type="checkbox"
+                  // 全选/半选（当前页部分勾选时显示半选态）
+                  ref={(el) => {
+                    if (el) el.indeterminate = pageSelectedCount > 0 && !allSelected;
+                  }}
+                  checked={allSelected}
+                  onChange={toggleAll}
+                  className="h-4 w-4 accent-indigo-500"
+                  aria-label="全选当前页"
+                />
+              </th>
               <th className="px-4 py-3">账号</th>
               <th className="px-4 py-3">昵称</th>
               <th className="px-4 py-3">邮箱</th>
@@ -129,6 +197,15 @@ export default function UserManager() {
                 onClick={() => setEditing(u)}
                 className="cursor-pointer border-t border-zinc-800/70 hover:bg-zinc-900/40"
               >
+                <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={selected.has(u.id)}
+                    onChange={() => toggleOne(u.id)}
+                    className="h-4 w-4 accent-indigo-500"
+                    aria-label={`选择 ${u.username}`}
+                  />
+                </td>
                 <td className="px-4 py-2.5 font-medium text-zinc-200">{u.username}</td>
                 <td className="px-4 py-2.5 text-zinc-400">{u.nickname || "—"}</td>
                 <td className="px-4 py-2.5 text-xs text-zinc-500">{u.email || "—"}</td>
@@ -160,7 +237,7 @@ export default function UserManager() {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center text-sm text-zinc-600">
+                <td colSpan={10} className="px-4 py-10 text-center text-sm text-zinc-600">
                   暂无会员
                 </td>
               </tr>
@@ -170,6 +247,69 @@ export default function UserManager() {
       </div>
 
       <Pagination page={page} totalPages={totalPages} onPage={(n) => setPage(n)} />
+
+      {/* 批量操作条：勾选后浮出 */}
+      {selected.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-2xl border border-zinc-700 bg-zinc-900/95 px-4 py-3 shadow-2xl">
+          <span className="mr-1 text-xs text-zinc-400">已选 {selected.size} 项</span>
+          <button
+            onClick={() => batch("status", "active")}
+            disabled={batchBusy}
+            className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
+          >
+            启用
+          </button>
+          <button
+            onClick={() => batch("status", "banned")}
+            disabled={batchBusy}
+            className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
+          >
+            禁用
+          </button>
+          <button
+            onClick={() => batch("allowPublish", true)}
+            disabled={batchBusy}
+            className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
+          >
+            允许发布
+          </button>
+          <button
+            onClick={() => batch("allowPublish", false)}
+            disabled={batchBusy}
+            className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
+          >
+            禁止发布
+          </button>
+          <button
+            onClick={() => batch("commentBanned", false)}
+            disabled={batchBusy}
+            className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
+          >
+            允许评论
+          </button>
+          <button
+            onClick={() => batch("commentBanned", true)}
+            disabled={batchBusy}
+            className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
+          >
+            禁言
+          </button>
+          <button
+            onClick={() => batch("delete")}
+            disabled={batchBusy}
+            className="rounded-lg border border-rose-800/70 px-3 py-1.5 text-xs text-rose-300 hover:bg-rose-950/40 disabled:opacity-40"
+          >
+            批量删除
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            disabled={batchBusy}
+            className="rounded-lg px-2 py-1.5 text-xs text-zinc-500 hover:text-zinc-200 disabled:opacity-40"
+          >
+            取消
+          </button>
+        </div>
+      )}
 
       {showCreate && (
         <CreateModal
@@ -319,6 +459,56 @@ function EditModal({
   const [newPassword, setNewPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  // ── 积分调整 ──
+  const [balance, setBalance] = useState<number | null>(null);
+  const [adjAmount, setAdjAmount] = useState("");
+  const [adjNote, setAdjNote] = useState("");
+  const [adjBusy, setAdjBusy] = useState(false);
+
+  // 进入弹层时拉取当前积分余额
+  const loadBalance = useCallback(async () => {
+    const r = await fetch(`/api/admin/users/${user.id}/credits`).catch(() => null);
+    if (!r || !r.ok) return;
+    const d = await r.json().catch(() => ({}));
+    if (typeof d.balance === "number") setBalance(d.balance);
+  }, [user.id]);
+
+  useEffect(() => {
+    loadBalance();
+  }, [loadBalance]);
+
+  // 确认调整：正数入账 / 负数扣减
+  const adjustCredits = async () => {
+    setErr("");
+    const amount = Number(adjAmount);
+    if (!adjAmount.trim() || !Number.isInteger(amount) || amount === 0) {
+      setErr("调整数量必须为非 0 整数（负数为扣减）");
+      return;
+    }
+    if (!adjNote.trim()) {
+      setErr("请填写调整原因/备注");
+      return;
+    }
+    setAdjBusy(true);
+    try {
+      const r = await fetch(`/api/admin/users/${user.id}/credits`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount, note: adjNote.trim() }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setErr(d.error || "调整失败");
+        return;
+      }
+      alert(`积分调整成功，当前余额：${d.balance}`);
+      setAdjAmount("");
+      setAdjNote("");
+      loadBalance();
+    } finally {
+      setAdjBusy(false);
+    }
+  };
 
   const doPatch = async (body: Record<string, unknown>) => {
     setErr("");
@@ -434,6 +624,46 @@ function EditModal({
             <span>注册 IP：{user.registerIp || "—"}</span>
             <span>最后登录：{fmt(user.lastLoginAt)}</span>
             <span>登录 IP：{user.lastLoginIp || "—"}</span>
+          </div>
+        </div>
+
+        {/* 积分调整（放在重置密码上方） */}
+        <div className="border-t border-zinc-800 pt-3">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-xs text-zinc-400">积分调整</span>
+            <span className="text-xs text-zinc-400">
+              当前余额：
+              <b className="text-indigo-300">{balance === null ? "加载中…" : balance}</b>
+            </span>
+          </div>
+          <div className="grid grid-cols-[120px_1fr_auto] items-end gap-2">
+            <div>
+              <label className={labelCls}>调整数量</label>
+              <input
+                className={inputCls}
+                type="number"
+                step={1}
+                value={adjAmount}
+                onChange={(e) => setAdjAmount(e.target.value)}
+                placeholder="可负数"
+              />
+            </div>
+            <div>
+              <label className={labelCls}>备注/原因（≤200 字）</label>
+              <input
+                className={inputCls}
+                value={adjNote}
+                onChange={(e) => setAdjNote(e.target.value)}
+                placeholder="如：活动赠送 / 违规扣减"
+              />
+            </div>
+            <button
+              onClick={adjustCredits}
+              disabled={adjBusy || !adjAmount.trim() || !adjNote.trim()}
+              className="shrink-0 rounded-lg border border-indigo-700/60 px-4 py-2 text-sm text-indigo-300 hover:bg-indigo-900/30 disabled:opacity-40"
+            >
+              {adjBusy ? "调整中…" : "确认调整"}
+            </button>
           </div>
         </div>
 

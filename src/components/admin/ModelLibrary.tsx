@@ -144,6 +144,8 @@ export default function ModelLibrary() {
   const [bindings, setBindings] = useState<BindingRow[]>([]);
   const [filterStatus, setFilterStatus] = useState("");
   const [filterVendor, setFilterVendor] = useState(0);
+  // 批量选择（四个资源列表通用的复选框选中项）
+  const [sel, setSel] = useState<number[]>([]);
 
   // 弹层表单
   const [vendorForm, setVendorForm] = useState<(Partial<Vendor> & { mode: "create" | "edit" }) | null>(null);
@@ -257,6 +259,27 @@ export default function ModelLibrary() {
     });
   };
 
+  // ─── 批量选择与批量操作 ───
+  const toggleSel = (id: number) =>
+    setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  const toggleAll = (ids: number[]) =>
+    setSel(ids.every((id) => sel.includes(id)) ? [] : ids);
+
+  const runBatch = async (action: "enable" | "disable" | "delete") => {
+    if (sel.length === 0 || busy) return;
+    const label = action === "delete" ? "删除" : action === "enable" ? "启用" : "禁用";
+    if (action === "delete") {
+      const tip = tab === "vendors" ? "删除厂商将级联删除其 Key/模型/绑定，" : "";
+      if (!confirm(`确定${label}选中的 ${sel.length} 项吗？${tip}此操作不可恢复。`)) return;
+    }
+    await submit(async () => {
+      const d = await apiCall("/api/admin/models/batch", jsonInit("POST", { resource: tab, action, ids: sel }));
+      flash("ok", `已${label} ${d.affected ?? sel.length} 项`);
+      setSel([]);
+      refreshCurrent();
+    });
+  };
+
   // ─── 模型详情 ───
   const openDetail = async (id: number) => {
     await submit(async () => {
@@ -313,6 +336,23 @@ export default function ModelLibrary() {
   const calcCredits = cur ? displayCredits(calcCost, cur.multiplierBps) : 0;
   const manualCredits = cur ? displayCredits(Number(calc.costMilli) || 0, cur.multiplierBps) : 0;
 
+  // 批量操作条（四个资源列表共用，选中后可批量启用/禁用/删除）
+  const batchBar = (
+    <div className="mb-3 flex flex-wrap items-center gap-2">
+      <span className="text-xs text-zinc-500">已选 {sel.length} 项</span>
+      <button type="button" className={btnCls} disabled={busy || sel.length === 0} onClick={() => runBatch("enable")}>
+        批量启用
+      </button>
+      <button type="button" className={btnCls} disabled={busy || sel.length === 0} onClick={() => runBatch("disable")}>
+        批量禁用
+      </button>
+      <button type="button" className={dangerBtnCls} disabled={busy || sel.length === 0} onClick={() => runBatch("delete")}>
+        批量删除
+      </button>
+      {tab === "vendors" && <span className="text-xs text-zinc-600">删除厂商会级联删除其 Key/模型/绑定</span>}
+    </div>
+  );
+
   const TABS = [
     { key: "models", label: "模型" },
     { key: "vendors", label: "厂商" },
@@ -328,7 +368,7 @@ export default function ModelLibrary() {
           <button
             key={t.key}
             type="button"
-            onClick={() => setTab(t.key)}
+            onClick={() => { setTab(t.key); setSel([]); }}
             className={`-mb-px rounded-t-lg px-4 py-2 text-sm ${
               tab === t.key
                 ? "border-b-2 border-emerald-500 text-emerald-300"
@@ -364,10 +404,18 @@ export default function ModelLibrary() {
               新建模型
             </button>
           </div>
+          {batchBar}
           <div className="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900/50">
             <table className="w-full min-w-[900px]">
               <thead>
                 <tr>
+                  <th className={thCls}>
+                    <input
+                      type="checkbox"
+                      checked={models.length > 0 && models.every((m) => sel.includes(m.id))}
+                      onChange={() => toggleAll(models.map((m) => m.id))}
+                    />
+                  </th>
                   <th className={thCls}>ID</th>
                   <th className={thCls}>厂商</th>
                   <th className={thCls}>模型</th>
@@ -382,6 +430,9 @@ export default function ModelLibrary() {
               <tbody>
                 {models.map((m) => (
                   <tr key={m.id} className="hover:bg-zinc-800/40">
+                    <td className={tdCls}>
+                      <input type="checkbox" checked={sel.includes(m.id)} onChange={() => toggleSel(m.id)} />
+                    </td>
                     <td className={tdCls}>{m.id}</td>
                     <td className={tdCls}>{m.vendorName}</td>
                     <td className={tdCls}>
@@ -411,7 +462,7 @@ export default function ModelLibrary() {
                   </tr>
                 ))}
                 {models.length === 0 && (
-                  <tr><td className={`${tdCls} text-center text-zinc-500`} colSpan={9}>暂无模型，点右上「新建模型」创建</td></tr>
+                  <tr><td className={`${tdCls} text-center text-zinc-500`} colSpan={10}>暂无模型，点右上「新建模型」创建</td></tr>
                 )}
               </tbody>
             </table>
@@ -427,10 +478,18 @@ export default function ModelLibrary() {
               新建厂商
             </button>
           </div>
+          {batchBar}
           <div className="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900/50">
             <table className="w-full min-w-[800px]">
               <thead>
                 <tr>
+                  <th className={thCls}>
+                    <input
+                      type="checkbox"
+                      checked={vendors.length > 0 && vendors.every((v) => sel.includes(v.id))}
+                      onChange={() => toggleAll(vendors.map((v) => v.id))}
+                    />
+                  </th>
                   <th className={thCls}>ID</th>
                   <th className={thCls}>名称</th>
                   <th className={thCls}>标识</th>
@@ -444,6 +503,9 @@ export default function ModelLibrary() {
               <tbody>
                 {vendors.map((v) => (
                   <tr key={v.id} className="hover:bg-zinc-800/40">
+                    <td className={tdCls}>
+                      <input type="checkbox" checked={sel.includes(v.id)} onChange={() => toggleSel(v.id)} />
+                    </td>
                     <td className={tdCls}>{v.id}</td>
                     <td className={tdCls}>{v.name}</td>
                     <td className={tdCls}>{v.slug}</td>
@@ -460,7 +522,7 @@ export default function ModelLibrary() {
                   </tr>
                 ))}
                 {vendors.length === 0 && (
-                  <tr><td className={`${tdCls} text-center text-zinc-500`} colSpan={8}>暂无厂商</td></tr>
+                  <tr><td className={`${tdCls} text-center text-zinc-500`} colSpan={9}>暂无厂商</td></tr>
                 )}
               </tbody>
             </table>
@@ -476,10 +538,18 @@ export default function ModelLibrary() {
               新建 Key
             </button>
           </div>
+          {batchBar}
           <div className="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900/50">
             <table className="w-full min-w-[800px]">
               <thead>
                 <tr>
+                  <th className={thCls}>
+                    <input
+                      type="checkbox"
+                      checked={keys.length > 0 && keys.every((k) => sel.includes(k.id))}
+                      onChange={() => toggleAll(keys.map((k) => k.id))}
+                    />
+                  </th>
                   <th className={thCls}>ID</th>
                   <th className={thCls}>厂商</th>
                   <th className={thCls}>备注名</th>
@@ -492,6 +562,9 @@ export default function ModelLibrary() {
               <tbody>
                 {keys.map((k) => (
                   <tr key={k.id} className="hover:bg-zinc-800/40">
+                    <td className={tdCls}>
+                      <input type="checkbox" checked={sel.includes(k.id)} onChange={() => toggleSel(k.id)} />
+                    </td>
                     <td className={tdCls}>{k.id}</td>
                     <td className={tdCls}>{k.vendorName}</td>
                     <td className={tdCls}>{k.name}</td>
@@ -510,7 +583,7 @@ export default function ModelLibrary() {
                   </tr>
                 ))}
                 {keys.length === 0 && (
-                  <tr><td className={`${tdCls} text-center text-zinc-500`} colSpan={7}>暂无 Key</td></tr>
+                  <tr><td className={`${tdCls} text-center text-zinc-500`} colSpan={8}>暂无 Key</td></tr>
                 )}
               </tbody>
             </table>
@@ -526,10 +599,18 @@ export default function ModelLibrary() {
               新建绑定
             </button>
           </div>
+          {batchBar}
           <div className="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900/50">
             <table className="w-full min-w-[860px]">
               <thead>
                 <tr>
+                  <th className={thCls}>
+                    <input
+                      type="checkbox"
+                      checked={bindings.length > 0 && bindings.every((b) => sel.includes(b.id))}
+                      onChange={() => toggleAll(bindings.map((b) => b.id))}
+                    />
+                  </th>
                   <th className={thCls}>ID</th>
                   <th className={thCls}>厂商</th>
                   <th className={thCls}>Key</th>
@@ -543,6 +624,9 @@ export default function ModelLibrary() {
               <tbody>
                 {bindings.map((b) => (
                   <tr key={b.id} className="hover:bg-zinc-800/40">
+                    <td className={tdCls}>
+                      <input type="checkbox" checked={sel.includes(b.id)} onChange={() => toggleSel(b.id)} />
+                    </td>
                     <td className={tdCls}>{b.id}</td>
                     <td className={tdCls}>{b.vendorName}</td>
                     <td className={tdCls}>
@@ -561,7 +645,7 @@ export default function ModelLibrary() {
                   </tr>
                 ))}
                 {bindings.length === 0 && (
-                  <tr><td className={`${tdCls} text-center text-zinc-500`} colSpan={8}>暂无绑定：选 Key + 模型建立路由关系</td></tr>
+                  <tr><td className={`${tdCls} text-center text-zinc-500`} colSpan={9}>暂无绑定：选 Key + 模型建立路由关系</td></tr>
                 )}
               </tbody>
             </table>

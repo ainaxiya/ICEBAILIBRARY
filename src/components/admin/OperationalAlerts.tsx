@@ -54,6 +54,8 @@ export default function OperationalAlerts() {
   const [items, setItems] = useState<Alert[] | null>(null);
   const [unackCount, setUnackCount] = useState(0);
   const [filter, setFilter] = useState<"all" | "unacked">("all");
+  // 批量选择（告警列表复选框选中项）
+  const [sel, setSel] = useState<number[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -147,6 +149,35 @@ export default function OperationalAlerts() {
     }
   };
 
+  // ── 批量确认 / 批量删除告警 ──
+  const toggleSel = (id: number) =>
+    setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+
+  const runBatch = async (action: "ack" | "delete") => {
+    if (sel.length === 0 || busy) return;
+    if (action === "delete" && !confirm(`确定删除选中的 ${sel.length} 条告警吗？此操作不可恢复。`)) return;
+    setBusy(true);
+    setError("");
+    try {
+      const r = await fetch("/api/admin/alerts/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ids: sel }),
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setSel([]);
+        load(filter);
+      } else {
+        setError(d.error || "操作失败");
+      }
+    } catch {
+      setError("操作失败，请稍后重试");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const saveConfig = async () => {
     if (!cfg || busy) return;
     setBusy(true);
@@ -227,7 +258,7 @@ export default function OperationalAlerts() {
           <button
             key={k}
             type="button"
-            onClick={() => setFilter(k)}
+            onClick={() => { setFilter(k); setSel([]); }}
             className={`rounded-lg px-3 py-1.5 text-sm ${
               filter === k ? "bg-zinc-800 text-emerald-300" : "text-zinc-500 hover:bg-zinc-800"
             }`}
@@ -259,6 +290,29 @@ export default function OperationalAlerts() {
         </div>
       )}
 
+      {/* 批量操作条 */}
+      {items != null && items.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-zinc-500">已选 {sel.length} 项</span>
+          <button
+            type="button"
+            onClick={() => runBatch("ack")}
+            disabled={busy || sel.length === 0}
+            className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-emerald-400 hover:border-emerald-500 disabled:opacity-50"
+          >
+            批量确认
+          </button>
+          <button
+            type="button"
+            onClick={() => runBatch("delete")}
+            disabled={busy || sel.length === 0}
+            className="rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-1.5 text-xs text-red-300 hover:bg-red-900/40 disabled:opacity-50"
+          >
+            批量删除
+          </button>
+        </div>
+      )}
+
       {/* 告警列表 */}
       <div className="overflow-hidden rounded-xl border border-zinc-800">
         {items == null ? (
@@ -270,6 +324,13 @@ export default function OperationalAlerts() {
             <table className="w-full">
               <thead className="bg-zinc-900/60">
                 <tr>
+                  <th className={th}>
+                    <input
+                      type="checkbox"
+                      checked={items.length > 0 && items.every((a) => sel.includes(a.id))}
+                      onChange={() => setSel(items.every((a) => sel.includes(a.id)) ? [] : items.map((a) => a.id))}
+                    />
+                  </th>
                   <th className={th}>级别</th>
                   <th className={th}>类型</th>
                   <th className={th}>内容</th>
@@ -281,6 +342,9 @@ export default function OperationalAlerts() {
               <tbody className="divide-y divide-zinc-800/70">
                 {items.map((a) => (
                   <tr key={a.id} className="hover:bg-zinc-900/40">
+                    <td className={td}>
+                      <input type="checkbox" checked={sel.includes(a.id)} onChange={() => toggleSel(a.id)} />
+                    </td>
                     <td className={td}>
                       <span className={`rounded px-1.5 py-0.5 text-xs ${LEVEL_BADGE[a.level] || ""}`}>
                         {LEVEL_TEXT[a.level] || a.level}
