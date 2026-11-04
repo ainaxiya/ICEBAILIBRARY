@@ -5,9 +5,9 @@
 ## 图片展示
 
 - 在线演示：https://www.wango8.com
-- PC 端截图：![PC.png](https://github.com/ainaxiya/CompletePrompt/blob/214691d3282ec41f3aa231b9f841b8d1050e0445/PC.png)
-- 手机端截图：![mobile.png](https://github.com/ainaxiya/CompletePrompt/blob/214691d3282ec41f3aa231b9f841b8d1050e0445/mobile.png)
-- 一键采集截图：<img src="caiji.png" width="500" alt="采集">
+- PC 端截图：![PC.png](https://github.com/ainaxiya/CompletePrompt/blob/master/PC.png)
+- 手机端截图：![mobile.png](https://github.com/ainaxiya/CompletePrompt/blob/master/mobile.png)
+- 后台截图：![caiji.png](https://github.com/ainaxiya/CompletePrompt/blob/master/caiji.png)
 
 ## 功能介绍
 
