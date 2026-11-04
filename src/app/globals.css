@@ -226,6 +226,57 @@ body {
   color: #97a4cf;
 }
 
+/* ─── API 接口文档正文（api-docs-default.ts 的 HTML + 动态模型目录表） ───
+   暗色排版：章节标题、参数表（table.params）、模型目录表（table.models）、
+   代码块（pre>code）、高亮标签（span.hl）、文末提示（p.note）。 */
+.api-docs-prose { word-break: break-word; }
+.api-docs-prose h2 {
+  font-size: 1.5rem; font-weight: 700; color: #eceefb;
+  margin: 2.25rem 0 1rem; padding-bottom: 0.5rem;
+  border-bottom: 1px solid #222e5e; scroll-margin-top: 6rem;
+}
+.api-docs-prose h3 {
+  font-size: 1.15rem; font-weight: 600; color: #b8e7fd;
+  margin: 1.75rem 0 0.75rem; scroll-margin-top: 6rem;
+}
+.api-docs-prose h4 { font-size: 1rem; font-weight: 600; color: #bdc7e6; margin: 1.25rem 0 0.5rem; }
+.api-docs-prose p { margin: 0 0 0.9em; line-height: 1.85; }
+.api-docs-prose ul, .api-docs-prose ol { margin: 0 0 0.9em; padding-left: 1.5em; }
+.api-docs-prose ul { list-style: disc; }
+.api-docs-prose ol { list-style: decimal; }
+.api-docs-prose li { margin: 0.35em 0; line-height: 1.8; }
+.api-docs-prose code {
+  background: #222e5e; padding: 0.1em 0.35em; border-radius: 0.25rem; font-size: 0.85em;
+}
+.api-docs-prose pre {
+  background: #091030; border: 1px solid #222e5e;
+  padding: 0.85em 1em; border-radius: 0.6rem; overflow-x: auto;
+  margin: 0 0 0.9em; font-size: 0.85em; line-height: 1.7;
+}
+.api-docs-prose pre code { background: transparent; padding: 0; font-size: 1em; }
+.api-docs-prose .hl { color: #5cc9f9; font-weight: 600; }
+.api-docs-prose .tbl {
+  overflow-x: auto; margin: 0 0 1.25em;
+  border: 1px solid #222e5e; border-radius: 0.6rem;
+}
+.api-docs-prose table { width: 100%; border-collapse: collapse; font-size: 0.875em; }
+.api-docs-prose th, .api-docs-prose td {
+  border-bottom: 1px solid #222e5e; padding: 0.55em 0.85em;
+  text-align: left; vertical-align: top;
+}
+.api-docs-prose th { background: #101a42; color: #86d8fb; font-weight: 600; white-space: nowrap; }
+.api-docs-prose tbody tr:last-child td { border-bottom: 0; }
+.api-docs-prose tbody tr:hover td { background: rgba(34, 46, 94, 0.28); }
+.api-docs-prose .note {
+  color: #97a4cf; font-size: 0.875em;
+  border-left: 3px solid #38bdf8; padding-left: 0.9em;
+}
+.api-docs-prose a { color: #86d8fb; text-decoration: underline; text-underline-offset: 2px; }
+.api-docs-prose details {
+  margin: 0 0 0.9em; border: 1px solid #222e5e; border-radius: 0.6rem; padding: 0.6em 0.9em;
+}
+.api-docs-prose summary { cursor: pointer; color: #bdc7e6; }
+
 /* 点赞数变化时的弹跳 */
 @keyframes btn-pop {
   0% { transform: scale(0.7); }

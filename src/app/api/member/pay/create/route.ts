@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { ensureCreditPacks } from "@/lib/credits";
 import { getAdapter, isPayChannel } from "@/lib/payments";
+import { getEnabledChannels } from "@/lib/payments/config";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,14 @@ export async function POST(req: NextRequest) {
   const { packCode, channel } = parsed.data;
   if (!isPayChannel(channel)) {
     return NextResponse.json({ error: "支付通道不支持" }, { status: 400 });
+  }
+  // 只允许后台启用中的支付接口；全部关闭则没有可用的支付通道
+  const enabled = await getEnabledChannels();
+  if (enabled.length === 0) {
+    return NextResponse.json({ error: "没有可用的支付通道" }, { status: 503 });
+  }
+  if (!enabled.includes(channel)) {
+    return NextResponse.json({ error: "该支付方式未启用" }, { status: 400 });
   }
 
   await ensureCreditPacks();

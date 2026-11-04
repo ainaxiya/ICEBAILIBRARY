@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
       orderBy: { id: "desc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
-      include: { _count: { select: { prompts: true } } },
+      include: { _count: { select: { prompts: true, apiKeys: true } } },
     }),
     db.user.count({ where }),
   ]);

@@ -5,8 +5,8 @@ import { getCurrentUser } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 
 // ─── P4 用户中心：用量明细 ───
-// GET /api/member/usage?channel=onsite|apikey&view=list|bykey|byday&page=1
-// onsite = 本站使用（对话/生图/生视频）；apikey = API Key 使用（含按 Key/按日聚合）
+// GET /api/member/usage?channel=onsite|apikey&view=list|bykey|byday|bymodel&page=1
+// onsite = 本站使用（对话/生图/生视频，支持按日/按模型聚合）；apikey = API Key 使用（含按 Key/按日聚合）
 
 // endpointType → 功能名（对齐 TRAE 信息量）
 const FEATURE: Record<string, string> = {
@@ -65,6 +65,54 @@ export async function GET(req: NextRequest) {
       view: "byday",
       rows: rows.map((r) => ({
         day: r.day.toISOString().slice(0, 10),
+        calls: Number(r.calls),
+        tokens: Number(r.tokens),
+        credits: Number(r.credits),
+      })),
+    });
+  }
+
+  if (channel === "onsite" && view === "byday") {
+    // 本站使用：按日聚合（形状同 apikey byday）
+    const rows = await db.$queryRaw<
+      { day: Date; calls: bigint; tokens: bigint; credits: bigint }[]
+    >`
+      SELECT date("createdAt") AS day,
+             COUNT(*)::bigint AS calls,
+             (COALESCE(SUM("promptTokens"), 0) + COALESCE(SUM("outputTokens"), 0))::bigint AS tokens,
+             COALESCE(SUM("paidCredits"), 0)::bigint AS credits
+      FROM usage_record
+      WHERE "userId" = ${user.id} AND channel = 'onsite'
+      GROUP BY 1 ORDER BY 1 DESC LIMIT 60
+    `;
+    return NextResponse.json({
+      view: "byday",
+      rows: rows.map((r) => ({
+        day: r.day.toISOString().slice(0, 10),
+        calls: Number(r.calls),
+        tokens: Number(r.tokens),
+        credits: Number(r.credits),
+      })),
+    });
+  }
+
+  if (channel === "onsite" && view === "bymodel") {
+    // 本站使用：按模型聚合
+    const rows = await db.$queryRaw<
+      { modelName: string; calls: bigint; tokens: bigint; credits: bigint }[]
+    >`
+      SELECT "modelSnapshot" AS "modelName",
+             COUNT(*)::bigint AS calls,
+             (COALESCE(SUM("promptTokens"), 0) + COALESCE(SUM("outputTokens"), 0))::bigint AS tokens,
+             COALESCE(SUM("paidCredits"), 0)::bigint AS credits
+      FROM usage_record
+      WHERE "userId" = ${user.id} AND channel = 'onsite'
+      GROUP BY 1 ORDER BY 4 DESC LIMIT 60
+    `;
+    return NextResponse.json({
+      view: "bymodel",
+      rows: rows.map((r) => ({
+        modelName: r.modelName,
         calls: Number(r.calls),
         tokens: Number(r.tokens),
         credits: Number(r.credits),

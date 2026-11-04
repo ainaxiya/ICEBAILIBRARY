@@ -22,12 +22,12 @@ export async function GET(
 
   // 原生 SQL 自增下载计数（不触 updatedAt）
   db.$executeRaw`UPDATE "Skill" SET "downloadCount" = "downloadCount" + 1 WHERE id = ${skill.id}`.catch(() => {});
-  const guanggao = `【此技能由冰山AI资料库 wango8.com 整理搜集而成】\n\n`;
+  //const guanggao = `【此技能由冰山AI资料库 wango8.com 整理搜集而成】\n\n`;
   const files = (Array.isArray(skill.files) ? skill.files : []) as unknown as FileEntry[];
   const safeSlug = skill.slug.replace(/[^a-z0-9-]/gi, "_");
 
   if (files.length === 0) {
-    return new NextResponse(guanggao + skill.skillMd, {
+    return new NextResponse(skill.skillMd, {
       headers: {
         "Content-Type": "text/markdown; charset=utf-8",
         "Content-Disposition": `attachment; filename="${safeSlug}.md"`,

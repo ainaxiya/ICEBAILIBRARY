@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
 import { ADMIN_BASE } from "@/lib/admin-path";
@@ -6,6 +5,7 @@ import { getAdminPermissions, PERMISSIONS } from "@/lib/rbac";
 import { getPublicSite } from "@/lib/settings";
 import { APP_VERSION } from "@/lib/version";
 import LogoutButton from "@/components/LogoutButton";
+import AdminNav from "@/components/admin/AdminNav";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +24,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const nav: { href: string; label: string; icon: string; superOnly?: boolean; perm?: string }[] = [
     { href: ADMIN_BASE, label: "仪表盘", icon: "📊" },
     { href: `${ADMIN_BASE}/settings/site`, label: "网站设置", icon: "🌐" },
+    { href: `${ADMIN_BASE}/settings/pages`, label: "单页内容管理", icon: "📄" },
+    { href: `${ADMIN_BASE}/settings/pay-channels`, label: "支付接口管理", icon: "💳" },
+    { href: `${ADMIN_BASE}/settings/credit-packs`, label: "积分包管理", icon: "🎁" },
     { href: `${ADMIN_BASE}/optimizer-logs`, label: "优化器使用记录", icon: "📈", perm: PERMISSIONS.OPTIMIZER_LOG_READ },
     { href: `${ADMIN_BASE}/prompts`, label: "提示词管理", icon: "📝" },
     { href: `${ADMIN_BASE}/skills`, label: "技能管理", icon: "🧩", perm: PERMISSIONS.SKILL_MANAGE },
@@ -34,7 +37,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     { href: `${ADMIN_BASE}/collect`, label: "采集管理", icon: "📡", perm: PERMISSIONS.CRAWL_MANAGE },
     { href: `${ADMIN_BASE}/storage`, label: "存储桶管理", icon: "🪣", perm: PERMISSIONS.STORAGE_MANAGE },
     { href: `${ADMIN_BASE}/models`, label: "模型库管理", icon: "🤖", perm: PERMISSIONS.MODELS_READ },
+    { href: `${ADMIN_BASE}/models/api-docs`, label: "API 文档", icon: "📘", perm: PERMISSIONS.MODELS_READ },
     { href: `${ADMIN_BASE}/reports/usage`, label: "消费报表", icon: "💹", perm: PERMISSIONS.REPORT_READ },
+    { href: `${ADMIN_BASE}/pay/orders`, label: "订单管理", icon: "🧾" },
+    { href: `${ADMIN_BASE}/pay/ledger`, label: "积分流水", icon: "📒" },
+    { href: `${ADMIN_BASE}/pay/usage-records`, label: "使用记录管理", icon: "📝" },
     { href: `${ADMIN_BASE}/alerts`, label: "运营告警", icon: "🚨", perm: PERMISSIONS.REPORT_READ },
     { href: `${ADMIN_BASE}/settings/publish`, label: "发布设置", icon: "📤" },
     { href: `${ADMIN_BASE}/users`, label: "用户管理", icon: "👥" },
@@ -64,18 +71,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           />
           <span className="text-base font-bold tracking-wide text-gold-gradient">{site.siteName}</span>
         </div>
-        <nav className="flex flex-row gap-1 overflow-x-auto lg:flex-col">
-          {nav.map((n) => (
-            <Link
-              key={n.href}
-              href={n.href}
-              className="flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm text-zinc-300 transition hover:bg-emerald-800/60 hover:text-white"
-            >
-              <span>{n.icon}</span>
-              {n.label}
-            </Link>
-          ))}
-        </nav>
+        {/* 分组折叠菜单（默认展开当前页所在分组） */}
+        <AdminNav items={nav.map(({ href, label, icon }) => ({ href, label, icon }))} />
         <div className="mt-6 hidden border-t border-zinc-800/80 pt-4 text-xs text-zinc-500 lg:block">
           <a
             href="/"

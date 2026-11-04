@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 const STATUS = ["online", "deprecated", "offline"] as const;
 const ENDPOINT_TYPES = ["chat", "image", "video", "audio"] as const;
 
-// GET /api/admin/models/models/[id] —— 详情：端点/定价历史/绑定
+// GET /api/admin/models/models/[id] —— 详情：端点/定价历史
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -31,10 +31,6 @@ export async function GET(
       vendor: { select: { id: true, name: true } },
       pricings: { orderBy: { effectiveAt: "desc" } },
       endpoints: { orderBy: { id: "asc" } },
-      bindings: {
-        orderBy: [{ priority: "asc" }, { id: "asc" }],
-        include: { apiKey: { select: { id: true, name: true, keyPrefix: true, status: true } } },
-      },
     },
   });
   if (!m) return NextResponse.json({ error: "模型不存在" }, { status: 404 });
@@ -56,16 +52,6 @@ export async function GET(
     currentPricing: cur ? pricingJson(cur) : null,
     pricings: m.pricings.map(pricingJson),
     endpoints: m.endpoints.map((e) => ({ id: e.id, path: e.path, enabled: e.enabled })),
-    bindings: m.bindings.map((b) => ({
-      id: b.id,
-      apiKeyId: b.apiKeyId,
-      keyName: b.apiKey.name,
-      keyPrefix: b.apiKey.keyPrefix,
-      keyStatus: b.apiKey.status,
-      priority: b.priority,
-      weight: b.weight,
-      enabled: b.enabled,
-    })),
   });
 }
 
@@ -130,7 +116,7 @@ export async function PUT(
   return NextResponse.json({ ok: true, model: { id: model.id, name: model.name, status: model.status } });
 }
 
-// DELETE /api/admin/models/models/[id] —— 级联删除端点/定价/绑定
+// DELETE /api/admin/models/models/[id] —— 级联删除端点/定价
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }

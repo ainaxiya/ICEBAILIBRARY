@@ -1,0 +1,41 @@
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { authenticateV1 } from "@/lib/gateway/auth";
+
+export const dynamic = "force-dynamic";
+
+// ─── GET /v1/models —— OpenAI 兼容模型列表 ───
+// 鉴权同 /v1 其他端点（站内登录态 / 站外 Bearer sk- Key，见 gateway/auth）。
+// 返回 status=online 的模型：id=模型名（调用时 model 参数填它），
+// owned_by=厂商显示名，endpoint_type 决定调用哪个端点（chat→/v1/chat/completions，
+// image/video→/v1/images/generations）。
+
+// OpenAI 风格错误体（与 /v1/chat/completions、/v1/images/generations 保持一致）
+function apiError(status: number, message: string, type: string, code: string) {
+  return NextResponse.json({ error: { message, type, code } }, { status });
+}
+
+export async function GET(req: NextRequest) {
+  // ── 鉴权（站内登录态 / 站外 Bearer sk- Key） ──
+  const auth = await authenticateV1(req);
+  if (!auth.ok) {
+    return apiError(auth.status, auth.message, "authentication_error", auth.code);
+  }
+
+  const models = await db.aiModel.findMany({
+    where: { status: "online" },
+    include: { vendor: true },
+    orderBy: [{ vendorId: "asc" }, { id: "asc" }],
+  });
+
+  return NextResponse.json({
+    object: "list",
+    data: models.map((m) => ({
+      id: m.name,
+      object: "model",
+      created: Math.floor(m.createdAt.getTime() / 1000),
+      owned_by: m.vendor.name,
+      endpoint_type: m.endpointType,
+    })),
+  });
+}

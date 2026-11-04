@@ -7,6 +7,7 @@ type Row = {
   date: string | null;
   modelId: number | null;
   modelName: string | null;
+  channel?: string | null;
   calls: number;
   promptTokens: number;
   outputTokens: number;
@@ -59,6 +60,8 @@ export default function UsageReport() {
   const [dateTo, setDateTo] = useState(today);
   const [modelId, setModelId] = useState(0);
   const [groupBy, setGroupBy] = useState<"day" | "model">("day");
+  // 通道页签：本站消费 / KEY 消费 / 全部
+  const [channel, setChannel] = useState<"all" | "onsite" | "apikey">("all");
   const [models, setModels] = useState<ModelOpt[]>([]);
   const [data, setData] = useState<Report | null>(null);
   const [loading, setLoading] = useState(false);
@@ -71,11 +74,11 @@ export default function UsageReport() {
       .catch(() => {});
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (channelOverride?: "all" | "onsite" | "apikey") => {
     setLoading(true);
     setMsg(null);
     try {
-      const qs = new URLSearchParams({ groupBy, dateFrom, dateTo });
+      const qs = new URLSearchParams({ groupBy, dateFrom, dateTo, channel: channelOverride ?? channel });
       if (modelId) qs.set("modelId", String(modelId));
       const r = await fetch(`/api/admin/reports/usage?${qs.toString()}`);
       const d = await r.json().catch(() => ({}));
@@ -86,7 +89,7 @@ export default function UsageReport() {
     } finally {
       setLoading(false);
     }
-  }, [groupBy, dateFrom, dateTo, modelId]);
+  }, [groupBy, dateFrom, dateTo, modelId, channel]);
 
   useEffect(() => {
     load();
@@ -95,6 +98,34 @@ export default function UsageReport() {
 
   return (
     <div>
+      {/* 通道页签：切换时带 channel 参数重新请求 */}
+      <div className="mb-4 flex flex-wrap gap-2">
+        {(
+          [
+            { key: "onsite", label: "本站消费报表" },
+            { key: "apikey", label: "KEY 消费报表" },
+            { key: "all", label: "全部" },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => {
+              if (channel === t.key) return;
+              setChannel(t.key);
+              load(t.key);
+            }}
+            className={`rounded-lg px-4 py-1.5 text-sm transition ${
+              channel === t.key
+                ? "bg-emerald-600 font-medium text-white"
+                : "border border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <div>
           <label className="mb-1 block text-xs text-zinc-500">开始日期</label>
@@ -122,7 +153,7 @@ export default function UsageReport() {
             <option value="model">按模型聚合</option>
           </select>
         </div>
-        <button type="button" onClick={load} className={btnCls} disabled={loading}>
+        <button type="button" onClick={() => load()} className={btnCls} disabled={loading}>
           {loading ? "查询中…" : "查询"}
         </button>
       </div>

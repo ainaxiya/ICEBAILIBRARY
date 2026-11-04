@@ -26,7 +26,7 @@ export const PERMISSIONS = {
   LOG_READ: "log:read",
   SETTING_READ: "setting:read",
   SETTING_WRITE: "setting:write",
-  // P3 模型库管理（厂商/Key/模型/定价/绑定）与消费报表
+  // P3 模型库管理（厂商/Key/模型/定价）与消费报表
   MODELS_READ: "models:read",
   MODELS_WRITE: "models:write",
   REPORT_READ: "report:read",

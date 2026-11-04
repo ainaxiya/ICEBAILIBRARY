@@ -3,9 +3,9 @@ import { decryptSecret } from "@/lib/crypto";
 import { db } from "@/lib/db";
 import { latestPricing } from "./pricing";
 
-// ─── P1 聚合网关：Key 路由（方案 6.1 第 5 步） ───
-// 按模型名查 online 模型 + 启用绑定（Key 须 active），
-// priority 升序（小值优先），同 priority 组内按 weight 加权随机排序；
+// ─── P1 聚合网关：Key 路由（厂商级 Key 轮换） ───
+// 按模型名查 online 模型，取模型所属厂商（model.vendorId）下全部 status="active" 的
+// VendorApiKey 作为候选，按 lastUsedAt 升序排序（null 视为最先）实现轮换；
 // 上游失败由调用方沿候选列表换 Key 重试（最多 3 个）。
 
 export interface KeyCandidate {
@@ -24,27 +24,6 @@ export interface RouteContext {
   candidates: KeyCandidate[];
 }
 
-// 加权随机排序（不放回抽样：权重越大越靠前的概率越高）
-function weightedOrder<T extends { weight: number }>(items: T[]): T[] {
-  const rest = [...items];
-  const out: T[] = [];
-  while (rest.length > 0) {
-    const total = rest.reduce((s, x) => s + Math.max(1, x.weight), 0);
-    let r = Math.random() * total;
-    let idx = rest.length - 1;
-    for (let i = 0; i < rest.length; i++) {
-      r -= Math.max(1, rest[i].weight);
-      if (r <= 0) {
-        idx = i;
-        break;
-      }
-    }
-    out.push(rest[idx]);
-    rest.splice(idx, 1);
-  }
-  return out;
-}
-
 // 解析模型路由：null = 模型不存在或已下线
 export async function resolveRoute(modelName: string): Promise<RouteContext | null> {
   const model = await db.aiModel.findFirst({
@@ -53,33 +32,23 @@ export async function resolveRoute(modelName: string): Promise<RouteContext | nu
       vendor: true,
       endpoints: true,
       pricings: true,
-      bindings: {
-        where: { enabled: true },
-        include: { apiKey: true },
-      },
     },
   });
   if (!model) return null;
 
-  // priority 升序分组；同 priority 按 weight 加权随机
-  const groups = new Map<number, typeof model.bindings>();
-  for (const b of model.bindings) {
-    if (!b.apiKey || b.apiKey.status !== "active") continue;
-    const g = groups.get(b.priority) ?? [];
-    g.push(b);
-    groups.set(b.priority, g);
-  }
-  const ordered = [...groups.keys()]
-    .sort((a, b) => a - b)
-    .flatMap((p) => weightedOrder(groups.get(p)!));
+  // 厂商级 Key 轮换：active Key 按 lastUsedAt 升序（null 最先）排序
+  const keys = await db.vendorApiKey.findMany({
+    where: { vendorId: model.vendorId, status: "active" },
+    orderBy: { lastUsedAt: { sort: "asc", nulls: "first" } },
+  });
 
   const candidates: KeyCandidate[] = [];
-  for (const b of ordered) {
+  for (const k of keys) {
     try {
       candidates.push({
-        vendorKeyId: b.apiKey.id,
-        keyName: b.apiKey.name,
-        apiKey: decryptSecret(b.apiKey.keyCipher),
+        vendorKeyId: k.id,
+        keyName: k.name,
+        apiKey: decryptSecret(k.keyCipher),
         apiBase: model.vendor.apiBase,
       });
     } catch {

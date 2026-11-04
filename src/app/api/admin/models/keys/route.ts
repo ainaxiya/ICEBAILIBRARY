@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
       ...(status ? { status } : {}),
     },
     orderBy: { id: "asc" },
-    include: { vendor: { select: { name: true } }, _count: { select: { bindings: true } } },
+    include: { vendor: { select: { name: true } } },
   });
 
   return NextResponse.json({
@@ -40,7 +40,6 @@ export async function GET(req: NextRequest) {
       status: k.status,
       remark: k.remark,
       lastUsedAt: k.lastUsedAt ? k.lastUsedAt.toISOString() : null,
-      bindingCount: k._count.bindings,
       createdAt: k.createdAt.toISOString(),
     })),
   });

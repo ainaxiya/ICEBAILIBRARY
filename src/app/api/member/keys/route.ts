@@ -16,11 +16,12 @@ export async function GET() {
   const keys = await db.userApiKey.findMany({
     where: { userId: user.id },
     orderBy: { createdAt: "desc" },
-    select: { id: true, keyPrefix: true, status: true, expiresAt: true, lastUsedAt: true, createdAt: true },
+    select: { id: true, name: true, keyPrefix: true, status: true, expiresAt: true, lastUsedAt: true, createdAt: true },
   });
   return NextResponse.json({
     keys: keys.map((k) => ({
       id: k.id,
+      name: k.name,
       keyPrefix: k.keyPrefix,
       status: k.status,
       expiresAt: k.expiresAt,
@@ -35,6 +36,11 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "请先登录" }, { status: 401 });
 
   const raw = await req.json().catch(() => ({}));
+  // 自定义名称（可空，≤50 字符）
+  let name: string | null = null;
+  if (raw?.name != null && String(raw.name).trim()) {
+    name = String(raw.name).trim().slice(0, 50);
+  }
   let expiresAt: Date | null = null;
   if (raw?.expiresAt) {
     const d = new Date(String(raw.expiresAt));
@@ -47,9 +53,10 @@ export async function POST(req: NextRequest) {
     expiresAt = d;
   }
 
-  const created = await createApiKey(user.id, expiresAt);
+  const created = await createApiKey(user.id, expiresAt, name);
   return NextResponse.json({
     id: created.id,
+    name: created.name,
     keyPrefix: created.keyPrefix,
     // 明文仅此一次返回，创建后无法再查看
     key: created.plaintext,

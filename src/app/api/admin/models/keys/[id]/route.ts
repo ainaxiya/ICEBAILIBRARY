@@ -71,7 +71,7 @@ export async function PUT(
   });
 }
 
-// DELETE /api/admin/models/keys/[id] —— 级联删除 key_model_binding
+// DELETE /api/admin/models/keys/[id] —— 删除 Key
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -85,10 +85,7 @@ export async function DELETE(
   const keyId = Number(id);
   if (!Number.isInteger(keyId)) return NextResponse.json({ error: "参数错误" }, { status: 400 });
 
-  const exists = await db.vendorApiKey.findUnique({
-    where: { id: keyId },
-    include: { _count: { select: { bindings: true } } },
-  });
+  const exists = await db.vendorApiKey.findUnique({ where: { id: keyId } });
   if (!exists) return NextResponse.json({ error: "Key 不存在" }, { status: 404 });
 
   await db.vendorApiKey.delete({ where: { id: keyId } });
@@ -98,7 +95,7 @@ export async function DELETE(
     action: "delete",
     targetType: "vendor_api_key",
     targetId: keyId,
-    detail: JSON.stringify({ name: exists.name, keyPrefix: exists.keyPrefix, bindings: exists._count.bindings }),
+    detail: JSON.stringify({ name: exists.name, keyPrefix: exists.keyPrefix }),
     ip: await getClientIp(),
   });
 

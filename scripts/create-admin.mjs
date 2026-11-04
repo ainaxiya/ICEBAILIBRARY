@@ -13,6 +13,12 @@ async function main() {
     update: { role: "admin", passwordHash: hash, status: "active" },
     create: { username, passwordHash: hash, role: "admin", status: "active" },
   });
-  console.log(`admin ready: id=${u.id} username=${u.username} password=${password}`);
+  // 后台登录走 admin_account 表（与会员 user 表完全分离），须同步建超级管理员
+  const a = await db.adminAccount.upsert({
+    where: { username },
+    update: { passwordHash: hash, status: "active", isSuper: true },
+    create: { username, passwordHash: hash, status: "active", isSuper: true },
+  });
+  console.log(`admin ready: user id=${u.id} adminAccount id=${a.id} username=${u.username} password=${password}`);
 }
 main().finally(() => db.$disconnect());

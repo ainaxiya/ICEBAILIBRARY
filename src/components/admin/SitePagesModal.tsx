@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import RichEditor from "@/components/RichEditor";
 
 type PageRow = {
@@ -24,7 +24,8 @@ const fmtTime = (s: string) => {
 };
 
 // 单页内容修改：弹层列出 5 个固定页 → 点某页进编辑（标题 + 富文本）→ PUT 保存
-export default function SitePagesModal() {
+// autoOpen：独立管理页（单页内容管理）挂载后直接打开列表弹层
+export default function SitePagesModal({ autoOpen = false }: { autoOpen?: boolean }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [pages, setPages] = useState<PageRow[]>([]);
@@ -53,6 +54,11 @@ export default function SitePagesModal() {
     setEditing(null);
     load();
   };
+
+  useEffect(() => {
+    if (autoOpen) openModal();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const editPage = (p: PageRow) => {
     setEditing(p);

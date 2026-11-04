@@ -13,7 +13,7 @@ export default async function AdminModelsPage() {
     <div>
       <h1 className="mb-1 text-xl font-bold">模型库管理</h1>
       <p className="mb-5 text-sm text-zinc-500">
-        聚合网关计费真源：厂商 / API Key（密文存储不回显）/ 模型上下线与定价调价历史 / 端点 / Key-模型路由绑定。
+        聚合网关计费真源：厂商 / API Key（密文存储不回显）/ 模型上下线与定价调价历史 / 端点（厂商级 Key 轮换）。
       </p>
       <ModelLibrary />
     </div>

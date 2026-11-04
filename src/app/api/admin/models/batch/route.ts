@@ -6,12 +6,12 @@ import { PERMISSIONS, requirePerm, logAdminAction, getClientIp } from "@/lib/rba
 
 export const dynamic = "force-dynamic";
 
-// ─── P3 模型库批量操作：厂商 / Key / 模型 / 绑定 的启用·禁用·删除 ───
+// ─── P3 模型库批量操作：厂商 / Key / 模型 的启用·禁用·删除 ───
 // POST /api/admin/models/batch
-// { resource: "vendors"|"keys"|"models"|"bindings", action: "enable"|"disable"|"delete", ids: number[] }
+// { resource: "vendors"|"keys"|"models", action: "enable"|"disable"|"delete", ids: number[] }
 
 const schema = z.object({
-  resource: z.enum(["vendors", "keys", "models", "bindings"]),
+  resource: z.enum(["vendors", "keys", "models"]),
   action: z.enum(["enable", "disable", "delete"]),
   ids: z.array(z.number().int().positive()).min(1).max(200),
 });
@@ -21,7 +21,6 @@ const TARGET_TYPE = {
   vendors: "ai_vendor",
   keys: "vendor_api_key",
   models: "ai_model",
-  bindings: "key_model_binding",
 } as const;
 
 // POST /api/admin/models/batch —— 批量启用/禁用/删除，返回 affected 数量
@@ -40,24 +39,14 @@ export async function POST(req: NextRequest) {
   let affected = 0;
 
   if (action === "delete") {
-    // 厂商删除会级联删除其 Key/模型/绑定（schema onDelete: Cascade），属预期行为
+    // 厂商删除会级联删除其 Key/模型（schema onDelete: Cascade），属预期行为
     if (resource === "vendors") {
       affected = (await db.aiVendor.deleteMany({ where: { id: { in: ids } } })).count;
     } else if (resource === "keys") {
       affected = (await db.vendorApiKey.deleteMany({ where: { id: { in: ids } } })).count;
-    } else if (resource === "models") {
-      affected = (await db.aiModel.deleteMany({ where: { id: { in: ids } } })).count;
     } else {
-      affected = (await db.keyModelBinding.deleteMany({ where: { id: { in: ids } } })).count;
+      affected = (await db.aiModel.deleteMany({ where: { id: { in: ids } } })).count;
     }
-  } else if (resource === "bindings") {
-    // 绑定：enabled 布尔开关
-    affected = (
-      await db.keyModelBinding.updateMany({
-        where: { id: { in: ids } },
-        data: { enabled: action === "enable" },
-      })
-    ).count;
   } else if (resource === "keys") {
     // Key：status active/disabled
     affected = (

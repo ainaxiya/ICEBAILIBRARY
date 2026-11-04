@@ -68,9 +68,20 @@ type AssetRow = {
 type ApiKeyRow = {
   id: number;
   keyPrefix: string;
+  name: string | null;
   status: string;
   expiresAt: string | null;
   lastUsedAt: string | null;
+  createdAt: string;
+};
+
+type LedgerRow = {
+  id: number;
+  changeAmount: number;
+  balanceAfter: number;
+  reason: string;
+  refType: string | null;
+  refId: string | number | null;
   createdAt: string;
 };
 
@@ -98,6 +109,12 @@ const PAY_BADGE: Record<string, string> = {
   paid: "bg-emerald-500/15 text-emerald-300",
   failed: "bg-rose-500/15 text-rose-300",
   closed: "bg-zinc-700 text-zinc-400",
+};
+const LEDGER_REASON: Record<string, string> = {
+  grant: "入账",
+  consume: "消费",
+  refund: "退回",
+  admin_adjust: "调账",
 };
 const USAGE_STATUS: Record<string, string> = {
   success: "成功",
@@ -142,10 +159,11 @@ function fmtSize(bytes: number) {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
-type TabKey = "balance" | "pay" | "usage" | "apikeys" | "assets" | "messages" | "posts";
+type TabKey = "balance" | "pay" | "ledger" | "usage" | "apikeys" | "assets" | "messages" | "posts";
 const TABS: { key: TabKey; labelKey: DictKey }[] = [
   { key: "balance", labelKey: "member.tabBalance" },
   { key: "pay", labelKey: "member.tabPay" },
+  { key: "ledger", labelKey: "member.tabLedger" },
   { key: "usage", labelKey: "member.tabUsage" },
   { key: "apikeys", labelKey: "member.tabApiKeys" },
   { key: "assets", labelKey: "member.tabAssets" },
@@ -177,11 +195,21 @@ export default function MemberCenter({
   const [payLoading, setPayLoading] = useState(false);
   const payPageSize = 10;
 
+  // 积分明细
+  type LedgerReason = "all" | "grant" | "consume" | "refund" | "admin_adjust";
+  const [ledgerReason, setLedgerReason] = useState<LedgerReason>("all");
+  const [ledgerRows, setLedgerRows] = useState<LedgerRow[] | null>(null);
+  const [ledgerPage, setLedgerPage] = useState(1);
+  const [ledgerTotal, setLedgerTotal] = useState(0);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
+  const ledgerPageSize = 20;
+
   // 用量明细
+  type UsageView = "list" | "bykey" | "byday" | "bymodel";
   const [usageChannel, setUsageChannel] = useState<"onsite" | "apikey">("onsite");
-  const [usageView, setUsageView] = useState<"list" | "bykey" | "byday">("list");
+  const [usageView, setUsageView] = useState<UsageView>("list");
   const [usageRows, setUsageRows] = useState<UsageRow[] | null>(null);
-  const [aggRows, setAggRows] = useState<{ keyName?: string; day?: string; calls: number; tokens: number; credits: number }[] | null>(null);
+  const [aggRows, setAggRows] = useState<{ keyName?: string; day?: string; modelName?: string; calls: number; tokens: number; credits: number }[] | null>(null);
   const [usagePage, setUsagePage] = useState(1);
   const [usageTotal, setUsageTotal] = useState(0);
   const usagePageSize = 20;
@@ -189,12 +217,13 @@ export default function MemberCenter({
   // 我的资产
   const [assets, setAssets] = useState<AssetRow[] | null>(null);
   const [assetError, setAssetError] = useState("");
-  const loadedRef = useRef({ pay: false, usage: false, assets: false, apikeys: false });
+  const loadedRef = useRef({ pay: false, ledger: false, usage: false, assets: false, apikeys: false });
 
   // API Key
   const [apiKeys, setApiKeys] = useState<ApiKeyRow[] | null>(null);
   const [apiKeyError, setApiKeyError] = useState("");
   const [showCreateKey, setShowCreateKey] = useState(false);
+  const [keyName, setKeyName] = useState("");
   const [keyExpireDays, setKeyExpireDays] = useState<"0" | "30" | "90" | "365">("0");
   const [creatingKey, setCreatingKey] = useState(false);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
@@ -217,7 +246,26 @@ export default function MemberCenter({
     }
   }, []);
 
-  const loadUsage = useCallback(async (channel: "onsite" | "apikey", view: "list" | "bykey" | "byday", page: number) => {
+  const loadLedger = useCallback(async (reason: LedgerReason, page: number) => {
+    setLedgerLoading(true);
+    try {
+      const r = await fetch(
+        `/api/member/credits/ledger?reason=${reason}&page=${page}&pageSize=${ledgerPageSize}`
+      );
+      const d = await r.json();
+      if (r.ok) {
+        setLedgerRows(d.items || []);
+        setLedgerTotal(d.total || 0);
+        setLedgerPage(page);
+      }
+    } catch {
+      // 静默
+    } finally {
+      setLedgerLoading(false);
+    }
+  }, []);
+
+  const loadUsage = useCallback(async (channel: "onsite" | "apikey", view: UsageView, page: number) => {
     try {
       const r = await fetch(
         `/api/member/usage?channel=${channel}&view=${view}&page=${page}`
@@ -266,9 +314,10 @@ export default function MemberCenter({
     setApiKeyError("");
     try {
       const days = parseInt(keyExpireDays, 10);
-      const body = days > 0
-        ? { expiresAt: new Date(Date.now() + days * 86400000).toISOString() }
-        : {};
+      const body: { name?: string; expiresAt?: string } = {};
+      const name = keyName.trim().slice(0, 50);
+      if (name) body.name = name;
+      if (days > 0) body.expiresAt = new Date(Date.now() + days * 86400000).toISOString();
       const r = await fetch("/api/member/keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -288,7 +337,7 @@ export default function MemberCenter({
     } finally {
       setCreatingKey(false);
     }
-  }, [keyExpireDays, locale]);
+  }, [keyName, keyExpireDays, locale]);
 
   const revokeKey = useCallback(
     async (k: ApiKeyRow) => {
@@ -313,6 +362,10 @@ export default function MemberCenter({
       loadedRef.current.pay = true;
       loadPay(1);
     }
+    if (tab === "ledger" && !loadedRef.current.ledger) {
+      loadedRef.current.ledger = true;
+      loadLedger("all", 1);
+    }
     if (tab === "usage" && !loadedRef.current.usage) {
       loadedRef.current.usage = true;
       loadUsage("onsite", "list", 1);
@@ -325,7 +378,7 @@ export default function MemberCenter({
       loadedRef.current.assets = true;
       loadAssets();
     }
-  }, [tab, loadPay, loadUsage, loadAssets, loadApiKeys]);
+  }, [tab, loadPay, loadLedger, loadUsage, loadAssets, loadApiKeys]);
 
   const downloadAsset = async (a: AssetRow) => {
     try {
@@ -361,6 +414,20 @@ export default function MemberCenter({
 
   const th = "px-3 py-2.5 text-left text-xs font-medium text-zinc-500";
   const td = "px-3 py-2.5 text-sm text-zinc-300";
+
+  // 用量报表的视图切换项：本站消费报表支持 明细/按日/按模型，KEY 消费报表支持 明细/按Key/按日
+  const usageViewOptions: { v: UsageView; label: string }[] =
+    usageChannel === "onsite"
+      ? [
+          { v: "list", label: "明细" },
+          { v: "byday", label: "按日" },
+          { v: "bymodel", label: "按模型" },
+        ]
+      : [
+          { v: "list", label: "明细" },
+          { v: "bykey", label: "按 Key" },
+          { v: "byday", label: "按日" },
+        ];
 
   return (
     <div className="mb-8">
@@ -507,50 +574,140 @@ export default function MemberCenter({
         </div>
       )}
 
+      {/* ── 积分明细 ── */}
+      {tab === "ledger" && (
+        <div>
+          <div className="mb-3 flex flex-wrap items-center gap-1.5">
+            {(["all", "grant", "consume", "refund", "admin_adjust"] as const).map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => {
+                  setLedgerReason(r);
+                  loadLedger(r, 1);
+                }}
+                className={`rounded-lg px-3 py-1.5 text-sm ${
+                  ledgerReason === r ? "bg-emerald-500/15 text-emerald-300" : "text-zinc-400 hover:bg-zinc-800"
+                }`}
+              >
+                {r === "all" ? "全部" : LEDGER_REASON[r]}
+              </button>
+            ))}
+          </div>
+          <div className="overflow-hidden rounded-xl border border-zinc-800">
+            {ledgerRows == null ? (
+              <div className="p-6 text-center text-sm text-zinc-500">加载中…</div>
+            ) : ledgerRows.length === 0 ? (
+              <div className="p-6 text-center text-sm text-zinc-500">暂无积分明细</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-zinc-900/60">
+                    <tr>
+                      <th className={th}>时间</th>
+                      <th className={th}>类型</th>
+                      <th className={th}>变动</th>
+                      <th className={th}>余额</th>
+                      <th className={th}>来源</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800/70">
+                    {ledgerRows.map((r) => (
+                      <tr key={r.id}>
+                        <td className={`${td} text-xs`}>{fmt(r.createdAt)}</td>
+                        <td className={td}>{LEDGER_REASON[r.reason] || r.reason}</td>
+                        <td
+                          className={`${td} font-medium ${
+                            r.changeAmount > 0
+                              ? "text-emerald-300"
+                              : r.changeAmount < 0
+                                ? "text-rose-400"
+                                : "text-zinc-400"
+                          }`}
+                        >
+                          {r.changeAmount > 0 ? `+${r.changeAmount}` : r.changeAmount}
+                        </td>
+                        <td className={td}>{r.balanceAfter}</td>
+                        <td className={`${td} text-xs text-zinc-400`}>
+                          {r.refType ? `${r.refType}:${r.refId}` : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+          {ledgerRows != null && ledgerTotal > ledgerPageSize && (
+            <div className="mt-3 flex items-center justify-center gap-3 text-sm text-zinc-400">
+              <button
+                type="button"
+                disabled={ledgerPage <= 1 || ledgerLoading}
+                onClick={() => loadLedger(ledgerReason, ledgerPage - 1)}
+                className="rounded-lg border border-zinc-700 px-3 py-1 hover:bg-zinc-800 disabled:opacity-40"
+              >
+                上一页
+              </button>
+              <span>
+                {ledgerPage} / {Math.ceil(ledgerTotal / ledgerPageSize)}（共 {ledgerTotal} 条）
+              </span>
+              <button
+                type="button"
+                disabled={ledgerPage >= Math.ceil(ledgerTotal / ledgerPageSize) || ledgerLoading}
+                onClick={() => loadLedger(ledgerReason, ledgerPage + 1)}
+                className="rounded-lg border border-zinc-700 px-3 py-1 hover:bg-zinc-800 disabled:opacity-40"
+              >
+                下一页
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── 用量明细 ── */}
       {tab === "usage" && (
         <div>
+          {/* 报表切换：本站消费报表 / KEY 消费报表 */}
           <div className="mb-3 flex flex-wrap items-center gap-1.5">
-            {(["onsite", "apikey"] as const).map((c) => (
+            {(
+              [
+                ["onsite", "本站消费报表"],
+                ["apikey", "KEY 消费报表"],
+              ] as const
+            ).map(([c, label]) => (
               <button
                 key={c}
                 type="button"
                 onClick={() => {
                   setUsageChannel(c);
-                  loadUsage(c, c === "apikey" ? usageView : "list", 1);
+                  setUsageView("list");
+                  loadUsage(c, "list", 1);
                 }}
                 className={`rounded-lg px-3 py-1.5 text-sm ${
                   usageChannel === c ? "bg-emerald-500/15 text-emerald-300" : "text-zinc-400 hover:bg-zinc-800"
                 }`}
               >
-                {c === "onsite" ? "本站使用" : "API Key 使用"}
+                {label}
               </button>
             ))}
-            {usageChannel === "apikey" && (
-              <div className="ml-auto flex items-center gap-1.5">
-                {(
-                  [
-                    ["list", "明细"],
-                    ["bykey", "按 Key"],
-                    ["byday", "按日"],
-                  ] as const
-                ).map(([v, label]) => (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => {
-                      setUsageView(v);
-                      loadUsage("apikey", v, 1);
-                    }}
-                    className={`rounded-lg px-2.5 py-1 text-xs ${
-                      usageView === v ? "bg-zinc-800 text-emerald-300" : "text-zinc-500 hover:bg-zinc-800"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            )}
+            {/* 视图切换 */}
+            <div className="ml-auto flex items-center gap-1.5">
+              {usageViewOptions.map(({ v, label }) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => {
+                    setUsageView(v);
+                    loadUsage(usageChannel, v, 1);
+                  }}
+                  className={`rounded-lg px-2.5 py-1 text-xs ${
+                    usageView === v ? "bg-zinc-800 text-emerald-300" : "text-zinc-500 hover:bg-zinc-800"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="overflow-hidden rounded-xl border border-zinc-800">
@@ -604,16 +761,20 @@ export default function MemberCenter({
                 <table className="w-full">
                   <thead className="bg-zinc-900/60">
                     <tr>
-                      <th className={th}>{usageView === "bykey" ? "Key" : "日期"}</th>
+                      <th className={th}>
+                        {usageView === "bykey" ? "Key" : usageView === "bymodel" ? "模型" : "日期"}
+                      </th>
                       <th className={th}>调用次数</th>
-                      <th className={th}>tokens</th>
+                      <th className={th}>消耗 tokens</th>
                       <th className={th}>扣分</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/70">
                     {(aggRows || []).map((r, i) => (
                       <tr key={i}>
-                        <td className={td}>{usageView === "bykey" ? r.keyName : r.day}</td>
+                        <td className={td}>
+                          {usageView === "bykey" ? r.keyName : usageView === "bymodel" ? r.modelName : r.day}
+                        </td>
                         <td className={td}>{r.calls}</td>
                         <td className={td}>{r.tokens}</td>
                         <td className={td}>{r.credits}</td>
@@ -665,6 +826,7 @@ export default function MemberCenter({
                 setShowCreateKey(true);
                 setCreatedKey(null);
                 setKeyCopied(false);
+                setKeyName("");
                 setApiKeyError("");
               }}
               className="ml-auto rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-emerald-400"
@@ -684,6 +846,7 @@ export default function MemberCenter({
                   <thead className="bg-zinc-900/60">
                     <tr>
                       <th className={th}>{t(locale, "apiKeys.colPrefix")}</th>
+                      <th className={th}>{t(locale, "apiKeys.colName")}</th>
                       <th className={th}>{t(locale, "apiKeys.colStatus")}</th>
                       <th className={th}>{t(locale, "apiKeys.colCreated")}</th>
                       <th className={th}>{t(locale, "apiKeys.colLastUsed")}</th>
@@ -697,6 +860,7 @@ export default function MemberCenter({
                       return (
                         <tr key={k.id}>
                           <td className={`${td} font-mono`}>{k.keyPrefix}…</td>
+                          <td className={td}>{k.name || "—"}</td>
                           <td className={td}>
                             <span
                               className={`rounded px-1.5 py-0.5 text-xs ${
@@ -784,6 +948,15 @@ export default function MemberCenter({
                 ) : (
                   <>
                     <h3 className="text-base font-semibold text-zinc-100">{t(locale, "apiKeys.createTitle")}</h3>
+                    <label className="mt-4 block text-xs text-zinc-400">{t(locale, "apiKeys.nameLabel")}</label>
+                    <input
+                      type="text"
+                      value={keyName}
+                      maxLength={50}
+                      onChange={(e) => setKeyName(e.target.value.slice(0, 50))}
+                      placeholder={t(locale, "apiKeys.namePlaceholder")}
+                      className="mt-1.5 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600"
+                    />
                     <label className="mt-4 block text-xs text-zinc-400">{t(locale, "apiKeys.expireLabel")}</label>
                     <select
                       value={keyExpireDays}
@@ -923,21 +1096,23 @@ export default function MemberCenter({
         </div>
       )}
 
-      {/* 发票说明条 */}
-      <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/40 px-4 py-3 text-xs text-zinc-400">
-        <span>🧾</span>
-        <span>{t(locale, "member.invoiceTip")}</span>
-        <button
-          type="button"
-          onClick={() => {
-            setTab("messages");
-            setNewTicketSignal((s) => s + 1);
-          }}
-          className="ml-auto rounded-lg border border-emerald-600/60 px-3 py-1.5 text-emerald-400 hover:bg-emerald-900/30"
-        >
-          提工单
-        </button>
-      </div>
+      {/* 发票说明条（仅余额页显示） */}
+      {tab === "balance" && (
+        <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/40 px-4 py-3 text-xs text-zinc-400">
+          <span>🧾</span>
+          <span>{t(locale, "member.invoiceTip")}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setTab("messages");
+              setNewTicketSignal((s) => s + 1);
+            }}
+            className="ml-auto rounded-lg border border-emerald-600/60 px-3 py-1.5 text-emerald-400 hover:bg-emerald-900/30"
+          >
+            提工单
+          </button>
+        </div>
+      )}
     </div>
   );
 }

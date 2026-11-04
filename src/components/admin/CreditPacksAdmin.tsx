@@ -15,7 +15,7 @@ const inputCls =
   "w-full rounded-lg border border-zinc-700 bg-zinc-950/80 px-3 py-2 text-sm outline-none focus:border-indigo-500";
 const labelCls = "mb-1 block text-xs text-zinc-400";
 
-// 后台积分包管理（挂在「网站设置」页下方的小节）
+// 后台积分包管理（独立菜单页「积分包管理」）
 // 支持：行内编辑保存、新建、单个删除（confirm）、复选框批量上架/下架/删除。
 export default function CreditPacksAdmin() {
   const [packs, setPacks] = useState<Pack[]>([]);

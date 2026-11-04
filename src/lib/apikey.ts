@@ -14,21 +14,23 @@ export function hashApiKey(plain: string): string {
   return crypto.createHash("sha256").update(plain, "utf8").digest("hex");
 }
 
-// 创建 Key：返回明文（仅此一次）+ 落库行
+// 创建 Key：返回明文（仅此一次）+ 落库行（name 为会员自定义名称，可空）
 export async function createApiKey(
   userId: number,
-  expiresAt?: Date | null
-): Promise<{ id: number; plaintext: string; keyPrefix: string; expiresAt: Date | null }> {
+  expiresAt?: Date | null,
+  name?: string | null
+): Promise<{ id: number; plaintext: string; keyPrefix: string; name: string | null; expiresAt: Date | null }> {
   const plaintext = PLAIN_PREFIX + crypto.randomBytes(BODY_BYTES).toString("hex");
   const row = await db.userApiKey.create({
     data: {
       userId,
+      name: name?.trim() ? name.trim().slice(0, 50) : null,
       keyPrefix: plaintext.slice(0, DISPLAY_LEN),
       keyHash: hashApiKey(plaintext),
       expiresAt: expiresAt ?? null,
     },
   });
-  return { id: row.id, plaintext, keyPrefix: row.keyPrefix, expiresAt: row.expiresAt };
+  return { id: row.id, plaintext, keyPrefix: row.keyPrefix, name: row.name, expiresAt: row.expiresAt };
 }
 
 // 吊销（幂等，仅限本人 Key）

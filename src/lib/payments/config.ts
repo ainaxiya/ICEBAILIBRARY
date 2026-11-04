@@ -15,6 +15,15 @@ export interface ChannelConfig {
 
 export type PayChannelsConfig = Partial<Record<PayChannel, ChannelConfig>>;
 
+// 渠道固定顺序（前台展示用）
+export const PAY_CHANNEL_ORDER: PayChannel[] = ["wechat", "alipay", "custom", "stripe", "crypto"];
+
+// 前台可选支付方式 = 启用中的渠道（多接口并用；全部关闭则前台无可用支付通道）
+export async function getEnabledChannels(): Promise<PayChannel[]> {
+  const cfg = await getPayChannels();
+  return PAY_CHANNEL_ORDER.filter((c) => cfg[c]?.enabled === true);
+}
+
 const SENSITIVE_FIELDS = new Set(["apiKey", "key", "secretKey", "privateKey", "webhookSecret", "appSecret"]);
 
 // 未配置时的默认（stub 全开，本地开发直接可用）

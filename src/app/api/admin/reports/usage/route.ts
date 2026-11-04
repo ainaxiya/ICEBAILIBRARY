@@ -37,6 +37,11 @@ export async function GET(req: NextRequest) {
   const modelId = Number(sp.get("modelId") || 0);
   const modelFilter = modelId ? Prisma.sql`AND "modelId" = ${BigInt(modelId)}` : Prisma.empty;
 
+  // 渠道过滤：all（默认，不过滤）| onsite | apikey
+  const channelRaw = sp.get("channel") || "all";
+  const channel = channelRaw === "onsite" || channelRaw === "apikey" ? channelRaw : "all";
+  const channelFilter = channel === "all" ? Prisma.empty : Prisma.sql`AND channel = ${channel}`;
+
   type RawRow = Record<string, unknown>;
 
   let rows: RawRow[];
@@ -52,7 +57,7 @@ export async function GET(req: NextRequest) {
         COUNT(*) FILTER (WHERE status = 'success')::int AS success_count,
         AVG("latencyMs") AS avg_latency_ms
       FROM usage_record
-      WHERE "createdAt" >= ${from} AND "createdAt" < ${toEnd} ${modelFilter}
+      WHERE "createdAt" >= ${from} AND "createdAt" < ${toEnd} ${modelFilter} ${channelFilter}
       GROUP BY 1
       ORDER BY 1
     `;
@@ -69,7 +74,7 @@ export async function GET(req: NextRequest) {
         COUNT(*) FILTER (WHERE status = 'success')::int AS success_count,
         AVG("latencyMs") AS avg_latency_ms
       FROM usage_record
-      WHERE "createdAt" >= ${from} AND "createdAt" < ${toEnd} ${modelFilter}
+      WHERE "createdAt" >= ${from} AND "createdAt" < ${toEnd} ${modelFilter} ${channelFilter}
       GROUP BY 1
       ORDER BY 6 DESC
     `;
@@ -117,6 +122,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     groupBy,
+    channel,
     dateFrom: from.toISOString().slice(0, 10),
     dateTo: new Date(toEnd.getTime() - 24 * 3600 * 1000).toISOString().slice(0, 10),
     items,

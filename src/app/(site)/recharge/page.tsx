@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { ensureCreditPacks, getBalance } from "@/lib/credits";
+import { getEnabledChannels } from "@/lib/payments/config";
 import { getServerLocale, translate as t } from "@/lib/i18n";
 import RechargeClient from "@/components/RechargeClient";
 
@@ -15,12 +16,13 @@ export default async function RechargePage() {
   if (!user) redirect("/login?next=/recharge");
 
   await ensureCreditPacks();
-  const [packs, balance] = await Promise.all([
+  const [packs, balance, channels] = await Promise.all([
     db.creditPack.findMany({
       where: { isActive: true },
       orderBy: { sortOrder: "asc" },
     }),
     getBalance(user.id),
+    getEnabledChannels(),
   ]);
 
   return (
@@ -38,6 +40,7 @@ export default async function RechargePage() {
           priceCents: Number(p.priceCents),
           credits: Number(p.credits),
         }))}
+        channels={channels}
       />
     </div>
   );

@@ -538,7 +538,6 @@ model VendorApiKey {
   lastUsedAt DateTime?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
-  bindings   KeyModelBinding[]
   @@index([vendorId])
   @@map("vendor_api_key")
 }
@@ -558,7 +557,6 @@ model AiModel {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   endpoints    ModelEndpoint[]
-  bindings     KeyModelBinding[]
   pricings     ModelPricing[]
   @@unique([vendorId, name])
   @@map("ai_model")
@@ -575,22 +573,6 @@ model ModelEndpoint {
   createdAt DateTime @default(now())
   @@unique([modelId, path])
   @@map("model_endpoint")
-}
-
-// Key-模型绑定（路由依据：优先级小值优先，同优先级按权重）
-model KeyModelBinding {
-  id        Int      @id @default(autoincrement())
-  apiKeyId  Int
-  apiKey    VendorApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
-  modelId   Int
-  model     AiModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
-  priority  Int      @default(0)
-  weight    Int      @default(1)
-  enabled   Boolean  @default(true)
-  createdAt DateTime @default(now())
-  @@unique([apiKeyId, modelId])
-  @@index([modelId, enabled, priority])
-  @@map("key_model_binding")
 }
 
 // 模型定价（调价历史：多行按 effectiveAt 取最新生效）
@@ -837,6 +819,8 @@ model UserApiKey {
   id         Int       @id @default(autoincrement())
   userId     Int
   user       User      @relation(fields: [userId], references: [id])
+  // 自定义名称（会员创建时可命名，便于区分多把 Key）
+  name       String?
   // 明文前缀（识别展示用，如 sk-ab12cd34）
   keyPrefix  String
   // sha256(明文)，hex 64 位

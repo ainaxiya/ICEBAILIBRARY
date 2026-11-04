@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { totalCostMilli, displayCredits } from "@/lib/gateway/pricing";
 
-// ─── P3 模型库管理：厂商 / API Key / 模型（定价·端点）/ 绑定 ───
+// ─── P3 模型库管理：厂商 / API Key / 模型（定价·端点） ───
 // Key 明文/密文永不回显：只展示 keyPrefix +「已配置」标记
 // 调价 = 新增一行 ModelPricing（历史只增不改），成本/标价换算复用 lib/gateway/pricing
 
@@ -28,7 +28,6 @@ type KeyRow = {
   configured: boolean;
   status: string;
   remark: string | null;
-  bindingCount: number;
 };
 
 type PricingRow = {
@@ -54,24 +53,9 @@ type ModelRow = {
   endpointType: string;
   status: string;
   remark: string | null;
-  bindingCount: number;
   endpoints: EndpointRow[];
   currentPricing: PricingRow | null;
   pricePreview: { costMilli: number; displayCredits: number } | null;
-};
-
-type BindingRow = {
-  id: number;
-  apiKeyId: number;
-  keyName: string;
-  keyPrefix: string;
-  vendorName: string;
-  modelId: number;
-  modelName: string;
-  modelDisplayName: string;
-  priority: number;
-  weight: number;
-  enabled: boolean;
 };
 
 type ModelDetail = {
@@ -79,7 +63,16 @@ type ModelDetail = {
   currentPricing: PricingRow | null;
   pricings: PricingRow[];
   endpoints: EndpointRow[];
-  bindings: { id: number; apiKeyId: number; keyName: string; keyPrefix: string; priority: number; weight: number; enabled: boolean }[];
+};
+
+// 「获取所有模型」预览候选（可用且未入库的上游模型）
+type FetchCandidate = { name: string; endpointType: string; path: string | null; shutdownDate: string | null; ownedBy: string | null };
+type FetchPreview = {
+  keyId: number;
+  vendorName: string;
+  total: number;
+  counts: { candidates: number; inDb: number; skippedUnavailable: number; toDeactivate: number };
+  candidates: FetchCandidate[];
 };
 
 const cardCls = "rounded-xl border border-zinc-800 bg-zinc-900/50 p-5 mb-4";
@@ -134,14 +127,13 @@ function Modal({ title, onClose, children, wide }: { title: string; onClose: () 
 }
 
 export default function ModelLibrary() {
-  const [tab, setTab] = useState<"vendors" | "keys" | "models" | "bindings">("models");
+  const [tab, setTab] = useState<"vendors" | "keys" | "models">("models");
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [keys, setKeys] = useState<KeyRow[]>([]);
   const [models, setModels] = useState<ModelRow[]>([]);
-  const [bindings, setBindings] = useState<BindingRow[]>([]);
   const [filterStatus, setFilterStatus] = useState("");
   const [filterVendor, setFilterVendor] = useState(0);
   // 批量选择（四个资源列表通用的复选框选中项）
@@ -155,13 +147,16 @@ export default function ModelLibrary() {
   const [modelForm, setModelForm] = useState<
     (Partial<ModelRow> & { mode: "create" | "edit"; initInputPrice?: number; initOutputPrice?: number; initMultiplierBps?: number }) | null
   >(null);
-  const [bindingForm, setBindingForm] = useState<(Partial<BindingRow> & { mode: "create" | "edit" }) | null>(null);
 
   // 模型详情（定价历史/调价/端点/试算）
   const [detail, setDetail] = useState<ModelDetail | null>(null);
   const [endpointDraft, setEndpointDraft] = useState<EndpointRow[]>([]);
   const [priceForm, setPriceForm] = useState({ inputPrice: "0", outputPrice: "0", currency: "CNY", multiplierBps: "150", effectiveAt: "" });
   const [calc, setCalc] = useState({ promptTokens: "1000", outputTokens: "500", costMilli: "1000" });
+
+  // 「获取所有模型」选择入库弹层（预览候选 + 勾选）
+  const [fetchPreview, setFetchPreview] = useState<FetchPreview | null>(null);
+  const [fetchSel, setFetchSel] = useState<string[]>([]);
 
   const flash = (kind: "ok" | "err", text: string) => {
     setMsg({ kind, text });
@@ -211,20 +206,10 @@ export default function ModelLibrary() {
     }
   }, []);
 
-  const loadBindings = useCallback(async () => {
-    try {
-      const d = await apiCall("/api/admin/models/bindings");
-      setBindings(d.bindings || []);
-    } catch {
-      /* 静默 */
-    }
-  }, []);
-
   useEffect(() => {
     loadVendors();
     loadKeys();
     loadModels();
-    loadBindings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -232,7 +217,6 @@ export default function ModelLibrary() {
     if (tab === "vendors") loadVendors();
     if (tab === "keys") loadKeys();
     if (tab === "models") loadModels(filterStatus || undefined, filterVendor || undefined);
-    if (tab === "bindings") loadBindings();
     loadKeys();
     loadModels();
     loadVendors();
@@ -259,6 +243,43 @@ export default function ModelLibrary() {
     });
   };
 
+  // ─── 获取所有模型：拉取上游模型清单预览（仅可用未入库候选），弹层勾选入库 ───
+  const fetchModelsOfKey = async (k: KeyRow) => {
+    setBusy(true);
+    try {
+      const d = await apiCall(`/api/admin/models/keys/${k.id}/fetch-models`);
+      setFetchPreview({
+        keyId: k.id,
+        vendorName: k.vendorName,
+        total: d.total,
+        counts: d.counts,
+        candidates: d.candidates || [],
+      });
+      setFetchSel((d.candidates || []).map((c: FetchCandidate) => c.name));
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // 勾选入库：仅创建勾选的候选模型（幂等），并同步已在库模型的可用性
+  const importSelectedModels = async () => {
+    if (!fetchPreview || fetchSel.length === 0 || busy) return;
+    await submit(async () => {
+      const d = await apiCall(
+        `/api/admin/models/keys/${fetchPreview.keyId}/fetch-models`,
+        jsonInit("POST", { names: fetchSel })
+      );
+      flash("ok", `已入库 ${d.created} 个模型（标记下线 ${d.deactivated} / 跳过已停用 ${d.skipped}）`);
+      setFetchPreview(null);
+      refreshCurrent();
+    });
+  };
+
+  const toggleFetchSel = (name: string) =>
+    setFetchSel((s) => (s.includes(name) ? s.filter((x) => x !== name) : [...s, name]));
+
   // ─── 批量选择与批量操作 ───
   const toggleSel = (id: number) =>
     setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
@@ -269,7 +290,7 @@ export default function ModelLibrary() {
     if (sel.length === 0 || busy) return;
     const label = action === "delete" ? "删除" : action === "enable" ? "启用" : "禁用";
     if (action === "delete") {
-      const tip = tab === "vendors" ? "删除厂商将级联删除其 Key/模型/绑定，" : "";
+      const tip = tab === "vendors" ? "删除厂商将级联删除其 Key/模型，" : "";
       if (!confirm(`确定${label}选中的 ${sel.length} 项吗？${tip}此操作不可恢复。`)) return;
     }
     await submit(async () => {
@@ -349,7 +370,7 @@ export default function ModelLibrary() {
       <button type="button" className={dangerBtnCls} disabled={busy || sel.length === 0} onClick={() => runBatch("delete")}>
         批量删除
       </button>
-      {tab === "vendors" && <span className="text-xs text-zinc-600">删除厂商会级联删除其 Key/模型/绑定</span>}
+      {tab === "vendors" && <span className="text-xs text-zinc-600">删除厂商会级联删除其 Key/模型</span>}
     </div>
   );
 
@@ -357,7 +378,6 @@ export default function ModelLibrary() {
     { key: "models", label: "模型" },
     { key: "vendors", label: "厂商" },
     { key: "keys", label: "API Key" },
-    { key: "bindings", label: "Key-模型绑定" },
   ] as const;
 
   return (
@@ -388,13 +408,13 @@ export default function ModelLibrary() {
       {tab === "models" && (
         <div>
           <div className="mb-4 flex flex-wrap items-center gap-3">
-            <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); loadModels(e.target.value || undefined, filterVendor || undefined); }} className={`${selectCls} w-36`}>
+            <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); loadModels(e.target.value || undefined, filterVendor || undefined); }} className={`${selectCls} w-36!`}>
               <option value="">全部状态</option>
               <option value="online">在线</option>
               <option value="deprecated">弃用</option>
               <option value="offline">下线</option>
             </select>
-            <select value={filterVendor} onChange={(e) => { setFilterVendor(Number(e.target.value)); loadModels(filterStatus || undefined, Number(e.target.value) || undefined); }} className={`${selectCls} w-44`}>
+            <select value={filterVendor} onChange={(e) => { setFilterVendor(Number(e.target.value)); loadModels(filterStatus || undefined, Number(e.target.value) || undefined); }} className={`${selectCls} w-44!`}>
               <option value={0}>全部厂商</option>
               {vendors.map((v) => (
                 <option key={v.id} value={v.id}>{v.name}</option>
@@ -516,7 +536,7 @@ export default function ModelLibrary() {
                     <td className={tdCls}>
                       <div className="flex gap-2">
                         <button type="button" className={btnCls} onClick={() => setVendorForm({ mode: "edit", ...v })}>编辑</button>
-                        <button type="button" className={dangerBtnCls} onClick={() => removeRow(`厂商「${v.name}」（将级联删除其 Key/模型/绑定）`, `/api/admin/models/vendors/${v.id}`)}>删除</button>
+                        <button type="button" className={dangerBtnCls} onClick={() => removeRow(`厂商「${v.name}」（将级联删除其 Key/模型）`, `/api/admin/models/vendors/${v.id}`)}>删除</button>
                       </div>
                     </td>
                   </tr>
@@ -555,7 +575,6 @@ export default function ModelLibrary() {
                   <th className={thCls}>备注名</th>
                   <th className={thCls}>Key</th>
                   <th className={thCls}>状态</th>
-                  <th className={thCls}>绑定数</th>
                   <th className={thCls}>操作</th>
                 </tr>
               </thead>
@@ -573,79 +592,17 @@ export default function ModelLibrary() {
                       <span className="ml-2 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] text-emerald-400">已配置</span>
                     </td>
                     <td className={tdCls}><StatusBadge status={k.status} /></td>
-                    <td className={tdCls}>{k.bindingCount}</td>
                     <td className={tdCls}>
                       <div className="flex gap-2">
+                        <button type="button" className={btnCls} disabled={busy} onClick={() => fetchModelsOfKey(k)}>获取所有模型</button>
                         <button type="button" className={btnCls} onClick={() => setKeyForm({ mode: "edit", ...k })}>编辑</button>
-                        <button type="button" className={dangerBtnCls} onClick={() => removeRow(`Key「${k.name}」（将级联删除绑定）`, `/api/admin/models/keys/${k.id}`)}>删除</button>
+                        <button type="button" className={dangerBtnCls} onClick={() => removeRow(`Key「${k.name}」`, `/api/admin/models/keys/${k.id}`)}>删除</button>
                       </div>
                     </td>
                   </tr>
                 ))}
                 {keys.length === 0 && (
-                  <tr><td className={`${tdCls} text-center text-zinc-500`} colSpan={8}>暂无 Key</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ─── 绑定 ─── */}
-      {tab === "bindings" && (
-        <div>
-          <div className="mb-4">
-            <button type="button" className={primaryBtnCls} onClick={() => setBindingForm({ mode: "create", apiKeyId: keys[0]?.id, modelId: models[0]?.id, priority: 0, weight: 1, enabled: true })}>
-              新建绑定
-            </button>
-          </div>
-          {batchBar}
-          <div className="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900/50">
-            <table className="w-full min-w-[860px]">
-              <thead>
-                <tr>
-                  <th className={thCls}>
-                    <input
-                      type="checkbox"
-                      checked={bindings.length > 0 && bindings.every((b) => sel.includes(b.id))}
-                      onChange={() => toggleAll(bindings.map((b) => b.id))}
-                    />
-                  </th>
-                  <th className={thCls}>ID</th>
-                  <th className={thCls}>厂商</th>
-                  <th className={thCls}>Key</th>
-                  <th className={thCls}>模型</th>
-                  <th className={thCls}>优先级（小值优先）</th>
-                  <th className={thCls}>权重</th>
-                  <th className={thCls}>启用</th>
-                  <th className={thCls}>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bindings.map((b) => (
-                  <tr key={b.id} className="hover:bg-zinc-800/40">
-                    <td className={tdCls}>
-                      <input type="checkbox" checked={sel.includes(b.id)} onChange={() => toggleSel(b.id)} />
-                    </td>
-                    <td className={tdCls}>{b.id}</td>
-                    <td className={tdCls}>{b.vendorName}</td>
-                    <td className={tdCls}>
-                      {b.keyName} <code className="rounded bg-zinc-800 px-1 text-xs text-zinc-400">{b.keyPrefix}</code>
-                    </td>
-                    <td className={tdCls}>{b.modelDisplayName}（{b.modelName}）</td>
-                    <td className={tdCls}>{b.priority}</td>
-                    <td className={tdCls}>{b.weight}</td>
-                    <td className={tdCls}>{b.enabled ? "是" : "否"}</td>
-                    <td className={tdCls}>
-                      <div className="flex gap-2">
-                        <button type="button" className={btnCls} onClick={() => setBindingForm({ mode: "edit", ...b })}>编辑</button>
-                        <button type="button" className={dangerBtnCls} onClick={() => removeRow("该绑定", `/api/admin/models/bindings?id=${b.id}`)}>删除</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {bindings.length === 0 && (
-                  <tr><td className={`${tdCls} text-center text-zinc-500`} colSpan={9}>暂无绑定：选 Key + 模型建立路由关系</td></tr>
+                  <tr><td className={`${tdCls} text-center text-zinc-500`} colSpan={7}>暂无 Key</td></tr>
                 )}
               </tbody>
             </table>
@@ -672,7 +629,14 @@ export default function ModelLibrary() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={labelCls}>协议</label>
-                <input className={inputCls} value={vendorForm.protocol || "openai"} onChange={(e) => setVendorForm({ ...vendorForm, protocol: e.target.value })} />
+                <select className={selectCls} value={vendorForm.protocol || "openai"} onChange={(e) => setVendorForm({ ...vendorForm, protocol: e.target.value })}>
+                  <option value="openai">OpenAI API</option>
+                  <option value="anthropic">Anthropic API</option>
+                  <option value="gemini">Gemini API</option>
+                  {vendorForm.protocol && !["openai", "anthropic", "gemini"].includes(vendorForm.protocol) && (
+                    <option value={vendorForm.protocol}>{vendorForm.protocol}</option>
+                  )}
+                </select>
               </div>
               <div>
                 <label className={labelCls}>状态</label>
@@ -796,6 +760,72 @@ export default function ModelLibrary() {
         </Modal>
       )}
 
+      {/* ─── 获取所有模型：选择入库弹层（批量勾选 + 类型/端点展示） ─── */}
+      {fetchPreview && (
+        <Modal title={`获取所有模型 · ${fetchPreview.vendorName}（选择入库）`} wide onClose={() => setFetchPreview(null)}>
+          <div className="space-y-3">
+            <p className="text-xs text-zinc-400">
+              上游共 {fetchPreview.total} 个模型：可入库候选 {fetchPreview.counts.candidates} / 已在库 {fetchPreview.counts.inDb} /
+              已停用跳过 {fetchPreview.counts.skippedUnavailable}
+              {fetchPreview.counts.toDeactivate > 0 && <>，确认入库时将同步标记下线 {fetchPreview.counts.toDeactivate} 个已失效模型</>}。
+              仅勾选的模型会入库（已有模型不会被覆盖）。
+            </p>
+            {fetchPreview.candidates.length > 0 ? (
+              <div className="max-h-[50vh] overflow-y-auto rounded-xl border border-zinc-800">
+                <table className="w-full">
+                  <thead>
+                    <tr>
+                      <th className={thCls}>
+                        <input
+                          type="checkbox"
+                          checked={fetchSel.length === fetchPreview.candidates.length}
+                          onChange={() => setFetchSel(fetchSel.length === fetchPreview.candidates.length ? [] : fetchPreview.candidates.map((c) => c.name))}
+                        />
+                      </th>
+                      <th className={thCls}>模型名称</th>
+                      <th className={thCls}>类型</th>
+                      <th className={thCls}>端点</th>
+                      <th className={thCls}>归属</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {fetchPreview.candidates.map((c) => (
+                      <tr key={c.name} className="hover:bg-zinc-800/40">
+                        <td className={tdCls}>
+                          <input type="checkbox" checked={fetchSel.includes(c.name)} onChange={() => toggleFetchSel(c.name)} />
+                        </td>
+                        <td className={`${tdCls} max-w-[320px] truncate`}>{c.name}</td>
+                        <td className={tdCls}>{c.endpointType}</td>
+                        <td className={tdCls}>{c.path || "-"}</td>
+                        <td className={tdCls}>{c.ownedBy || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="rounded-lg border border-zinc-800 bg-zinc-800/40 px-4 py-6 text-center text-sm text-zinc-500">
+                无新增可用模型（均已在库或已停用）
+              </p>
+            )}
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-xs text-zinc-500">已选 {fetchSel.length} / {fetchPreview.candidates.length} 个候选模型</span>
+              <div className="flex gap-2">
+                <button type="button" className={btnCls} onClick={() => setFetchPreview(null)}>取消</button>
+                <button
+                  type="button"
+                  className={primaryBtnCls}
+                  disabled={busy || fetchSel.length === 0}
+                  onClick={importSelectedModels}
+                >
+                  确定入库（{fetchSel.length}）
+                </button>
+              </div>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {/* ─── 模型弹层 ─── */}
       {modelForm && (
         <Modal title={modelForm.mode === "create" ? "新建模型" : "编辑模型"} onClose={() => setModelForm(null)}>
@@ -894,83 +924,6 @@ export default function ModelLibrary() {
                     }
                     flash("ok", "模型已保存");
                     setModelForm(null);
-                    refreshCurrent();
-                  })
-                }
-              >
-                保存
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {/* ─── 绑定弹层 ─── */}
-      {bindingForm && (
-        <Modal title={bindingForm.mode === "create" ? "新建 Key-模型绑定" : "编辑绑定"} onClose={() => setBindingForm(null)}>
-          <div className="space-y-3">
-            <div>
-              <label className={labelCls}>API Key *</label>
-              <select className={selectCls} value={bindingForm.apiKeyId || ""} onChange={(e) => setBindingForm({ ...bindingForm, apiKeyId: Number(e.target.value) })} disabled={bindingForm.mode === "edit"}>
-                {keys.map((k) => (
-                  <option key={k.id} value={k.id}>{k.vendorName} / {k.name}（{k.keyPrefix}）</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>模型 *</label>
-              <select className={selectCls} value={bindingForm.modelId || ""} onChange={(e) => setBindingForm({ ...bindingForm, modelId: Number(e.target.value) })} disabled={bindingForm.mode === "edit"}>
-                {models.map((m) => (
-                  <option key={m.id} value={m.id}>{m.vendorName} / {m.displayName}（{m.name}）</option>
-                ))}
-              </select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className={labelCls}>优先级（小值优先）</label>
-                <input className={inputCls} type="number" min="0" value={bindingForm.priority ?? 0} onChange={(e) => setBindingForm({ ...bindingForm, priority: Number(e.target.value) })} />
-              </div>
-              <div>
-                <label className={labelCls}>权重（同优先级按权重）</label>
-                <input className={inputCls} type="number" min="0" value={bindingForm.weight ?? 1} onChange={(e) => setBindingForm({ ...bindingForm, weight: Number(e.target.value) })} />
-              </div>
-            </div>
-            <label className="flex items-center gap-2 text-sm text-zinc-300">
-              <input type="checkbox" checked={bindingForm.enabled ?? true} onChange={(e) => setBindingForm({ ...bindingForm, enabled: e.target.checked })} />
-              启用该绑定
-            </label>
-            <div className="flex justify-end gap-2 pt-2">
-              <button type="button" className={btnCls} onClick={() => setBindingForm(null)}>取消</button>
-              <button
-                type="button"
-                className={primaryBtnCls}
-                disabled={busy || !bindingForm.apiKeyId || !bindingForm.modelId}
-                onClick={() =>
-                  submit(async () => {
-                    if (bindingForm.mode === "create") {
-                      await apiCall(
-                        "/api/admin/models/bindings",
-                        jsonInit("POST", {
-                          apiKeyId: bindingForm.apiKeyId,
-                          modelId: bindingForm.modelId,
-                          priority: bindingForm.priority ?? 0,
-                          weight: bindingForm.weight ?? 1,
-                          enabled: bindingForm.enabled ?? true,
-                        })
-                      );
-                    } else {
-                      await apiCall(
-                        "/api/admin/models/bindings",
-                        jsonInit("PUT", {
-                          id: bindingForm.id,
-                          priority: bindingForm.priority,
-                          weight: bindingForm.weight,
-                          enabled: bindingForm.enabled,
-                        })
-                      );
-                    }
-                    flash("ok", "绑定已保存");
-                    setBindingForm(null);
                     refreshCurrent();
                   })
                 }

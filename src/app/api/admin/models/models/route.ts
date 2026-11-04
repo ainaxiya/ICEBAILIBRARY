@@ -32,7 +32,6 @@ export async function GET(req: NextRequest) {
       vendor: { select: { id: true, name: true } },
       pricings: { orderBy: { effectiveAt: "desc" } },
       endpoints: { orderBy: { id: "asc" } },
-      _count: { select: { bindings: true } },
     },
   });
 
@@ -48,7 +47,6 @@ export async function GET(req: NextRequest) {
         endpointType: m.endpointType,
         status: m.status,
         remark: m.remark,
-        bindingCount: m._count.bindings,
         endpoints: m.endpoints.map((e) => ({ id: e.id, path: e.path, enabled: e.enabled })),
         currentPricing: cur ? pricingJson(cur) : null,
         // 成本换算预览：100 万输入 + 50 万输出 token 的内部成本与用户标价（演示口径）

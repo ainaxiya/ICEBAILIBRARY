@@ -21,18 +21,27 @@ type OrderResult = {
   notifyPayload?: Record<string, unknown>;
 };
 
-export default function RechargeClient({ packs }: { packs: Pack[] }) {
+export default function RechargeClient({ packs, channels }: { packs: Pack[]; channels: string[] }) {
   const locale = useLocale();
   const router = useRouter();
   const [packCode, setPackCode] = useState<string>(packs[0]?.packCode || "");
-  const [channel, setChannel] = useState<string>("wechat");
+  const [channel, setChannel] = useState<string>(channels[0] || "");
   const [busy, setBusy] = useState(false);
   const [order, setOrder] = useState<OrderResult | null>(null);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
+  // 只展示后台启用中的支付方式（多接口并用）；全部关闭则前台不能支付
+  const visible = CHANNELS.filter((c) => channels.includes(c.channel));
+  const noChannel = visible.length === 0;
+  const activeChannel = visible.some((c) => c.channel === channel) ? channel : (visible[0]?.channel || "");
+
   const buy = async () => {
     if (!packCode) {
       setMsg({ kind: "err", text: t(locale, "recharge.selectPack") });
+      return;
+    }
+    if (noChannel) {
+      setMsg({ kind: "err", text: t(locale, "recharge.noChannel") });
       return;
     }
     setBusy(true);
@@ -42,7 +51,7 @@ export default function RechargeClient({ packs }: { packs: Pack[] }) {
       const r = await fetch("/api/member/pay/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ packCode, channel }),
+        body: JSON.stringify({ packCode, channel: activeChannel }),
       });
       const d = await r.json();
       if (!r.ok) {
@@ -122,30 +131,36 @@ export default function RechargeClient({ packs }: { packs: Pack[] }) {
         })}
       </div>
 
-      {/* 支付通道 */}
+      {/* 支付通道（只显示后台启用中的接口） */}
       <h2 className="mb-3 text-base font-semibold text-zinc-200">{t(locale, "recharge.channel")}</h2>
-      <div className="mb-6 flex flex-wrap gap-2">
-        {CHANNELS.map((c) => (
-          <button
-            key={c.channel}
-            type="button"
-            onClick={() => setChannel(c.channel)}
-            className={`rounded-lg border px-4 py-2 text-sm transition ${
-              channel === c.channel
-                ? "border-emerald-500 bg-emerald-500/10 text-emerald-300"
-                : "border-zinc-800 bg-zinc-900/60 text-zinc-300 hover:border-zinc-600"
-            }`}
-          >
-            {c.name}
-          </button>
-        ))}
-      </div>
+      {noChannel ? (
+        <div className="mb-6 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
+          {t(locale, "recharge.noChannel")}
+        </div>
+      ) : (
+        <div className="mb-6 flex flex-wrap gap-2">
+          {visible.map((c) => (
+            <button
+              key={c.channel}
+              type="button"
+              onClick={() => setChannel(c.channel)}
+              className={`rounded-lg border px-4 py-2 text-sm transition ${
+                activeChannel === c.channel
+                  ? "border-emerald-500 bg-emerald-500/10 text-emerald-300"
+                  : "border-zinc-800 bg-zinc-900/60 text-zinc-300 hover:border-zinc-600"
+              }`}
+            >
+              {c.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={buy}
-          disabled={busy}
+          disabled={busy || noChannel}
           className="rounded-lg bg-emerald-500 px-6 py-2.5 text-sm font-medium text-zinc-950 transition hover:bg-emerald-400 disabled:opacity-50"
         >
           {busy ? t(locale, "recharge.creating") : t(locale, "recharge.buy")}
