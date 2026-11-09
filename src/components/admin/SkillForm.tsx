@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ADMIN_BASE } from "@/lib/admin-path";
 
 type Cat = { id: number; name: string };
-type FileEntry = { path: string; content: string };
+type FileEntry = { path: string; content: string; size?: number };
 
 export type SkillFormData = {
   id?: number;
@@ -44,6 +44,63 @@ export default function SkillForm({ cats, initial }: { cats: Cat[]; initial: Ski
   const setFile = (i: number, k: keyof FileEntry, v: string) =>
     setF((p) => { const files = [...p.files]; files[i] = { ...files[i], [k]: v }; return { ...p, files }; });
 
+  // —— 整包上传：zip → /api/admin/skills/import（存默认桶，返回 SKILL.md + 文件树）——
+  const isTreeRow = (x: FileEntry) => x.path !== "__bundle__" && !x.content && x.size != null;
+  const bundle = f.files.find((x) => x.path === "__bundle__");
+  const treeRows = f.files.filter(isTreeRow);
+
+  const importZip = async (file: File) => {
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await fetch("/api/admin/skills/import", { method: "POST", body: fd });
+      const txt = await r.text();
+      let d: any = null;
+      try { d = txt ? JSON.parse(txt) : null; } catch { /* 非 JSON 响应 */ }
+      if (!d) throw new Error(txt ? `服务器返回异常响应（HTTP ${r.status}）` : `服务器无响应（HTTP ${r.status}）：包过大或连接被中断，请重试`);
+      if (!r.ok) throw new Error(d.error || "上传失败");
+      const tree: { path: string; size: number }[] = Array.isArray(d.tree) ? d.tree : [];
+      setF((p) => ({
+        ...p,
+        name: p.name.trim() ? p.name : d.name || p.name,
+        summary: p.summary.trim() ? p.summary : d.summary || p.summary,
+        skillMd: d.skillMd || p.skillMd,
+        files: [
+          { path: "__bundle__", content: d.bundleKey, size: d.bundleSize },
+          ...tree.map((t) => ({ path: t.path, content: "", size: t.size })),
+        ],
+      }));
+      flash("ok", `整包已上传（${d.fileCount} 个文件），保存后生效`);
+    } catch (e) {
+      flash("err", (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // 多选 .md/文本文件：客户端读文本，按内联 files 行入库
+  const addTextFiles = async (list: FileList | null) => {
+    if (!list?.length) return;
+    setBusy(true);
+    try {
+      const rows: FileEntry[] = [];
+      for (const file of Array.from(list)) {
+        const content = await file.text();
+        rows.push({ path: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name, content });
+      }
+      setF((p) => ({ ...p, files: [...p.files, ...rows] }));
+      flash("ok", `已读取 ${rows.length} 个文件，保存后生效`);
+    } catch (e) {
+      flash("err", (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeBundle = () =>
+    setF((p) => ({ ...p, files: p.files.filter((x) => x.path !== "__bundle__" && !isTreeRow(x)) }));
+
   const submit = async () => {
     if (!f.name.trim() || !f.summary.trim() || !f.skillMd.trim()) {
       flash("err", "名称/简介/SKILL.md 均为必填");
@@ -60,7 +117,9 @@ export default function SkillForm({ cats, initial }: { cats: Cat[]; initial: Ski
         name: f.name.trim(),
         summary: f.summary.trim(),
         skillMd: f.skillMd,
-        files: f.files.filter((x) => x.path.trim() && x.content.trim()).map((x) => ({ path: x.path.trim(), content: x.content })),
+        files: f.files
+          .map((x) => ({ path: x.path.trim(), content: x.content || "", size: x.size }))
+          .filter((x) => x.path && (x.content.trim() || x.size != null)),
         categoryId: f.categoryId,
         tags: f.tags,
         author: f.author.trim() || null,
@@ -76,7 +135,10 @@ export default function SkillForm({ cats, initial }: { cats: Cat[]; initial: Ski
       const r = editing
         ? await fetch(`/api/admin/skills/${initial.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
         : await fetch("/api/admin/skills", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      const d = await r.json();
+      const txt = await r.text();
+      let d: any = null;
+      try { d = txt ? JSON.parse(txt) : null; } catch { /* 非 JSON 响应 */ }
+      if (!d) throw new Error(txt ? `服务器返回异常响应（HTTP ${r.status}）` : `服务器无响应（HTTP ${r.status}）`);
       if (!r.ok) throw new Error(d.error || "保存失败");
       flash("ok", "已保存");
       setTimeout(() => router.push(`${ADMIN_BASE}/skills`), 600);
@@ -113,22 +175,71 @@ export default function SkillForm({ cats, initial }: { cats: Cat[]; initial: Ski
           <textarea value={f.skillMd} onChange={(e) => set("skillMd", e.target.value)} rows={16} className={`${inputCls} font-mono text-xs`} placeholder="# Skill Name&#10;&#10;## Instructions…" />
         </div>
 
-        {/* files 行编辑器 */}
+        {/* files 行编辑器 + 整包上传 */}
         <div className="lg:col-span-2">
-          <div className="mb-1 flex items-center justify-between">
-            <label className="text-xs text-zinc-400">附加文件（可选，随下载打包）</label>
-            <button type="button" onClick={() => set("files", [...f.files, { path: "", content: "" }])} className="text-xs text-emerald-400 hover:underline">+ 添加文件</button>
-          </div>
-          {f.files.length === 0 && <p className="text-xs text-zinc-600">无附加文件时，下载按钮直接输出 SKILL.md</p>}
-          {f.files.map((file, i) => (
-            <div key={i} className="mb-2 rounded-lg border border-zinc-800 p-2.5">
-              <div className="mb-1.5 flex items-center gap-2">
-                <input value={file.path} onChange={(e) => setFile(i, "path", e.target.value)} className={inputCls} placeholder="路径，如 scripts/run.py" />
-                <button type="button" onClick={() => set("files", f.files.filter((_, j) => j !== i))} className="shrink-0 text-rose-400 hover:underline">移除</button>
-              </div>
-              <textarea value={file.content} onChange={(e) => setFile(i, "content", e.target.value)} rows={4} className={`${inputCls} font-mono text-xs`} placeholder="文件内容" />
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+            <label className="text-xs text-zinc-400">附加文件（可选，随下载打包；多文件技能建议整包 zip 上传）</label>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className={`cursor-pointer rounded-lg border border-emerald-600/60 bg-emerald-600/15 px-2.5 py-1 text-xs text-emerald-300 hover:bg-emerald-600/25 ${busy ? "pointer-events-none opacity-50" : ""}`}>
+                📦 上传 .zip 整包
+                <input
+                  type="file"
+                  accept=".zip"
+                  className="hidden"
+                  disabled={busy}
+                  onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; if (file) void importZip(file); }}
+                />
+              </label>
+              <label className={`cursor-pointer rounded-lg border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800 ${busy ? "pointer-events-none opacity-50" : ""}`}>
+                📄 多选 .md 文件
+                <input
+                  type="file"
+                  accept=".md,.txt,text/markdown,text/plain"
+                  multiple
+                  className="hidden"
+                  disabled={busy}
+                  onChange={(e) => { const list = e.target.files; e.target.value = ""; void addTextFiles(list); }}
+                />
+              </label>
+              <button type="button" onClick={() => set("files", [...f.files, { path: "", content: "" }])} className="text-xs text-emerald-400 hover:underline">+ 添加文件</button>
             </div>
-          ))}
+          </div>
+
+          {/* 整包面板：zip 哨兵 + 文件树（只读，下载时回传原 zip 完整还原） */}
+          {bundle && (
+            <div className="mb-2 rounded-lg border border-emerald-700/50 bg-emerald-900/15 p-2.5">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-emerald-300">
+                <span>📦 整包上传：{treeRows.length} 个文件 · {((bundle.size ?? 0) / 1024 / 1024).toFixed(2)} MB</span>
+                <span className="truncate font-mono text-[11px] text-emerald-400/60">对象：{bundle.content}</span>
+                <button type="button" onClick={removeBundle} className="ml-auto shrink-0 text-rose-400 hover:underline">移除整包</button>
+              </div>
+              <ul className="mt-2 max-h-48 space-y-0.5 overflow-y-auto rounded bg-zinc-950/50 p-2 font-mono text-[11px] text-zinc-400">
+                <li className="text-zinc-500">📄 SKILL.md</li>
+                {treeRows.map((t, i) => (
+                  <li key={i} className="flex items-center justify-between gap-3">
+                    <span className="truncate">📄 {t.path}</span>
+                    <span className="shrink-0 text-zinc-600">{(t.size ?? 0) > 1024 ? `${((t.size ?? 0) / 1024).toFixed(1)} KB` : `${t.size ?? 0} B`}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {f.files.filter((x) => !isTreeRow(x) && x.path !== "__bundle__").length === 0 && !bundle && (
+            <p className="text-xs text-zinc-600">无附加文件时，下载按钮直接输出 SKILL.md</p>
+          )}
+          {f.files.map((file, i) => {
+            if (file.path === "__bundle__" || isTreeRow(file)) return null;
+            return (
+              <div key={i} className="mb-2 rounded-lg border border-zinc-800 p-2.5">
+                <div className="mb-1.5 flex items-center gap-2">
+                  <input value={file.path} onChange={(e) => setFile(i, "path", e.target.value)} className={inputCls} placeholder="路径，如 scripts/run.py" />
+                  <button type="button" onClick={() => set("files", f.files.filter((_, j) => j !== i))} className="shrink-0 text-rose-400 hover:underline">移除</button>
+                </div>
+                <textarea value={file.content} onChange={(e) => setFile(i, "content", e.target.value)} rows={4} className={`${inputCls} font-mono text-xs`} placeholder="文件内容" />
+              </div>
+            );
+          })}
         </div>
 
         <div>

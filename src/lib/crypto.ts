@@ -25,9 +25,14 @@ export function decryptSecret(stored: string): string {
   const parts = stored.slice(PREFIX.length).split(":");
   if (parts.length !== 3) throw new Error("密文格式错误");
   const [ivB64, tagB64, cipherB64] = parts;
-  const decipher = crypto.createDecipheriv("aes-256-gcm", getKey(), Buffer.from(ivB64, "base64"));
-  decipher.setAuthTag(Buffer.from(tagB64, "base64"));
-  return Buffer.concat([decipher.update(Buffer.from(cipherB64, "base64")), decipher.final()]).toString("utf8");
+  try {
+    const decipher = crypto.createDecipheriv("aes-256-gcm", getKey(), Buffer.from(ivB64, "base64"));
+    decipher.setAuthTag(Buffer.from(tagB64, "base64"));
+    return Buffer.concat([decipher.update(Buffer.from(cipherB64, "base64")), decipher.final()]).toString("utf8");
+  } catch {
+    // GCM 校验失败：密文是用历史密钥加密的，当前 STORAGE_KEY_SECRET/JWT_SECRET 无法解开
+    throw new Error("密文无法解密（历史密钥已变更），请在对应设置中重新保存该密钥");
+  }
 }
 
 export function isEncrypted(stored: string): boolean {

@@ -21,6 +21,15 @@ const emptyForm = {
   accessKey: "", secretKey: "", publicBaseUrl: "", isDefault: false, enabled: true,
 };
 
+// 安全 JSON 解析：空响应/非 JSON 响应给出可读错误，而不是 "Unexpected end of JSON input"
+async function readJson(r: Response) {
+  const txt = await r.text();
+  let d: any = null;
+  try { d = txt ? JSON.parse(txt) : null; } catch { /* 非 JSON 响应 */ }
+  if (!d) throw new Error(txt ? `服务器返回异常响应（HTTP ${r.status}）` : `服务器无响应（HTTP ${r.status}）`);
+  return d;
+}
+
 export default function StorageManager({ initial }: { initial: Bucket[] }) {
   const [rows, setRows] = useState<Bucket[]>(initial);
   const [editing, setEditing] = useState<Bucket | null>(null);
@@ -78,7 +87,7 @@ export default function StorageManager({ initial }: { initial: Bucket[] }) {
           }),
         });
       }
-      const d = await r.json();
+      const d = await readJson(r);
       if (d.ok) flash("ok", `连接成功${d.sampleKeys?.length ? `，桶内已有 ${d.sampleKeys.length} 个对象` : "（空桶）"}`);
       else flash("err", `连接失败：${d.error || "未知错误"}`);
     } catch (e) {
@@ -106,7 +115,7 @@ export default function StorageManager({ initial }: { initial: Bucket[] }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        const d = await r.json();
+        const d = await readJson(r);
         if (!r.ok) throw new Error(d.error || "保存失败");
         setRows((prev) =>
           prev.map((b) =>
@@ -122,7 +131,7 @@ export default function StorageManager({ initial }: { initial: Bucket[] }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        const d = await r.json();
+        const d = await readJson(r);
         if (!r.ok) throw new Error(d.error || "创建失败");
         setRows((prev) => [
           ...(payload.isDefault ? prev.map((b) => ({ ...b, isDefault: false })) : prev),
@@ -147,7 +156,7 @@ export default function StorageManager({ initial }: { initial: Bucket[] }) {
     if (!confirm(`确定删除存储桶「${b.name}」吗？\n已被软件下载引用时无法删除。`)) return;
     try {
       const r = await fetch(`/api/admin/storage/buckets/${b.id}`, { method: "DELETE" });
-      const d = await r.json();
+      const d = await readJson(r);
       if (!r.ok) throw new Error(d.error || "删除失败");
       setRows((prev) => prev.filter((x) => x.id !== b.id));
       flash("ok", "已删除");

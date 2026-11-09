@@ -26,10 +26,14 @@ export function rateLimit(key: string, limit: number, windowMs: number): boolean
   return true;
 }
 
-// 从请求中取客户端 IP（反向代理后取 x-forwarded-for 首段）
+// 从请求中取客户端 IP（S0-6：取 XFF 最后一跳 = 本站 Nginx 追加的真实来源，
+// 防客户端伪造 XFF 首段绕过 IP 限流；需保证应用端口不直接暴露公网，仅 Nginx 可达）
 export function clientIp(req: Request): string {
   const xff = req.headers.get("x-forwarded-for");
-  if (xff) return xff.split(",")[0].trim();
+  if (xff) {
+    const parts = xff.split(",").map((s) => s.trim()).filter(Boolean);
+    if (parts.length) return parts[parts.length - 1];
+  }
   return req.headers.get("x-real-ip") || "unknown";
 }
 

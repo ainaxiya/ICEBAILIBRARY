@@ -10,6 +10,7 @@
 
 import { db } from "@/lib/db";
 import { consume, refund as creditRefund, getBalance } from "@/lib/credits";
+import { recordBillingFailure } from "./billing-reconcile";
 
 export type EndpointType = "chat" | "image" | "video" | "audio";
 
@@ -57,10 +58,10 @@ export const creditBilling: BillingHooks = {
   async preCheck(userId, estCredits, endpointType) {
     const balance = await getBalance(userId);
     if ((endpointType === "image" || endpointType === "video") && balance < MEDIA_MIN_BALANCE) {
-      return { ok: false, error: "余额不足 200 积分，无法使用生图/生视频" };
+      return { ok: false, error: "Insufficient credits: image/video generation requires at least 200 credits" };
     }
     if (balance < BigInt(Math.max(0, Math.ceil(estCredits)))) {
-      return { ok: false, error: "余额不足" };
+      return { ok: false, error: "Insufficient credits" };
     }
     return { ok: true };
   },
@@ -68,7 +69,7 @@ export const creditBilling: BillingHooks = {
   async preDeduct(userId, estCredits, requestId) {
     const est = BigInt(Math.max(0, Math.ceil(estCredits)));
     const r = await consume(userId, est, requestId, requestId);
-    return r.ok ? { ok: true } : { ok: false, error: r.error || "积分不足，请充值后再试" };
+    return r.ok ? { ok: true } : { ok: false, error: "Insufficient credits" };
   },
 
   async settle(userId, requestId, actualCredits) {
@@ -93,7 +94,9 @@ export const creditBilling: BillingHooks = {
         if (partial > 0n) await consume(userId, partial, requestId, settleId);
       }
     } catch (e) {
+      // S0-3：失败落库（幂等），由 billing-reconcile 循环重试，不静默丢账
       console.error(`[billing] settle 失败 requestId=${requestId}`, e);
+      await recordBillingFailure({ userId, requestId, kind: "settle", amount: actual, error: e });
     }
   },
 
@@ -102,7 +105,9 @@ export const creditBilling: BillingHooks = {
       const est = await deductedOf(requestId);
       if (est > 0n) await creditRefund(userId, est, requestId, `${requestId}:refund`);
     } catch (e) {
+      // S0-3：失败落库（幂等），由 billing-reconcile 循环重试，不静默丢账
       console.error(`[billing] refund 失败 requestId=${requestId}`, e);
+      await recordBillingFailure({ userId, requestId, kind: "refund", amount: 0n, error: e });
     }
   },
 };

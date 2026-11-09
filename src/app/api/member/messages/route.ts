@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { isTicketType } from "@/lib/tickets";
+import { sanitizeRich } from "@/lib/sanitize.server";
+import { isHtmlContent, stripHtml } from "@/lib/rich";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +19,7 @@ function msgJson(m: {
   ticketStatus: string | null;
   batchId: string | null;
   readAt: Date | null;
+  replyByNick?: string | null;
   createdAt: Date;
 }) {
   return {
@@ -27,6 +31,8 @@ function msgJson(m: {
     ticketStatus: m.ticketStatus,
     batchId: m.batchId,
     readAt: m.readAt,
+    // v0.92 #4：前台只显管理员昵称（不透出管理账号）
+    replyByNick: m.replyByNick ?? null,
     createdAt: m.createdAt,
   };
 }
@@ -100,18 +106,35 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "请先登录" }, { status: 401 });
 
   const body = await req.json().catch(() => null);
+
+  // v0.92 #6：会员侧关闭工单
+  if (body?.action === "close") {
+    const threadId = typeof body?.threadId === "string" ? BigInt(body.threadId) : null;
+    if (!threadId) return NextResponse.json({ error: "参数错误" }, { status: 400 });
+    const root = await db.userMessage.findFirst({
+      where: { id: threadId, userId: user.id, msgType: "ticket", replyToId: null },
+    });
+    if (!root) return NextResponse.json({ error: "工单不存在" }, { status: 404 });
+    await db.userMessage.update({ where: { id: root.id }, data: { ticketStatus: "closed" } });
+    return NextResponse.json({ ok: true });
+  }
+
+  // v0.92 #4：标题改为问题类型下拉必选
   const subject = typeof body?.subject === "string" ? body.subject.trim() : "";
-  const content = typeof body?.body === "string" ? body.body.trim() : "";
-  if (!content) return NextResponse.json({ error: "工单内容不能为空" }, { status: 400 });
-  if (subject.length > 200) return NextResponse.json({ error: "标题过长（最多 200 字符）" }, { status: 400 });
-  if (content.length > 5000) return NextResponse.json({ error: "内容过长（最多 5000 字符）" }, { status: 400 });
+  if (!isTicketType(subject)) {
+    return NextResponse.json({ error: "请选择问题类型" }, { status: 400 });
+  }
+  const raw = typeof body?.body === "string" ? body.body.trim() : "";
+  const content = isHtmlContent(raw) ? sanitizeRich(raw) : raw;
+  if (!stripHtml(content)) return NextResponse.json({ error: "工单内容不能为空" }, { status: 400 });
+  if (content.length > 20000) return NextResponse.json({ error: "内容过长（最多 20000 字符）" }, { status: 400 });
 
   const created = await db.userMessage.create({
     data: {
       userId: user.id,
       direction: "user_to_admin",
       msgType: "ticket",
-      subject: subject || null,
+      subject,
       body: content,
       ticketStatus: "open",
     },

@@ -214,10 +214,10 @@ export default function SiteHeader({
               <Icon name="search" className="h-5 w-5" />
             </button>
           )}
+          <UserMenu />
           <Suspense fallback={null}>
             <LanguageSwitcher />
           </Suspense>
-          <UserMenu />
         </div>
       </div>
 

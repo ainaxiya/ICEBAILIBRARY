@@ -1,12 +1,12 @@
-import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import type { ModelPricing } from "@prisma/client";
 import { saveGeneratedAsset, type AssetType } from "@/lib/assets";
 import { authenticateV1 } from "@/lib/gateway/auth";
 import { billing } from "@/lib/gateway/billing";
+import { resolveRequestId } from "@/lib/gateway/idempotency";
 import { callMediaGenerations } from "@/lib/gateway/adapters/media";
-import { costMilli, displayCredits } from "@/lib/gateway/pricing";
+import { costMilli, displayMemberCredits } from "@/lib/gateway/pricing";
 import { markKeyUsed, resolveRoute, type KeyCandidate } from "@/lib/gateway/router";
 import { recordUsage, type UsageInput } from "@/lib/gateway/usage";
 import { acquireSlot, checkKeyRpm, checkQuota, getQuotaConfig } from "@/lib/quota";
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
   const raw = await req.json().catch(() => null);
   const parsed = genSchema.safeParse(raw);
   if (!parsed.success) {
-    return apiError(400, "请求参数不合法：" + parsed.error.issues[0]?.message, "invalid_request_error", "invalid_body");
+    return apiError(400, "Invalid request body: " + parsed.error.issues[0]?.message, "invalid_request_error", "invalid_body");
   }
   const body = parsed.data;
 
@@ -67,38 +67,40 @@ export async function POST(req: NextRequest) {
   if (channel === "apikey") {
     const keyQuota = checkKeyRpm(apiKeyId!);
     if (!keyQuota.ok) {
-      return apiError(429, keyQuota.error || "调用超出配额，请稍后再试", "rate_limit_error", "quota_exceeded");
+      return apiError(429, keyQuota.error || "Rate limit exceeded. Please slow down and retry later", "rate_limit_error", "quota_exceeded");
     }
   } else {
     const quota = await checkQuota(user.id);
     if (!quota.ok) {
-      return apiError(429, quota.error || "调用超出配额，请稍后再试", "rate_limit_error", "quota_exceeded");
+      return apiError(429, quota.error || "Rate limit exceeded. Please slow down and retry later", "rate_limit_error", "quota_exceeded");
     }
   }
 
   // ── 4. 预检：模型 / 端点 / 定价（endpointType 分发 image|video） ──
   const route = await resolveRoute(body.model);
   if (!route) {
-    return apiError(404, "模型不存在或已下线", "invalid_request_error", "model_not_found");
+    return apiError(404, "Model not found or offline", "invalid_request_error", "model_not_found");
   }
   const modelKind = route.model.endpointType;
   if (modelKind !== "image" && modelKind !== "video") {
-    return apiError(404, "该模型不支持生成端点", "invalid_request_error", "endpoint_disabled");
+    return apiError(404, "This model does not support generation endpoints", "invalid_request_error", "endpoint_disabled");
   }
   const endpointPath = modelKind === "video" ? "video_generations" : "image_generations";
   const endpoint = route.endpoints.find((e) => e.path === endpointPath && e.enabled);
   if (!endpoint) {
-    return apiError(404, `该模型未开启 ${endpointPath} 端点`, "invalid_request_error", "endpoint_disabled");
+    return apiError(404, `This model does not support the ${endpointPath} endpoint`, "invalid_request_error", "endpoint_disabled");
   }
   const pricing = route.pricing;
   if (!pricing) {
-    return apiError(404, "模型未配置定价，暂不可用", "invalid_request_error", "pricing_not_configured");
+    return apiError(404, "Model pricing is not configured", "invalid_request_error", "pricing_not_configured");
   }
 
-  const requestId = randomUUID();
+  // S0-4：客户端 Idempotency-Key → 计费幂等 requestId（重试不重复扣费）
+  const requestId = resolveRequestId(user.id, req);
   const started = Date.now();
   const estUnits = unitsFor(pricing, body.n ?? 1, body.duration ?? 5);
-  const estCredits = Math.max(1, displayCredits(costMilli(estUnits, pricing, "input"), pricing.multiplierBps));
+  // v0.96 直观定价：图片/视频按「单位」计量走输入侧会员价（未填回退 成本×加价系数）
+  const estCredits = displayMemberCredits(pricing, estUnits, 0);
 
   const baseUsage: Omit<UsageInput, "status" | "costMilli" | "paidCredits" | "vendorKeyId" | "unitCount"> = {
     requestId,
@@ -115,13 +117,13 @@ export async function POST(req: NextRequest) {
   // 余额类拒绝 402（含 <200 分禁生图/生视频门槛）
   const pre = await billing.preCheck(user.id, estCredits, modelKind);
   if (!pre.ok) {
-    return apiError(402, pre.error || "积分不足，请充值后再试", "insufficient_quota", "insufficient_credits");
+    return apiError(402, pre.error || "Insufficient credits", "insufficient_quota", "insufficient_credits");
   }
 
   // ── 5. 预扣（request_id 幂等） ──
   const deduct = await billing.preDeduct(user.id, estCredits, requestId);
   if (!deduct.ok) {
-    return apiError(402, deduct.error || "积分不足，请充值后再试", "insufficient_quota", "insufficient_credits");
+    return apiError(402, deduct.error || "Insufficient credits", "insufficient_quota", "insufficient_credits");
   }
 
   // ── 6. 并发槽（超限退回预扣并 429；出口路径必须 release） ──
@@ -129,7 +131,7 @@ export async function POST(req: NextRequest) {
   const slot = acquireSlot(user.id, quotaCfg.concurrency);
   if (!slot.ok) {
     await billing.refund(user.id, requestId);
-    return apiError(429, "并发请求数超限，请稍后再试", "rate_limit_error", "concurrency_exceeded");
+    return apiError(429, "Too many concurrent requests. Please retry later", "rate_limit_error", "concurrency_exceeded");
   }
 
   // ── 7. 路由选 Key + adapter 调用（失败换下一个，最多 3 个） ──
@@ -138,7 +140,7 @@ export async function POST(req: NextRequest) {
     slot.release();
     await billing.refund(user.id, requestId);
     await recordUsage({ ...baseUsage, vendorKeyId: null, status: "failed", costMilli: 0, paidCredits: 0, latencyMs: Date.now() - started });
-    return apiError(502, "模型暂无可用上游通道", "api_error", "no_upstream_key");
+    return apiError(502, "No upstream channel available for this model", "api_error", "no_upstream_key");
   }
 
   let urls: string[] | null = null;
@@ -165,13 +167,13 @@ export async function POST(req: NextRequest) {
     slot.release();
     await billing.refund(user.id, requestId);
     await recordUsage({ ...baseUsage, vendorKeyId: null, status: "failed", costMilli: 0, paidCredits: 0, latencyMs: Date.now() - started });
-    return apiError(502, `上游生成服务调用失败：${lastError}`, "api_error", "upstream_error");
+    return apiError(502, `Upstream generation service error: ${lastError}`, "api_error", "upstream_error");
   }
 
   // ── 8. 结算：按实际产物数量 ceil 整数积分（生成已发生，转存失败不退扣分） ──
   const units = unitsFor(pricing, urls.length, body.duration ?? 5);
   const costM = costMilli(units, pricing, "input");
-  const paid = displayCredits(costM, pricing.multiplierBps);
+  const paid = displayMemberCredits(pricing, units, 0);
   await billing.settle(user.id, requestId, paid);
   const usageRecordId = await recordUsage({
     ...baseUsage,

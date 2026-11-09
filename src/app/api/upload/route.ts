@@ -23,6 +23,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "upload disabled" }, { status: 403 });
     }
 
+    // S0-6 前置大小校验：解析 multipart 前先拒掉超大请求体（避免先吃内存再被拒）。
+    // 上限 = 图片/视频配置较大者 + 1MB multipart 编码余量；chunked 无 Content-Length 时
+    // 跳过此检查，由 saveUserMedia 解析后校验兜底。
+    const maxUploadMB = Math.max(settings.publish.maxImageMB || 0, settings.publish.maxVideoMB || 0);
+    const contentLength = Number(req.headers.get("content-length") || 0);
+    if (maxUploadMB > 0 && contentLength > (maxUploadMB + 1) * 1024 * 1024) {
+      return NextResponse.json({ error: "file too large" }, { status: 413 });
+    }
+
     const form = await req.formData().catch(() => null);
     const file = form?.get("file");
     if (!(file instanceof File)) {

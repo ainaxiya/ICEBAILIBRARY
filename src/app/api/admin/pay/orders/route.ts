@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
       take: pageSize,
       include: {
         user: { select: { username: true } },
-        pack: { select: { packCode: true, credits: true } },
+        pack: { select: { packCode: true, credits: true, bonusCredits: true } },
       },
     }),
   ]);
@@ -63,6 +63,7 @@ export async function GET(req: NextRequest) {
       packCode: o.pack.packCode,
       amountCents: num(o.amountCents),
       credits: num(o.pack.credits),
+      bonusCredits: num(o.pack.bonusCredits),
       channel: o.channel,
       status: o.status,
       paidAt: o.paidAt,
@@ -89,7 +90,7 @@ export async function POST(req: NextRequest) {
 
   const order = await db.payOrder.findUnique({
     where: { orderNo },
-    include: { pack: { select: { packCode: true, credits: true } } },
+    include: { pack: { select: { packCode: true, credits: true, bonusCredits: true } } },
   });
   if (!order) return NextResponse.json({ error: "订单不存在" }, { status: 404 });
   if (order.status === "paid") return NextResponse.json({ error: "订单已支付" }, { status: 400 });
@@ -146,8 +147,9 @@ export async function POST(req: NextRequest) {
         data: {
           userId: order.userId,
           grantType: "topup",
-          totalCredits: order.pack.credits,
-          remainingCredits: order.pack.credits,
+          // v0.92 #2：购买积分 + 赠送积分
+          totalCredits: order.pack.credits + order.pack.bonusCredits,
+          remainingCredits: order.pack.credits + order.pack.bonusCredits,
           expiresAt: null,
           sourceRef: order.orderNo,
         },
@@ -167,7 +169,7 @@ export async function POST(req: NextRequest) {
       await tx.creditLedger.create({
         data: {
           userId: order.userId,
-          changeAmount: order.pack.credits,
+          changeAmount: order.pack.credits + order.pack.bonusCredits,
           balanceAfter,
           reason: "grant",
           refType: "order",
@@ -183,7 +185,7 @@ export async function POST(req: NextRequest) {
           direction: "admin_to_user",
           msgType: "notice",
           subject: "充值到账通知",
-          body: `订单 ${order.orderNo}（${order.pack.packCode}）已补单入账，${num(order.pack.credits)} 积分已到账。`,
+          body: `订单 ${order.orderNo}（${order.pack.packCode}）已补单入账，${num(order.pack.credits + order.pack.bonusCredits)} 积分已到账。`,
         },
       });
 

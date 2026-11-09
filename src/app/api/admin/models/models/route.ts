@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { PERMISSIONS, requirePerm, logAdminAction, getClientIp } from "@/lib/rbac";
-import { latestPricing, totalCostMilli, displayCredits } from "@/lib/gateway/pricing";
+import { latestPricing, perMillionCostCredits, perMillionMemberCredits } from "@/lib/gateway/pricing";
 import { pricingJson } from "@/lib/model-json";
 
 export const dynamic = "force-dynamic";
@@ -47,13 +47,16 @@ export async function GET(req: NextRequest) {
         endpointType: m.endpointType,
         status: m.status,
         remark: m.remark,
+        advancedConfig: m.advancedConfig,
         endpoints: m.endpoints.map((e) => ({ id: e.id, path: e.path, enabled: e.enabled })),
         currentPricing: cur ? pricingJson(cur) : null,
-        // 成本换算预览：100 万输入 + 50 万输出 token 的内部成本与用户标价（演示口径）
+        // v0.92 #5 计费透明化：百万 tokens 成本价/会员价（积分，1 元 = 100 积分）
         pricePreview: cur
           ? {
-              costMilli: totalCostMilli(cur, 1_000_000, 500_000),
-              displayCredits: displayCredits(totalCostMilli(cur, 1_000_000, 500_000), cur.multiplierBps),
+              costInput: perMillionCostCredits(cur, "input"),
+              costOutput: perMillionCostCredits(cur, "output"),
+              memberInput: perMillionMemberCredits(cur, "input"),
+              memberOutput: perMillionMemberCredits(cur, "output"),
             }
           : null,
         createdAt: m.createdAt.toISOString(),
@@ -71,6 +74,9 @@ const pricingSchema = z.object({
   currency: z.string().trim().max(10).optional(),
   fxRateE8: z.number().int().min(1).max(1_000_000_000_000).optional(),
   multiplierBps: z.number().int().min(1).max(100_000).optional(),
+  // v0.96 直观定价：会员价按输入/输出直接填（积分/计量基数）
+  memberInputPrice: z.number().min(0).max(1_000_000).nullable().optional(),
+  memberOutputPrice: z.number().min(0).max(1_000_000).nullable().optional(),
   effectiveAt: z.string().datetime().optional(),
 });
 
@@ -128,6 +134,8 @@ export async function POST(req: NextRequest) {
         currency: data.pricing.currency || "CNY",
         fxRateE8: BigInt(data.pricing.fxRateE8 ?? 100_000_000),
         multiplierBps: data.pricing.multiplierBps ?? 150,
+        memberInputPrice: data.pricing.memberInputPrice ?? null,
+        memberOutputPrice: data.pricing.memberOutputPrice ?? null,
         effectiveAt: data.pricing.effectiveAt ? new Date(data.pricing.effectiveAt) : new Date(),
       },
     });

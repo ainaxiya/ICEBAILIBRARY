@@ -2,9 +2,51 @@ import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { db } from "./db";
 
-const secret = new TextEncoder().encode(
-  process.env.JWT_SECRET || "dev-secret"
-);
+// ─── JWT 密钥（S0-1 安全加固） ───
+// 会员与管理员使用独立密钥：JWT_SECRET / JWT_ADMIN_SECRET（后者未配置时回退前者并告警）。
+// 生产环境缺 JWT_SECRET 直接抛错（fail-fast，见 src/instrumentation.ts 启动校验）；
+// 开发环境回退 dev-secret 方便本地启动。密钥变更后旧令牌验签失败 = 自动全站下线重登录（令牌轮换）。
+
+function encodeSecret(raw: string) {
+  return new TextEncoder().encode(raw);
+}
+
+let userSecretCache: Uint8Array | null = null;
+function userSecret(): Uint8Array {
+  if (!userSecretCache) {
+    const raw = process.env.JWT_SECRET;
+    if (raw) {
+      userSecretCache = encodeSecret(raw);
+    } else if (process.env.NODE_ENV === "production") {
+      throw new Error("[security] JWT_SECRET is required in production");
+    } else {
+      userSecretCache = encodeSecret("dev-secret");
+    }
+  }
+  return userSecretCache;
+}
+
+let adminSecretCache: Uint8Array | null = null;
+function adminSecret(): Uint8Array {
+  if (!adminSecretCache) {
+    const admin = process.env.JWT_ADMIN_SECRET;
+    const base = process.env.JWT_SECRET;
+    if (admin) {
+      adminSecretCache = encodeSecret(admin);
+    } else if (base) {
+      if (process.env.NODE_ENV === "production") {
+        console.warn("[security] JWT_ADMIN_SECRET not set; admin tokens fall back to JWT_SECRET (separate it in production)");
+      }
+      adminSecretCache = encodeSecret(base);
+    } else if (process.env.NODE_ENV === "production") {
+      throw new Error("[security] JWT_SECRET is required in production");
+    } else {
+      adminSecretCache = encodeSecret("dev-secret");
+    }
+  }
+  return adminSecretCache;
+}
+
 // 会员与管理员使用各自独立的 Cookie，互不相通
 const COOKIE = "token";
 const ADMIN_COOKIE = "admin_token";
@@ -16,7 +58,7 @@ export async function signToken(userId: number) {
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("30d")
-    .sign(secret);
+    .sign(userSecret());
 }
 
 export async function setAuthCookie(token: string) {
@@ -40,7 +82,7 @@ export async function getCurrentUser() {
   const token = store.get(COOKIE)?.value;
   if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, secret);
+    const { payload } = await jwtVerify(token, userSecret());
     if (payload.t !== "u") return null;
     const uid = payload.uid as number;
     if (!uid) return null;
@@ -66,7 +108,7 @@ export async function signAdminToken(adminId: number) {
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("7d")
-    .sign(secret);
+    .sign(adminSecret());
 }
 
 export async function setAdminAuthCookie(token: string) {
@@ -91,7 +133,7 @@ export async function getCurrentAdmin() {
   const token = store.get(ADMIN_COOKIE)?.value;
   if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, secret);
+    const { payload } = await jwtVerify(token, adminSecret());
     if (payload.t !== "a") return null;
     const aid = payload.aid as number;
     if (!aid) return null;

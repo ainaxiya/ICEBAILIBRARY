@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
 import { requireAdmin } from "@/lib/auth";
+import { requirePerm, PERMISSIONS } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,8 @@ function pushLog(chunk: string) {
 export async function POST() {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "未登录" }, { status: 401 });
+  const { user, ok } = await requirePerm(PERMISSIONS.SETTING_WRITE);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
   if (job.running) {
     return NextResponse.json({ error: "已有重建任务进行中，请等待完成" }, { status: 409 });
   }
@@ -77,5 +80,7 @@ export async function POST() {
 export async function GET() {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "未登录" }, { status: 401 });
+  const { user, ok } = await requirePerm(PERMISSIONS.SETTING_READ);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
   return NextResponse.json(job);
 }

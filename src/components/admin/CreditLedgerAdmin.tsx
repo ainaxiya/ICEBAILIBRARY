@@ -13,6 +13,7 @@ type LedgerRow = {
   reason: string;
   refType: string | null;
   refId: string | null;
+  source: string;
   createdAt: string;
 };
 
@@ -137,8 +138,13 @@ export default function CreditLedgerAdmin() {
                     {REASON_TEXT[r.reason] || r.reason}
                   </span>
                 </td>
-                <td className="px-4 py-2.5 font-mono text-xs text-zinc-500">
-                  {r.refType ? `${r.refType}${r.refId ? `:${r.refId}` : ""}` : "—"}
+                <td className="px-4 py-2.5">
+                  <span
+                    className="text-xs text-zinc-400"
+                    title={r.refType ? `${r.refType}${r.refId ? `:${r.refId}` : ""}` : undefined}
+                  >
+                    {r.source || "—"}
+                  </span>
                 </td>
               </tr>
             ))}

@@ -167,12 +167,16 @@ body {
 .rich-content { word-break: break-word; }
 .rich-content p { margin: 0 0 0.75em; line-height: 1.8; }
 .rich-content p:last-child { margin-bottom: 0; }
-.rich-content h1, .rich-content h2, .rich-content h3 {
+.rich-content h1, .rich-content h2, .rich-content h3,
+.rich-content h4, .rich-content h5, .rich-content h6 {
   font-weight: 600; margin: 1em 0 0.5em; color: #eceefb;
 }
 .rich-content h1 { font-size: 1.25rem; }
 .rich-content h2 { font-size: 1.125rem; }
 .rich-content h3 { font-size: 1rem; }
+.rich-content h4 { font-size: 0.9375rem; color: #bdc7e6; }
+.rich-content h5 { font-size: 0.875rem; color: #bdc7e6; }
+.rich-content h6 { font-size: 0.8125rem; color: #97a4cf; }
 .rich-content ul, .rich-content ol { margin: 0 0 0.75em; padding-left: 1.5em; }
 .rich-content ul { list-style: disc; }
 .rich-content ol { list-style: decimal; }
@@ -198,6 +202,23 @@ body {
   background: #222e5e; padding: 0.1em 0.35em; border-radius: 0.25rem; font-size: 0.875em;
 }
 .rich-content pre code { background: transparent; padding: 0; }
+.rich-content hr {
+  border: 0; border-top: 1px solid #222e5e; margin: 1.25em 0;
+}
+.rich-content .hl { color: #5cc9f9; font-weight: 600; }
+.rich-content mark { background: rgba(56, 189, 248, 0.22); color: #b8e7fd; padding: 0.05em 0.25em; border-radius: 0.25rem; }
+.rich-content table {
+  width: 100%; border-collapse: collapse; font-size: 0.875em;
+  margin: 0 0 1em; border: 1px solid #222e5e; border-radius: 0.5rem; overflow: hidden;
+}
+.rich-content th, .rich-content td {
+  border-bottom: 1px solid #222e5e; border-right: 1px solid #222e5e;
+  padding: 0.5em 0.75em; text-align: left; vertical-align: top;
+}
+.rich-content th:last-child, .rich-content td:last-child { border-right: 0; }
+.rich-content tbody tr:last-child td { border-bottom: 0; }
+.rich-content th { background: #101a42; color: #86d8fb; font-weight: 600; white-space: nowrap; }
+.rich-content tbody tr:hover td { background: rgba(34, 46, 94, 0.28); }
 
 /* TipTap（ProseMirror）编辑器 */
 .tiptap-prose { min-height: 200px; }
@@ -215,6 +236,17 @@ body {
   outline: 2px solid rgba(56, 189, 248, 0.6);
   border-radius: 0.5rem;
 }
+/* 表格编辑态：选中格高亮 + 列宽拖柄 */
+.tiptap-prose .ProseMirror table { table-layout: fixed; width: 100%; }
+.tiptap-prose .ProseMirror .selectedCell::after {
+  content: ""; position: absolute; inset: 0;
+  background: rgba(56, 189, 248, 0.22); pointer-events: none;
+}
+.tiptap-prose .ProseMirror .column-resize-handle {
+  position: absolute; right: -2px; top: 0; bottom: 0; width: 4px;
+  background: rgba(56, 189, 248, 0.7); pointer-events: none;
+}
+.tiptap-prose .ProseMirror.resize-cursor { cursor: col-resize; }
 /* 代码块语言标记（StarterKit 会在 pre 上加 data-language） */
 .rich-content pre[data-language]::before {
   content: attr(data-language);
@@ -347,3 +379,342 @@ body {
 .optimizer-button:disabled {
   filter: drop-shadow(0 6px 8px rgba(0, 8, 32, 0.56)) brightness(0.82);
 }
+
+/* ─── v0.93 神器优化按钮：金属质感渐变（图标 CSS mask 上色 + 文字渐变裁切），带轻微投影 ─── */
+.metal-gradient {
+  background-image: linear-gradient(180deg, #ffffff 0%, #e2e8f0 30%, #94a3b8 52%, #f8fafc 68%, #cbd5e1 100%);
+}
+.metal-icon {
+  -webkit-mask: url('/site-assets/optimize-btn-icon.png') center / contain no-repeat;
+  mask: url('/site-assets/optimize-btn-icon.png') center / contain no-repeat;
+  filter: drop-shadow(0 1px 2px rgba(0, 16, 48, 0.8));
+}
+.metal-text {
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 1px 2px rgba(0, 16, 48, 0.8));
+}
+
+/* ─── v0.93 分类页特效：Inter 字体（聚光灯 Demo 同款）─── */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/inter-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/inter-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("/fonts/inter-800.woff2") format("woff2");
+}
+.font-spotlight {
+  font-family: "Inter", "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+/* ─── v0.93 分类页特效：动画关键帧 ─── */
+@keyframes bg-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ─── v0.93 技能卡片：默认边缘发光，hover 光线变大 + 标题变色发光 ───
+   卡片上用 style={{ "--glow-rgb": "56 189 248" }} 注入分类色（空格分隔 RGB） */
+.skill-glow {
+  border-color: rgb(var(--glow-rgb, 56 189 248) / 0.3);
+  box-shadow: 0 0 26px -6px rgb(var(--glow-rgb, 56 189 248) / 0.4);
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+.skill-glow:hover {
+  border-color: rgb(var(--glow-rgb, 56 189 248) / 0.6);
+  box-shadow: 0 0 58px 4px rgb(var(--glow-rgb, 56 189 248) / 0.5);
+}
+.skill-title {
+  transition: color 0.3s ease, text-shadow 0.3s ease;
+}
+.skill-glow:hover .skill-title {
+  color: rgb(var(--glow-rgb, 56 189 248) / 0.95);
+  text-shadow: 0 0 22px rgb(var(--glow-rgb, 56 189 248) / 0.85);
+}
+
+/* 聚光灯 Hero 网格底纹（SpotlightNewDemo 的 bg-grid-white/[0.02]） */
+.bg-grid-white\/\[0\.02\] {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
+/* ─── v0.93 列表页分类菜单按钮：hover 与选定同色（emerald→teal 渐变，与「全部」选定一致）─── */
+.cat-menu-btn {
+  background-color: rgb(34 46 94 / 0.7);
+  color: #bdc7e6;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+.cat-menu-btn:hover,
+.cat-menu-btn.active {
+  background-color: transparent;
+  background-image: linear-gradient(to right, var(--color-emerald-500), var(--color-teal-500));
+  color: #fff;
+  font-weight: 500;
+  box-shadow: 0 10px 15px -3px rgb(16 185 129 / 0.25), 0 4px 6px -4px rgb(16 185 129 / 0.25);
+}
+
+/* ════════════════════════════════════════════════════════════
+   v0.94 会员中心设计 token（.mc-*，仅作用于 /member，不污染全站）
+   风格：深海军蓝渐变 + 深蓝玻璃拟态卡 + 亮蓝主色 + 金/紫辅助色
+   ════════════════════════════════════════════════════════════ */
+
+/* 页面背景：深海军蓝渐变 */
+.mc-page {
+  background:
+    radial-gradient(1100px 420px at 85% -8%, rgba(59, 130, 246, 0.14) 0%, transparent 55%),
+    radial-gradient(900px 380px at 0% 100%, rgba(139, 92, 246, 0.10) 0%, transparent 55%),
+    linear-gradient(160deg, #0b1230 0%, #0a0e24 100%);
+}
+
+/* 玻璃拟态卡片 */
+.mc-card {
+  background: rgba(30, 41, 90, 0.5);
+  border: 1px solid rgba(96, 165, 250, 0.15);
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(2, 6, 23, 0.35);
+  backdrop-filter: blur(8px);
+}
+.mc-card-hover {
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+.mc-card-hover:hover {
+  border-color: rgba(96, 165, 250, 0.4);
+  box-shadow: 0 12px 32px rgba(2, 6, 23, 0.5), 0 0 24px -6px rgba(96, 165, 250, 0.25);
+  transform: translateY(-2px);
+}
+
+/* 按钮：主按钮蓝→紫渐变胶囊 / 续费金渐变 / 次按钮玻璃描边 */
+.mc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 999px;
+  font-weight: 600;
+  transition: filter 0.18s ease, box-shadow 0.18s ease, transform 0.12s ease;
+}
+.mc-btn:active { transform: translateY(1px); }
+.mc-btn-primary {
+  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(59, 130, 246, 0.35);
+}
+.mc-btn-primary:hover { filter: brightness(1.08); box-shadow: 0 8px 24px rgba(99, 102, 241, 0.45); }
+.mc-btn-gold {
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+  color: #451a03;
+  box-shadow: 0 6px 18px rgba(251, 191, 36, 0.35);
+}
+.mc-btn-gold:hover { filter: brightness(1.06); box-shadow: 0 8px 24px rgba(251, 191, 36, 0.45); }
+.mc-btn-ghost {
+  background: rgba(96, 165, 250, 0.08);
+  border: 1px solid rgba(96, 165, 250, 0.3);
+  color: #bfdbfe;
+}
+.mc-btn-ghost:hover { background: rgba(96, 165, 250, 0.16); border-color: rgba(96, 165, 250, 0.5); }
+
+/* 徽章：VIP 金色 / Pro 蓝底 / 通用玻璃 */
+.mc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  line-height: 1.6;
+}
+.mc-badge-vip {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.25), rgba(245, 158, 11, 0.15));
+  border: 1px solid rgba(251, 191, 36, 0.5);
+  color: #fcd34d;
+}
+.mc-badge-pro {
+  background: rgba(59, 130, 246, 0.2);
+  border: 1px solid rgba(96, 165, 250, 0.45);
+  color: #93c5fd;
+}
+.mc-badge-ghost {
+  background: rgba(148, 163, 184, 0.12);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  color: #cbd5e1;
+}
+
+/* 统计数字：大号白字 + 小号灰字说明 */
+.mc-stat-num {
+  font-size: 1.6rem;
+  font-weight: 600;
+  color: #f8fafc;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.mc-stat-label {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+/* 进度条：圆角全圆轨道 + 渐变填充（紫=API / 蓝=下载流量 / 绿=工具使用） */
+.mc-progress {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.18);
+  overflow: hidden;
+}
+.mc-progress > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.5s ease;
+}
+.mc-bar-purple { background: linear-gradient(90deg, #8b5cf6, #a78bfa); }
+.mc-bar-blue   { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+.mc-bar-green  { background: linear-gradient(90deg, #10b981, #34d399); }
+
+/* 左侧菜单：激活项蓝色高亮胶囊 */
+.mc-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border-radius: 12px;
+  padding: 9px 12px;
+  font-size: 13.5px;
+  color: #94a3b8;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.mc-menu-item:hover { background: rgba(96, 165, 250, 0.1); color: #e2e8f0; }
+.mc-menu-item.active {
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.28), rgba(59, 130, 246, 0.1));
+  color: #93c5fd;
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.35);
+}
+
+/* Hero 横幅：深蓝渐变 + 亮蓝光晕 */
+.mc-hero {
+  background:
+    radial-gradient(700px 220px at 90% 0%, rgba(251, 191, 36, 0.12) 0%, transparent 60%),
+    linear-gradient(120deg, rgba(30, 58, 138, 0.75) 0%, rgba(30, 41, 90, 0.6) 55%, rgba(76, 29, 149, 0.45) 100%);
+  border: 1px solid rgba(96, 165, 250, 0.22);
+  border-radius: 20px;
+  box-shadow: 0 12px 40px rgba(2, 6, 23, 0.45);
+}
+
+/* 升级促销卡：紫渐变 */
+.mc-promo {
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.85) 0%, rgba(59, 130, 246, 0.75) 100%);
+  border: 1px solid rgba(167, 139, 250, 0.4);
+  border-radius: 16px;
+  box-shadow: 0 12px 32px rgba(76, 29, 149, 0.4);
+}
+
+/* 区块小标题 */
+.mc-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+/* 表格行分隔（玻璃卡内嵌表格） */
+.mc-table th {
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: 500;
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(96, 165, 250, 0.12);
+  white-space: nowrap;
+}
+.mc-table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid rgba(96, 165, 250, 0.08);
+  color: #cbd5e1;
+  font-size: 13px;
+}
+.mc-table tr:last-child td { border-bottom: none; }
+.mc-table tbody tr { transition: background 0.15s ease; }
+.mc-table tbody tr:hover { background: rgba(96, 165, 250, 0.06); }
+
+/* 输入框（玻璃描边） */
+.mc-input {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(96, 165, 250, 0.22);
+  background: rgba(15, 23, 42, 0.5);
+  padding: 9px 12px;
+  font-size: 13px;
+  color: #e2e8f0;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.mc-input:focus {
+  border-color: rgba(96, 165, 250, 0.55);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+}
+
+/* ── v0.94 会员中心子面板统一换肤层 ──
+   在 .mc-page 范围内把 zinc 深灰系 / emerald 主色映射为深蓝玻璃 + 蓝紫主色，
+   各子面板（收藏/发布/资产/API/用量/订单/积分/设置/消息/模型）无需逐个改类名 */
+.mc-page .bg-zinc-950,
+.mc-page .bg-zinc-800 { background-color: rgba(15, 23, 42, 0.55); }
+.mc-page .bg-zinc-900,
+.mc-page .bg-zinc-900\/40,
+.mc-page .bg-zinc-900\/50,
+.mc-page .bg-zinc-900\/60,
+.mc-page .bg-zinc-900\/70 { background-color: rgba(30, 41, 90, 0.5); }
+.mc-page .bg-zinc-900\/80 { background-color: rgba(51, 65, 120, 0.5); }
+.mc-page .hover\:bg-zinc-900\/40:hover,
+.mc-page .hover\:bg-zinc-900\/60:hover,
+.mc-page .hover\:bg-zinc-900:hover { background-color: rgba(96, 165, 250, 0.1); }
+.mc-page .hover\:bg-zinc-800:hover { background-color: rgba(96, 165, 250, 0.12); }
+.mc-page .hover\:bg-zinc-700:hover { background-color: rgba(96, 165, 250, 0.16); }
+
+.mc-page .border-zinc-700,
+.mc-page .border-zinc-800 { border-color: rgba(96, 165, 250, 0.22); }
+.mc-page .divide-zinc-800\/70 > :not([hidden]) ~ :not([hidden]) { border-color: rgba(96, 165, 250, 0.12); }
+
+.mc-page .text-zinc-600,
+.mc-page .text-zinc-500 { color: #64748b; }
+.mc-page .text-zinc-400 { color: #94a3b8; }
+.mc-page .text-zinc-300 { color: #cbd5e1; }
+.mc-page .text-zinc-200 { color: #e2e8f0; }
+.mc-page .text-zinc-100,
+.mc-page .text-zinc-50 { color: #f1f5f9; }
+
+/* 主按钮：emerald 实底 → 蓝紫渐变胶囊 */
+.mc-page .bg-emerald-500 {
+  background-color: #3b82f6;
+  background-image: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+  box-shadow: 0 6px 18px rgba(59, 130, 246, 0.3);
+}
+.mc-page .hover\:bg-emerald-400:hover { filter: brightness(1.1); }
+.mc-page .text-zinc-950 { color: #fff; }
+
+/* 激活胶囊 / 链接：emerald → 亮蓝 */
+.mc-page .bg-emerald-500\/15 { background-color: rgba(59, 130, 246, 0.22); }
+.mc-page .bg-emerald-900\/30 { background-color: rgba(59, 130, 246, 0.18); }
+.mc-page .text-emerald-300,
+.mc-page .hover\:text-emerald-300:hover { color: #93c5fd; }
+.mc-page .text-emerald-400 { color: #60a5fa; }
+.mc-page .border-emerald-600\/60 { border-color: rgba(96, 165, 250, 0.45); }
+.mc-page .hover\:border-emerald-500:hover { border-color: rgba(96, 165, 250, 0.65); }
+.mc-page .focus\:border-emerald-500:focus { border-color: rgba(96, 165, 250, 0.6); }

@@ -17,6 +17,14 @@ model User {
   nickname        String?
   avatar          String?
   bio             String?
+  // v0.92 #9 会员资料扩展：联系方式与个人档案（前台会员中心可改）
+  wechat          String?
+  qq              String?
+  telegram        String?
+  birthday        DateTime?
+  // male | female | other | secret
+  gender          String?
+  nationality     String?
   // user = 前台会员；importer = 采集系统账号；admin_legacy = 已迁移到 AdminAccount 的历史管理员
   role            String     @default("user")
   // 历史遗留：旧版管理员角色外键（新管理员体系见 AdminAccount），保留不用于鉴权
@@ -38,6 +46,7 @@ model User {
   prompts         Prompt[]
   likes           Like[]
   favorites       Favorite[]
+  userFavorites   UserFavorite[]
   comments        Comment[]
   commentLikes    CommentLike[]
   adminLogs       AdminLog[]
@@ -45,6 +54,7 @@ model User {
   usageRecords    UsageRecord[]
   creditGrants    CreditGrant[]
   ledger          CreditLedger[]
+  billingReconciles BillingReconcile[]
   payOrders       PayOrder[]
   subscriptions   UserSubscription[]
   messages        UserMessage[]
@@ -158,6 +168,21 @@ model Favorite {
   prompt Prompt @relation(fields: [promptId], references: [id])
 
   @@id([userId, promptId])
+}
+
+// v0.92 #9 通用收藏（技能/软件；提示词收藏仍走 Favorite 兼容旧数据）
+model UserFavorite {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  // skill | software
+  targetType String
+  targetId   Int
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, targetType, targetId])
+  @@index([userId, targetType])
 }
 
 // 站点配置（键值对，value 为 JSON 字符串）
@@ -554,12 +579,23 @@ model AiModel {
   // online | deprecated | offline
   status       String   @default("online")
   remark       String?
+  // 高级配置（JSON 文本）：该模型的高级参数与细节调整
+  advancedConfig String? @db.Text
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   endpoints    ModelEndpoint[]
   pricings     ModelPricing[]
   @@unique([vendorId, name])
   @@map("ai_model")
+}
+
+// 汇率表（基本常量）：币种 → RMB 汇率（×1e8），模型管理里所有汇率统一引用此处
+model FxRate {
+  id        Int      @id @default(autoincrement())
+  currency  String   @unique // 如 USD
+  rateE8    BigInt // 1 单位外币 = rateE8/1e8 元人民币
+  updatedAt DateTime @updatedAt
+  @@map("fx_rate")
 }
 
 // 模型端点
@@ -588,7 +624,10 @@ model ModelPricing {
   outputPrice   Decimal  @default(0) @db.Decimal(18, 8)  // 输出单价
   currency      String   @default("CNY")
   fxRateE8      BigInt   @default(100000000)             // 汇率放大 1e8（兑人民币）
-  multiplierBps Int      @default(150)                   // 加价系数基点（150=1.5x）
+  multiplierBps Int      @default(150)                   // 加价系数基点（150=1.5x）— 会员价未填时兜底
+  // v0.96 直观定价：会员价按输入/输出直接填（积分/计量基数；token 模型即积分/1M tokens）
+  memberInputPrice  Decimal? @db.Decimal(18, 8)
+  memberOutputPrice Decimal? @db.Decimal(18, 8)
   effectiveAt   DateTime @default(now())                 // 调价生效时间
   createdAt     DateTime @default(now())
   @@index([modelId, effectiveAt(sort: Desc)])
@@ -639,8 +678,10 @@ model CreditPack {
   packCode   String   @unique
   // 价格（人民币分）
   priceCents BigInt
-  // 到账积分（整数积分，含赠送）
+  // 购买积分（整数积分，不含赠送）
   credits    BigInt
+  // 赠送积分（v0.92 #2：与购买积分分开填写，前台「5000积分 + 赠100积分」）
+  bonusCredits BigInt @default(0)
   isActive   Boolean  @default(true)
   sortOrder  Int      @default(0)
   createdAt  DateTime @default(now())
@@ -691,6 +732,31 @@ model CreditLedger {
 
   @@index([userId, createdAt(sort: Desc)])
   @@map("credit_ledger")
+}
+
+// ─── S0-3 计费对账：结算/退款失败落库，由幂等重试任务兜底 ───
+// settle/refund 抛异常时写入（requestId+kind 幂等），后台重试成功后标记 done。
+// 重试安全依据：CreditLedger.requestId 唯一约束保证同键不重复入账/扣款。
+model BillingReconcile {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  // 关联网关请求（与 CreditLedger.requestId 同源）
+  requestId String
+  // settle | refund
+  kind      String
+  // 应结算/应退积分（重试时重新计算，此值仅作审计参考）
+  amount    BigInt
+  // pending | done | failed
+  status    String   @default("pending")
+  attempts  Int      @default(0)
+  lastError String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([requestId, kind], map: "uk_billing_reconcile_req")
+  @@index([status, createdAt])
+  @@map("billing_reconcile")
 }
 
 // 充值订单（充值记录订单号语义必需）
@@ -769,7 +835,7 @@ model UserMessage {
   msgType      String
   subject      String?
   body         String       @db.Text
-  // open | replied | closed（仅工单会话根消息维护）
+  // open | pending | replied | closed（仅工单会话根消息维护）
   ticketStatus String?
   // 自关联：回复指向会话根消息（NULL = 根消息）
   replyToId    BigInt?
@@ -779,6 +845,11 @@ model UserMessage {
   batchId      String?
   // 已读时间（NULL = 未读；只对 admin_to_user 方向有意义）
   readAt       DateTime?
+  // v0.92 #4：管理员回复人（管理账号 / 昵称快照；前台只显昵称）
+  replyBy      String?
+  replyByNick  String?
+  // v0.92 #4：管理员已读时间（只对 user_to_admin 消息有意义；NULL = 新会员消息）
+  adminReadAt  DateTime?
   createdAt    DateTime     @default(now())
 
   @@index([userId, createdAt(sort: Desc)])

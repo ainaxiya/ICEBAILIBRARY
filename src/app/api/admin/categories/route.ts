@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
+import { requirePerm, PERMISSIONS } from "@/lib/rbac";
 import { db } from "@/lib/db";
 import { invalidateCategoryCache } from "@/lib/categories";
 
@@ -16,6 +17,8 @@ function slugify(name: string) {
 export async function GET() {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { user, ok } = await requirePerm(PERMISSIONS.CATEGORY_READ);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
 
   const [cats, counts] = await Promise.all([
     db.category.findMany({ orderBy: { sort: "asc" } }),
@@ -31,6 +34,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { user, ok } = await requirePerm(PERMISSIONS.CATEGORY_WRITE);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
 
   const body = await req.json().catch(() => null);
   const name = (body?.name || "").trim();
@@ -53,6 +58,8 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { user, ok } = await requirePerm(PERMISSIONS.CATEGORY_WRITE);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
 
   const body = await req.json().catch(() => null);
   const ids = body?.ids;

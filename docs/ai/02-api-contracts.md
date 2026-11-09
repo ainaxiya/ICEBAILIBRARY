@@ -158,6 +158,14 @@
 - `PUT /api/admin/settings/site`：zod 9 字段（siteName/siteNameEn/siteDescription/searchKeywords/footerText/allowRegister/logoIcon/favicon/appIcon），与现值合并后 saveSetting("site")（清缓存即时生效），记日志
 - `POST /api/admin/settings/upload`：FormData `file` + `filename`（白名单三选一：logo-icon-120.png / favicon.ico / app-icon.png）；2MB；magic-byte；写入 `public/site-assets/`；返 `{ ok, url:"/site-assets/<name>?v=ts", filename }`；写失败返 500 含中文 chown 提示。**文件必须经 `/site-assets/[...path]` 动态路由读取**（Next.js 不服务 build 后新增的 public 根级文件，见 05 册第 59 条）；前端上传成功后会先加载图片探测可达性再自动保存设置
 
+### 模型库（v0.90，前缀 /api/admin/models，均需 MODELS_WRITE）
+- `GET/POST/PATCH/DELETE /api/admin/models/vendors`：厂商 CRUD；`POST` 的 `protocol` 前端为下拉三选一（`openai`/`anthropic`/`gemini`，显示名 OpenAI API / Anthropic API / Gemini API），后端仍为 ≤30 字符字符串兼容历史值
+- `GET/POST/... /api/admin/models/keys`：厂商 Key CRUD，`keyCipher` 密文存取明文只进不出；`/api/admin/models/keys/[id]/fetch-models` 为「获取所有模型」两段式契约：
+  - **GET（预览，只读）**：调上游 `GET /models`，返回 `{ ok, total, counts: { candidates, inDb, skippedUnavailable, toDeactivate }, candidates: [{ name, endpointType, path, shutdownDate, ownedBy }] }`——`candidates` **仅含可用且未入库**的模型（含启发式 endpointType 与端点 path），供弹层批量勾选
+  - **POST（勾选入库）**：body `{ names: string[] }`（非空，否则 400「请勾选要入库的模型」），仅创建勾选的候选模型（`@@unique([vendorId,name])` 幂等，含启发式 ModelEndpoint，不建 ModelPricing）；同时同步已在库模型可用性（上游已停用/仅内部 → status=offline）；返 `{ ok, total, created, kept, deactivated, skipped, unselected, items }`
+  - 不可用判定：`shutdown_date` 已过 = 已停用；`owned_by` 含 internal = 仅内部使用
+- `GET/POST/... /api/admin/models/models`：模型/端点（`[id]/endpoints`）/调价历史（`[id]/pricing`）CRUD；`POST /api/admin/models/batch` 批量启禁用/删除
+
 ---
 
 ## 四、写新接口的硬性模板

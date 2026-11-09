@@ -46,6 +46,7 @@ export async function GET(
       endpointType: m.endpointType,
       status: m.status,
       remark: m.remark,
+      advancedConfig: m.advancedConfig,
       createdAt: m.createdAt.toISOString(),
       updatedAt: m.updatedAt.toISOString(),
     },
@@ -62,6 +63,8 @@ const updateSchema = z.object({
   // 上下线：online | deprecated | offline
   status: z.enum(STATUS).optional(),
   remark: z.string().max(500).nullable().optional(),
+  // 高级配置（JSON 文本）
+  advancedConfig: z.string().max(8000).nullable().optional(),
 });
 
 // PUT /api/admin/models/models/[id] —— 更新/上下线
@@ -101,6 +104,7 @@ export async function PUT(
       ...(data.endpointType !== undefined ? { endpointType: data.endpointType } : {}),
       ...(data.status !== undefined ? { status: data.status } : {}),
       ...(data.remark !== undefined ? { remark: data.remark } : {}),
+      ...(data.advancedConfig !== undefined ? { advancedConfig: data.advancedConfig || null } : {}),
     },
   });
 

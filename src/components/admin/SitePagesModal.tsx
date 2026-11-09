@@ -108,7 +108,6 @@ export default function SitePagesModal({ autoOpen = false }: { autoOpen?: boolea
       {open && !editing && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-          onClick={() => setOpen(false)}
         >
           <div
             className="max-h-[86vh] w-full max-w-2xl overflow-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-5"
@@ -150,7 +149,6 @@ export default function SitePagesModal({ autoOpen = false }: { autoOpen?: boolea
       {editing && (
         <div
           className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 py-10"
-          onClick={() => setEditing(null)}
         >
           <div
             className="w-full max-w-3xl rounded-2xl border border-zinc-700 bg-zinc-900 p-5"

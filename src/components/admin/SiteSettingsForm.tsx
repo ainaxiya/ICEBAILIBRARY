@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { SITE_HOST } from "@/lib/site-config";
 
 type SiteData = {
   siteName: string;
@@ -428,7 +429,7 @@ export default function SiteSettingsForm({ initial, sitemapUrl, lastSitemapSubmi
           onChange={(e) => set("friendLinks", e.target.value)}
           rows={4}
           className={inputCls}
-          placeholder={"示例：\n完整提示词|https://www.wango8.com\nAI导航|https://example.com"}
+          placeholder={`示例：\n完整提示词|https://${SITE_HOST}\nAI导航|https://example.com`}
         />
       </div>
 

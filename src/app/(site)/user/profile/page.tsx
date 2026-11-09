@@ -6,7 +6,7 @@ import ProfileForm, { type ProfileUser } from "./ProfileForm";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "个人中心" };
+export const metadata = { title: "个人中心", robots: { index: false, follow: true } };
 
 export default async function ProfilePage() {
   const me = await getCurrentUser();

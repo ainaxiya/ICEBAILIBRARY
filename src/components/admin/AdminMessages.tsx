@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { ADMIN_BASE } from "@/lib/admin-path";
 
-// ─── P4 后台：消息·工单（工单队列 + 对话弹层 + 回复/关闭 + 群发/单发通知） ───
+// ─── v0.92 #4 后台：消息·工单（工单队列 + 客服式详情页 + 群发/单发通知） ───
 
 type Ticket = {
   id: string;
@@ -15,17 +17,8 @@ type Ticket = {
   lastBody: string;
   lastAt: string;
   replyCount: number;
-};
-
-type Msg = {
-  id: string;
-  direction: string;
-  msgType: string;
-  subject: string | null;
-  body: string;
-  batchId: string | null;
-  readAt: string | null;
-  createdAt: string;
+  replyBy: string | null;
+  newMsgCount: number;
 };
 
 // P6 群发历史批次（按 batchId 聚合）
@@ -39,12 +32,14 @@ type Batch = {
 
 const STATUS_BADGE: Record<string, string> = {
   open: "bg-amber-500/15 text-amber-300",
+  pending: "bg-rose-500/15 text-rose-300",
   replied: "bg-emerald-500/15 text-emerald-300",
   closed: "bg-zinc-700 text-zinc-400",
 };
 const STATUS_TEXT: Record<string, string> = {
-  open: "待处理",
-  replied: "已回复",
+  open: "新工单需处理",
+  pending: "新的消息需处理",
+  replied: "已回复过此工单",
   closed: "已关闭",
 };
 
@@ -55,32 +50,18 @@ function fmt(d: string | Date | null) {
   return `${x.getFullYear()}-${p(x.getMonth() + 1)}-${p(x.getDate())} ${p(x.getHours())}:${p(x.getMinutes())}`;
 }
 
-// P6 发票工单识别：subject 含「发票」关键词（不扩表）
-const isInvoice = (subject: string | null) => !!subject && subject.includes("发票");
-
-// P6 发票快捷回复模板（追加 admin_to_user 回复，不新增工单状态）
-const INVOICE_TEMPLATES = {
-  processing: "【发票处理中】您的开票申请已受理，我们正在处理中，开具完成后会在本工单回复您，请留意消息。",
-  issued: "【已开票】您的发票已开具完成，请注意查收。如需修改抬头或重新开具，请在本工单继续留言。",
-};
-
 const PAGE_SIZE = 20;
 
 export default function AdminMessages() {
   const [section, setSection] = useState<"tickets" | "broadcast">("tickets");
 
   // 工单队列
-  const [status, setStatus] = useState<"open" | "replied" | "closed" | "all">("open");
+  const [status, setStatus] = useState<"open" | "pending" | "replied" | "closed" | "all">("open");
   const [tickets, setTickets] = useState<Ticket[] | null>(null);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   // 批量选择（工单队列复选框选中项）
   const [sel, setSel] = useState<string[]>([]);
-  // 对话弹层
-  const [threadId, setThreadId] = useState<string | null>(null);
-  const [thread, setThread] = useState<{ subject: string | null; ticketStatus: string | null; user: Ticket["user"] } | null>(null);
-  const [messages, setMessages] = useState<Msg[]>([]);
-  const [replyText, setReplyText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -139,72 +120,6 @@ export default function AdminMessages() {
   useEffect(() => {
     if (section === "broadcast") loadBatches();
   }, [section, loadBatches]);
-
-  const openThread = async (id: string) => {
-    setThreadId(id);
-    setError("");
-    try {
-      const r = await fetch(`/api/admin/messages?threadId=${encodeURIComponent(id)}`);
-      const d = await r.json();
-      if (r.ok) {
-        setThread(d.thread);
-        setMessages(d.messages || []);
-      } else {
-        setError(d.error || "加载失败");
-      }
-    } catch {
-      setError("加载失败，请稍后重试");
-    }
-  };
-
-  const closeThread = async () => {
-    if (!threadId || busy) return;
-    setBusy(true);
-    try {
-      const r = await fetch("/api/admin/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "close", threadId }),
-      });
-      const d = await r.json();
-      if (r.ok) {
-        openThread(threadId);
-        loadTickets(status, page);
-      } else {
-        setError(d.error || "操作失败");
-      }
-    } catch {
-      setError("操作失败，请稍后重试");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const sendReply = async (preset?: string) => {
-    const content = (preset ?? replyText).trim();
-    if (!threadId || !content || busy) return;
-    setBusy(true);
-    setError("");
-    try {
-      const r = await fetch("/api/admin/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "reply", threadId, body: content }),
-      });
-      const d = await r.json();
-      if (r.ok) {
-        setReplyText("");
-        openThread(threadId);
-        loadTickets(status, page);
-      } else {
-        setError(d.error || "回复失败");
-      }
-    } catch {
-      setError("回复失败，请稍后重试");
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const sendBroadcast = async () => {
     if (busy) return;
@@ -344,8 +259,9 @@ export default function AdminMessages() {
           <div className="mb-3 flex flex-wrap items-center gap-1.5">
             {(
               [
-                ["open", "待处理"],
-                ["replied", "已回复"],
+                ["open", "新工单需处理"],
+                ["pending", "新的消息需处理"],
+                ["replied", "已回复过此工单"],
                 ["closed", "已关闭"],
                 ["all", "全部"],
               ] as const
@@ -406,11 +322,13 @@ export default function AdminMessages() {
                           }
                         />
                       </th>
-                      <th className={th}>用户</th>
-                      <th className={th}>标题</th>
-                      <th className={th}>最新内容</th>
+                      <th className={th}>问题类型</th>
+                      <th className={th}>会员账号</th>
+                      <th className={th}>昵称</th>
                       <th className={th}>状态</th>
-                      <th className={th}>时间</th>
+                      <th className={th}>消息更新时间</th>
+                      <th className={th}>创建时间</th>
+                      <th className={th}>回复人</th>
                       <th className={th}>操作</th>
                     </tr>
                   </thead>
@@ -420,33 +338,34 @@ export default function AdminMessages() {
                         <td className={td}>
                           <input type="checkbox" checked={sel.includes(tk.id)} onChange={() => toggleSel(tk.id)} />
                         </td>
+                        <td className={td}>{tk.subject || "(无标题)"}</td>
                         <td className={`${td} text-xs`}>
-                          {tk.user.nickname || tk.user.username}
+                          {tk.user.username}
                           <span className="ml-1 text-zinc-600">#{tk.userId}</span>
                         </td>
-                        <td className={td}>
-                          {isInvoice(tk.subject) && (
-                            <span className="mr-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-xs text-sky-300">发票</span>
-                          )}
-                          {tk.subject || "(无标题)"}
-                        </td>
-                        <td className={`${td} max-w-[240px] truncate text-xs text-zinc-500`}>{tk.lastBody}</td>
+                        <td className={`${td} text-xs`}>{tk.user.nickname || "—"}</td>
                         <td className={td}>
                           {tk.ticketStatus && (
                             <span className={`rounded px-1.5 py-0.5 text-xs ${STATUS_BADGE[tk.ticketStatus] || ""}`}>
                               {STATUS_TEXT[tk.ticketStatus] || tk.ticketStatus}
                             </span>
                           )}
+                          {tk.newMsgCount > 0 && (
+                            <span className="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold text-white">
+                              {tk.newMsgCount > 99 ? "99+" : tk.newMsgCount}
+                            </span>
+                          )}
                         </td>
                         <td className={`${td} text-xs`}>{fmt(tk.lastAt)}</td>
+                        <td className={`${td} text-xs`}>{fmt(tk.createdAt)}</td>
+                        <td className={`${td} text-xs`}>{tk.replyBy || "—"}</td>
                         <td className={td}>
-                          <button
-                            type="button"
-                            onClick={() => openThread(tk.id)}
+                          <Link
+                            href={`${ADMIN_BASE}/messages/${tk.id}`}
                             className="rounded-lg border border-zinc-700 px-2.5 py-1 text-xs text-emerald-400 hover:border-emerald-500"
                           >
-                            查看 / 回复
-                          </button>
+                            查看回复
+                          </Link>
                         </td>
                       </tr>
                     ))}
@@ -649,109 +568,6 @@ export default function AdminMessages() {
         </div>
       )}
 
-      {/* 对话详情弹层 */}
-      {threadId && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4" onClick={() => setThreadId(null)}>
-          <div
-            className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-2xl border border-zinc-700 bg-zinc-900"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center gap-2 border-b border-zinc-800 px-5 py-3">
-              <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-100">
-                {thread?.subject || "(无标题)"}
-              </h3>
-              {thread && isInvoice(thread.subject) && (
-                <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-xs text-sky-300">发票</span>
-              )}
-              {thread?.user && (
-                <span className="text-xs text-zinc-500">
-                  用户：{thread.user.nickname || thread.user.username}（#{thread.user.id}）
-                </span>
-              )}
-              {thread?.ticketStatus && (
-                <span className={`rounded px-1.5 py-0.5 text-xs ${STATUS_BADGE[thread.ticketStatus] || ""}`}>
-                  {STATUS_TEXT[thread.ticketStatus] || thread.ticketStatus}
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => setThreadId(null)}
-                className="rounded-lg px-2 py-1 text-zinc-400 hover:bg-zinc-800"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
-              {messages.map((m) => (
-                <div
-                  key={m.id}
-                  className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
-                    m.direction === "user_to_admin" ? "bg-zinc-800/80 text-zinc-200" : "ml-auto bg-emerald-500/15 text-zinc-200"
-                  }`}
-                >
-                  <p className="mb-1 text-[10px] text-zinc-500">
-                    {m.direction === "user_to_admin" ? "用户" : "管理员"} · {fmt(m.createdAt)}
-                  </p>
-                  <p className="whitespace-pre-wrap break-words">{m.body}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="border-t border-zinc-800 p-4">
-              <textarea
-                value={replyText}
-                onChange={(e) => setReplyText(e.target.value)}
-                rows={2}
-                maxLength={5000}
-                placeholder="输入回复内容…"
-                className={inputCls}
-              />
-              <div className="mt-2 flex items-center gap-2">
-                {thread?.ticketStatus !== "closed" && (
-                  <button
-                    type="button"
-                    onClick={closeThread}
-                    disabled={busy}
-                    className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 hover:border-rose-500 hover:text-rose-300 disabled:opacity-50"
-                  >
-                    关闭工单
-                  </button>
-                )}
-                {/* P6 发票快捷操作：追加模板回复（不新增工单状态） */}
-                {thread && isInvoice(thread.subject) && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => sendReply(INVOICE_TEMPLATES.processing)}
-                      disabled={busy}
-                      className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-sky-300 hover:border-sky-500 disabled:opacity-50"
-                    >
-                      标记发票处理中
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => sendReply(INVOICE_TEMPLATES.issued)}
-                      disabled={busy}
-                      className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-sky-300 hover:border-sky-500 disabled:opacity-50"
-                    >
-                      标记已开票
-                    </button>
-                  </>
-                )}
-                <button
-                  type="button"
-                  onClick={() => sendReply()}
-                  disabled={busy || !replyText.trim()}
-                  className="ml-auto rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
-                >
-                  {busy ? "发送中…" : "回复"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

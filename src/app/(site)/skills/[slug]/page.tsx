@@ -1,9 +1,11 @@
 import Link from "next/link";
+import type { CSSProperties } from "react";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser, getCurrentAdmin } from "@/lib/auth";
 import { getServerLocale } from "@/lib/i18n";
 import { safeJsonScript } from "@/lib/rich";
+import { metaDescription, breadcrumbJsonLd, siteUrl } from "@/lib/seo";
 import { getSettings } from "@/lib/settings";
 import { COMMENT } from "@/lib/comment-policy";
 import CommentSection, { type CommentData } from "@/components/CommentSection";
@@ -13,6 +15,24 @@ import { skillHref } from "@/lib/skill-link";
 export const dynamic = "force-dynamic";
 
 type FileEntry = { path: string; content: string; size?: number };
+
+// 分类配色（面包屑按钮 + 相关技能发光色共用）：按分类名关键词匹配，与技能列表页一致
+const CAT_THEME: [RegExp, { badge: string; glow: string }][] = [
+  [/智能体|agent/i, { badge: "bg-violet-500/15 text-violet-300", glow: "139 92 246" }],
+  [/写作|writing|办公/i, { badge: "bg-orange-500/15 text-orange-300", glow: "249 115 22" }],
+  [/设计|design|创意/i, { badge: "bg-rose-500/15 text-rose-300", glow: "244 63 94" }],
+  [/数据|data|分析/i, { badge: "bg-cyan-500/15 text-cyan-300", glow: "6 182 212" }],
+  [/营销|marketing|运营/i, { badge: "bg-amber-500/15 text-amber-300", glow: "245 158 11" }],
+  [/安全|security/i, { badge: "bg-red-500/15 text-red-300", glow: "239 68 68" }],
+  [/科研|research|学术/i, { badge: "bg-teal-500/15 text-teal-300", glow: "20 184 166" }],
+  [/提示词|prompt/i, { badge: "bg-fuchsia-500/15 text-fuchsia-300", glow: "217 70 239" }],
+  [/编程|coding|program|开发/i, { badge: "bg-sky-500/15 text-sky-300", glow: "14 165 235" }],
+];
+const catTheme = (slug: string, name: string) => {
+  const all = `${slug} ${name}`;
+  for (const [re, t] of CAT_THEME) if (re.test(all)) return t;
+  return { badge: "bg-zinc-700/40 text-zinc-300", glow: "56 189 248" };
+};
 
 function serializeComment(c: any): CommentData {
   if (c.status === "deleted") {
@@ -35,7 +55,7 @@ function serializeComment(c: any): CommentData {
 
 // slug 允许重复：优先精确 slug 匹配（兼容旧链接，同 slug 取最新），
 // 其次解析 `slug-id` 形式按 id 精确定位；一次性带出详情页所需 category
-const SKILL_INCLUDE = { category: { select: { name: true, nameEn: true, slug: true } } } as const;
+const SKILL_INCLUDE = { category: { select: { name: true, nameEn: true, slug: true, icon: true } } } as const;
 
 async function resolveSkill(param: string) {
   const bySlug = await db.skill.findFirst({ where: { slug: param }, orderBy: { id: "desc" }, include: SKILL_INCLUDE });
@@ -55,8 +75,8 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   );
   if (!s) return { title: "未找到" };
   return {
-    title: s.name,
-    description: s.summary.slice(0, 200),
+    title: `${s.name} - AI技能`,
+    description: metaDescription(s.summary, `${s.name}：可直接复制使用的 AI 技能（SKILL.md），含智能体工作流与使用说明。`),
     keywords: s.tags,
     robots: s.status === "published" ? undefined : { index: false, follow: false },
   };
@@ -78,7 +98,9 @@ export default async function SkillDetail({ params }: { params: Promise<{ slug: 
     db.$executeRaw`UPDATE "Skill" SET "viewCount" = "viewCount" + 1 WHERE id = ${skill.id}`.catch(() => {});
   }
 
-  const files = (Array.isArray(skill.files) ? skill.files : []) as unknown as FileEntry[];
+  const rawFiles = (Array.isArray(skill.files) ? skill.files : []) as unknown as FileEntry[];
+  // __bundle__ 哨兵（整包上传）不对外展示；下载时回传桶内原 zip 完整还原目录
+  const files = rawFiles.filter((f) => f.path !== "__bundle__");
 
   // 相关技能 + 评论设置 + 评论列表/总数：互不依赖，并行发起
   const commentWhere = {
@@ -94,7 +116,7 @@ export default async function SkillDetail({ params }: { params: Promise<{ slug: 
   const [sameCat, settings, rawComments, commentTotal] = await Promise.all([
     db.skill.findMany({
       where: { status: "published", id: { not: skill.id }, categoryId: skill.categoryId },
-      select: { id: true, slug: true, name: true, summary: true, viewCount: true, copyCount: true },
+      select: { id: true, slug: true, name: true, summary: true, viewCount: true, copyCount: true, tags: true },
       take: 30,
     }),
     getSettings(),
@@ -117,7 +139,7 @@ export default async function SkillDetail({ params }: { params: Promise<{ slug: 
     }),
     db.comment.count({ where: commentWhere }),
   ]);
-  const related = sameCat.sort(() => Math.random() - 0.5).slice(0, 6);
+  const related = sameCat.sort(() => Math.random() - 0.5).slice(0, 8);
   const comments = rawComments.map(serializeComment);
   const commentsClosed = !settings.comment.enabled;
 
@@ -132,7 +154,14 @@ export default async function SkillDetail({ params }: { params: Promise<{ slug: 
     keywords: skill.tags.join(","),
     author: skill.author ? { "@type": "Person", name: skill.author } : undefined,
     datePublished: (skill.publishedAt || skill.createdAt).toISOString(),
+    dateModified: skill.updatedAt.toISOString(),
+    mainEntityOfPage: siteUrl(skillHref(skill.slug, skill.id)),
   };
+  const bcJsonLd = breadcrumbJsonLd([
+    { name: "首页", item: siteUrl() },
+    { name: "AI技能", item: siteUrl("/skills") },
+    { name: skill.name, item: siteUrl(skillHref(skill.slug, skill.id)) },
+  ]);
 
   return (
     <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
@@ -144,7 +173,7 @@ export default async function SkillDetail({ params }: { params: Promise<{ slug: 
             <Link href="/skills" className="inline-flex items-center gap-1.5 rounded-lg border border-transparent bg-emerald-500/15 px-2.5 py-1 text-sm font-medium text-emerald-300 transition hover:opacity-80">
               🧩 {locale === "zh" ? "AI 技能" : "AI Skills"}
             </Link>
-            <Link href={`/skills?cat=${skill.category.slug}`} className="inline-flex items-center gap-1.5 rounded-lg border border-transparent bg-zinc-700/40 px-2.5 py-1 text-sm font-medium text-zinc-300 transition hover:opacity-80">
+            <Link href={`/skills?cat=${skill.category.slug}`} className={`inline-flex items-center gap-1.5 rounded-lg border border-transparent px-2.5 py-1 text-sm font-medium transition hover:opacity-80 ${catTheme(skill.category.slug, skill.category.name).badge}`}>
               {locale === "zh" ? skill.category.name : skill.category.nameEn}
             </Link>
             {skill.status === "pending" && (
@@ -195,7 +224,7 @@ export default async function SkillDetail({ params }: { params: Promise<{ slug: 
 
           {/* 操作 */}
           <div className="mt-4">
-            <SkillActions skillId={skill.id} skillMd={skill.skillMd} hasFiles={files.length > 0} locale={locale} />
+            <SkillActions skillId={skill.id} skillMd={skill.skillMd} hasFiles={rawFiles.length > 0} locale={locale} />
           </div>
 
           {/* 通用技能使用教程 */}
@@ -250,9 +279,14 @@ export default async function SkillDetail({ params }: { params: Promise<{ slug: 
           {/* 附加文件清单 */}
           {files.length > 0 && (
             <section className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
-              <h3 className="mb-3 text-sm font-medium text-zinc-300">
+              <h3 className="mb-2 text-sm font-medium text-zinc-300">
                 {locale === "zh" ? "Files in this skill" : "Files"} ({files.length})
               </h3>
+              <p className="mb-3 text-xs leading-relaxed text-zinc-500">
+                {locale === "zh"
+                  ? "多文件技能请点「下载」获取整包 zip：解压即还原 SKILL.md 与全部分支目录（references/、scripts/ 等），可直接供 Claude Code / Codex 等本地 Agent 目录式加载。对话模型一键使用则直接复制 SKILL.md。"
+                  : "For multi-file skills, download the bundle zip to restore SKILL.md plus all reference/script directories for local agents (Claude Code, Codex, etc.). For chat models, just copy SKILL.md."}
+              </p>
               <ul className="space-y-1.5 font-mono text-xs text-zinc-400">
                 {files.map((f, i) => (
                   <li key={i} className="flex items-center justify-between gap-3 rounded bg-zinc-800/50 px-2.5 py-1.5">
@@ -273,6 +307,7 @@ export default async function SkillDetail({ params }: { params: Promise<{ slug: 
           )}
 
           <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonScript(jsonLd) }} />
+          <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: bcJsonLd }} />
         </article>
 
         {/* 评论 */}
@@ -287,21 +322,59 @@ export default async function SkillDetail({ params }: { params: Promise<{ slug: 
         </section>
       </div>
 
-      {/* 右列：相关技能 */}
-      <aside className="w-full shrink-0 space-y-3 self-start lg:w-[280px]">
-        <h3 className="text-sm font-medium text-zinc-400">{locale === "zh" ? "相关技能" : "Related Skills"}</h3>
+      {/* 右列：相关技能（随机 8 条，v0.93 完整卡片） */}
+      <aside className="w-full shrink-0 space-y-4 self-start lg:w-[300px]">
+        <h3 className="text-sm font-medium text-zinc-400">
+          {locale === "zh" ? "相关技能" : "Related Skills"}
+          <span className="ml-1.5 text-xs font-normal text-zinc-600">{locale === "zh" ? "随机 8 条" : "8 random"}</span>
+        </h3>
         {related.length === 0 && <p className="text-xs text-zinc-600">{locale === "zh" ? "暂无" : "None"}</p>}
-        {related.map((r) => (
-          <Link
-            key={r.id}
-            href={skillHref(r.slug, r.id)}
-            className="block rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 transition hover:border-emerald-700/60"
-          >
-            <div className="mb-1 truncate text-sm font-medium text-zinc-200">{r.name}</div>
-            <p className="mb-2 line-clamp-2 text-xs text-zinc-500">{r.summary}</p>
-            <div className="text-[11px] text-zinc-600">查看 {r.viewCount} · 复制 {r.copyCount}</div>
-          </Link>
-        ))}
+        {related.map((r) => {
+          const th = catTheme(skill.category.slug, skill.category.name);
+          return (
+            <Link
+              key={r.id}
+              href={skillHref(r.slug, r.id)}
+              style={{ "--glow-rgb": th.glow } as CSSProperties}
+              className="skill-glow group flex flex-col rounded-2xl border bg-gradient-to-b from-zinc-900/90 to-zinc-950/90 p-4 transition hover:shadow-xl hover:shadow-zinc-950/60"
+            >
+              <div className="mb-3">
+                <h4 className="skill-title line-clamp-2 font-semibold leading-snug text-zinc-50" title={r.name}>{r.name}</h4>
+                <div className="mt-1.5 flex items-center gap-1.5 text-[11px]">
+                  <span className="truncate text-zinc-500">{r.slug}</span>
+                  <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${th.badge}`}>
+                    {(skill.category as { icon?: string | null }).icon && <span className="mr-0.5">{(skill.category as { icon?: string | null }).icon}</span>}
+                    {locale === "zh" ? skill.category.name : skill.category.nameEn}
+                  </span>
+                </div>
+              </div>
+              <div className="mb-2.5 rounded-xl bg-zinc-800/40 p-2.5">
+                <p className="mb-1 text-[11px] font-medium text-zinc-400">📄 {locale === "zh" ? "说明" : "About"}</p>
+                <p className="line-clamp-2 text-xs leading-relaxed text-zinc-300">{r.summary}</p>
+              </div>
+              {r.tags.length > 0 && (
+                <div className="mb-2.5">
+                  <p className="mb-1.5 text-[11px] font-medium text-zinc-400">🏷 {locale === "zh" ? "关联标签" : "Tags"}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {r.tags.map((tag) => (
+                      <span key={tag} className={`rounded-md px-2 py-0.5 text-[10px] ${th.badge}`}>{tag}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="mt-auto flex items-center justify-between pt-1 text-[11px] text-zinc-500">
+                <span>{locale === "zh" ? `复制使用 ≈ ${r.copyCount} 次` : `Used ≈ ${r.copyCount}x`}</span>
+                <span className="inline-flex items-center gap-1">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  {r.viewCount >= 1000 ? `${(r.viewCount / 1000).toFixed(1)}k` : r.viewCount}
+                </span>
+              </div>
+              <span className="mt-2.5 flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-[#2563eb] to-[#3b82f6] py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition group-hover:brightness-110">
+                {locale === "zh" ? "查看技能" : "View Skill"}
+              </span>
+            </Link>
+          );
+        })}
       </aside>
     </div>
   );

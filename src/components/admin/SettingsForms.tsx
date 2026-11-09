@@ -181,3 +181,86 @@ export function RegisterSettingsForm() {
     </div>
   );
 }
+
+// ─── 注册赠送（试用积分）：SiteSetting key="credits_config"，注册时自动发放 ───
+// v0.92 #1 从「运营告警」页迁入「会员管理-注册设置」
+export function RegisterGiftForm() {
+  const [trialEnabled, setTrialEnabled] = useState(false);
+  const [trialCredits, setTrialCredits] = useState(0);
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/admin/settings/credits")
+      .then((r) => r.json())
+      .then((d) => {
+        setTrialEnabled(!!d.trialEnabled);
+        setTrialCredits(Number(d.trialCredits) || 0);
+      })
+      .catch(() => {});
+  }, []);
+
+  const saveTrial = async () => {
+    if (busy) return;
+    setBusy(true);
+    setSaved(false);
+    setError("");
+    try {
+      const r = await fetch("/api/admin/settings/credits", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trialEnabled, trialCredits }),
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setTrialEnabled(!!d.value?.trialEnabled);
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      } else {
+        setError(d.error || "保存失败");
+      }
+    } catch {
+      setError("保存失败，请稍后重试");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      {error && <p className="mb-3 text-sm text-rose-500">{error}</p>}
+      <div className={cardCls}>
+        <h3 className="mb-3 text-sm font-medium text-zinc-200">注册赠送</h3>
+        <label className="flex items-center gap-2 text-sm text-zinc-300">
+          <input type="checkbox" checked={trialEnabled} onChange={(e) => setTrialEnabled(e.target.checked)} />
+          开启注册赠送积分（默认关闭）
+        </label>
+        <div className="mt-3">
+          <label className={labelCls}>每个新用户赠送积分</label>
+          <input
+            type="number"
+            min={0}
+            value={trialCredits}
+            onChange={(e) => setTrialCredits(Math.max(0, parseInt(e.target.value) || 0))}
+            className={inputCls}
+          />
+        </div>
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={saveTrial}
+            disabled={busy}
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+          >
+            {busy ? "保存中…" : "保存配置"}
+          </button>
+          {saved && <span className="text-sm text-emerald-500">已保存 ✓</span>}
+        </div>
+        <p className="mt-3 text-xs text-zinc-600">
+          开关仅对新注册用户生效（写 trial 类型积分发放记录），已注册用户不补发。
+        </p>
+      </div>
+    </div>
+  );
+}

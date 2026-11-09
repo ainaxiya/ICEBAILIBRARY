@@ -51,9 +51,12 @@ export async function GET(req: NextRequest) {
 }
 
 const configSchema = z.object({
+  enabled: z.boolean().optional(),
   creditPoolThreshold: z.coerce.number().min(0).max(1e12),
   marginRateThreshold: z.coerce.number().min(0).max(1),
   userBurst24hCredits: z.coerce.number().min(0).max(1e12),
+  payFail24hCount: z.coerce.number().min(0).max(1e9),
+  registerBurstPerIp: z.coerce.number().min(1).max(1e6),
 });
 
 // POST /api/admin/alerts

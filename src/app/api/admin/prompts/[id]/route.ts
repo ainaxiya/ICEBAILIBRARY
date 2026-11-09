@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
+import { requirePerm, PERMISSIONS } from "@/lib/rbac";
 import { db } from "@/lib/db";
 import { syncPromptToMeili, removePromptFromMeili } from "@/lib/meili";
 import { detectLang } from "@/lib/langdetect";
@@ -14,6 +15,8 @@ export const dynamic = "force-dynamic";
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { user, ok } = await requirePerm(PERMISSIONS.PROMPT_READ);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
   const { id } = await ctx.params;
   const p = await db.prompt.findUnique({
     where: { id: parseInt(id) },
@@ -89,6 +92,8 @@ const patchSchema = z.object({
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { user, ok } = await requirePerm(PERMISSIONS.PROMPT_WRITE);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
 
   const { id } = await ctx.params;
   const pid = parseInt(id);
@@ -154,6 +159,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { user, ok } = await requirePerm(PERMISSIONS.PROMPT_DELETE);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
 
   const { id } = await ctx.params;
   const pid = parseInt(id);

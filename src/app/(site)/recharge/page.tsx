@@ -8,7 +8,7 @@ import RechargeClient from "@/components/RechargeClient";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "积分充值" };
+export const metadata = { title: "积分充值", robots: { index: false, follow: true } };
 
 export default async function RechargePage() {
   const locale = await getServerLocale();
@@ -39,6 +39,7 @@ export default async function RechargePage() {
           packCode: p.packCode,
           priceCents: Number(p.priceCents),
           credits: Number(p.credits),
+          bonusCredits: Number(p.bonusCredits),
         }))}
         channels={channels}
       />

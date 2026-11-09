@@ -77,6 +77,7 @@ export async function POST(req: NextRequest) {
       packCode: pack.packCode,
       amountCents: Number(order.amountCents),
       credits: Number(pack.credits),
+      bonusCredits: Number(pack.bonusCredits),
       channel: order.channel,
       status: order.status,
     },

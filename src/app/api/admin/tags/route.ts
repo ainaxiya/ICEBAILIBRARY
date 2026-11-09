@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
+import { requirePerm, PERMISSIONS } from "@/lib/rbac";
 import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +31,8 @@ async function savePresets(tags: string[]) {
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { user, ok } = await requirePerm(PERMISSIONS.PROMPT_READ);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
 
   const { searchParams } = new URL(req.url);
   const page = Math.max(1, parseInt(searchParams.get("page") || "1") || 1);
@@ -68,6 +71,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { user, ok } = await requirePerm(PERMISSIONS.PROMPT_WRITE);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
 
   const body = await req.json().catch(() => null);
   const name = (body?.name || "").trim();
@@ -91,6 +96,8 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { user, ok } = await requirePerm(PERMISSIONS.PROMPT_WRITE);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
 
   const body = await req.json().catch(() => null);
   const items: { from: string; to: string }[] = Array.isArray(body?.items)
@@ -138,6 +145,8 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { user, ok } = await requirePerm(PERMISSIONS.PROMPT_WRITE);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
 
   const { searchParams } = new URL(req.url);
   const names = (searchParams.get("names") || searchParams.get("name") || "")

@@ -22,8 +22,15 @@ export async function GET(req: NextRequest) {
     return apiError(auth.status, auth.message, "authentication_error", auth.code);
   }
 
+  // S0-5：只返回可实际调用的模型 —— online + 厂商至少 1 把 active Key（健康渠道）
+  // + 已配置定价（未定价模型调用时必然 404，不应对外暴露）
+  // （用户级模型权限白名单属 P3/P5 范围，当前语义：全部活跃会员可用全部在线模型）
   const models = await db.aiModel.findMany({
-    where: { status: "online" },
+    where: {
+      status: "online",
+      vendor: { status: "online", keys: { some: { status: "active" } } },
+      pricings: { some: {} },
+    },
     include: { vendor: true },
     orderBy: [{ vendorId: "asc" }, { id: "asc" }],
   });

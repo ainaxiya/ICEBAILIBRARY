@@ -301,9 +301,9 @@ export async function getCreditsConfig(): Promise<CreditsConfig> {
 
 // ─── 积分包种子（幂等 upsert 兜底，不覆盖后台已改字段） ───
 const DEFAULT_PACKS = [
-  { packCode: "p30", priceCents: 3000n, credits: 3000n, sortOrder: 1 },
-  { packCode: "p50", priceCents: 5000n, credits: 5100n, sortOrder: 2 },
-  { packCode: "p200", priceCents: 20000n, credits: 22500n, sortOrder: 3 },
+  { packCode: "p30", priceCents: 3000n, credits: 3000n, bonusCredits: 0n, sortOrder: 1 },
+  { packCode: "p50", priceCents: 5000n, credits: 5000n, bonusCredits: 100n, sortOrder: 2 },
+  { packCode: "p200", priceCents: 20000n, credits: 20000n, bonusCredits: 2500n, sortOrder: 3 },
 ];
 
 export async function ensureCreditPacks(): Promise<void> {

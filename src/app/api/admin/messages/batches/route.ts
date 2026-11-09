@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
+import { requirePerm, PERMISSIONS } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,8 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { user, ok } = await requirePerm(PERMISSIONS.USER_READ);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
 
   const groups = await db.userMessage.groupBy({
     by: ["batchId"],

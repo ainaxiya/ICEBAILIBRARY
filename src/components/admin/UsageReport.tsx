@@ -225,7 +225,7 @@ export default function UsageReport() {
       </div>
 
       <p className="mt-3 text-xs text-zinc-500">
-        口径：毛利（毫积分）= Σ用户扣分×1000 − Σ内部成本(cost_milli)，展示时换算为积分；成本/毛利仅内部核算，不影响用户余额。
+        口径：毛利（积分）= Σ用户扣分 − Σ内部成本（cost_milli 换算为积分，1000 毫 = 1 积分）；成本/毛利仅内部核算，不影响用户余额。
       </p>
     </div>
   );

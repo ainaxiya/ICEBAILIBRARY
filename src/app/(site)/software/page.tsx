@@ -2,6 +2,7 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import Pagination from "@/components/Pagination";
 import { getServerLocale } from "@/lib/i18n";
+import { breadcrumbJsonLd, siteUrl } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
@@ -57,10 +58,11 @@ export default async function SoftwarePage({ searchParams }: { searchParams: Sea
     { tags: { has: q } },
   ];
 
+  // publishedAt 可空：PG 的 DESC 默认 NULL 排最前，必须显式 nulls:last（同 skills 页）
   const orderBy =
-    sort === "views" ? [{ viewCount: "desc" as const }, { publishedAt: "desc" as const }]
-    : sort === "downloads" ? [{ downloadCount: "desc" as const }, { publishedAt: "desc" as const }]
-    : [{ publishedAt: "desc" as const }];
+    sort === "views" ? [{ viewCount: "desc" as const }, { publishedAt: { sort: "desc" as const, nulls: "last" as const } }, { id: "desc" as const }]
+    : sort === "downloads" ? [{ downloadCount: "desc" as const }, { publishedAt: { sort: "desc" as const, nulls: "last" as const } }, { id: "desc" as const }]
+    : [{ publishedAt: { sort: "desc" as const, nulls: "last" as const } }, { createdAt: "desc" as const }, { id: "desc" as const }];
 
   const [list, total] = await Promise.all([
     db.software.findMany({
@@ -85,6 +87,15 @@ export default async function SoftwarePage({ searchParams }: { searchParams: Sea
 
   return (
     <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: breadcrumbJsonLd([
+            { name: "首页", item: siteUrl() },
+            { name: "AI软件", item: siteUrl("/software") },
+          ]),
+        }}
+      />
       {/* 左侧：分类侧栏（桌面） / 顶部横向滚动（手机） */}
       <aside className="w-full shrink-0 lg:w-52">
         <h2 className="mb-3 hidden text-sm font-medium text-zinc-400 lg:block">
@@ -93,19 +104,18 @@ export default async function SoftwarePage({ searchParams }: { searchParams: Sea
         <div className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
           <Link
             href="/software"
-            className={`shrink-0 rounded-xl px-3 py-2 text-sm transition ${!cat ? "bg-gradient-to-r from-emerald-500 to-teal-500 font-medium text-white shadow-lg shadow-emerald-600/25" : "bg-zinc-800/70 text-zinc-300 hover:bg-zinc-700"}`}
+            className={`cat-menu-btn shrink-0 rounded-xl px-3 py-2 text-sm ${!cat ? "active" : ""}`}
           >
             {locale === "zh" ? "全部" : "All"}
             <span className="ml-1.5 text-xs opacity-70">{cats.reduce((a, c) => a + c._count.software, 0)}</span>
           </Link>
           {cats.map((c) => {
-            const th = themeFor(c.slug);
             const active = cat === c.slug;
             return (
               <Link
                 key={c.id}
                 href={`/software?cat=${c.slug}`}
-                className={`shrink-0 inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm transition ${active ? `${th.chip} font-medium shadow-lg` : "bg-zinc-800/70 text-zinc-300 hover:bg-zinc-700"}`}
+                className={`cat-menu-btn shrink-0 inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm ${active ? "active" : ""}`}
               >
                 {c.icon && <span className="text-sm leading-none">{c.icon}</span>}
                 {locale === "zh" ? c.name : c.nameEn}
@@ -132,7 +142,7 @@ export default async function SoftwarePage({ searchParams }: { searchParams: Sea
               <Link
                 key={key}
                 href={sortHref(key)}
-                className={`rounded-lg px-2.5 py-1 transition ${sort === key ? "bg-emerald-500/15 text-emerald-300" : "text-zinc-400 hover:text-zinc-200"}`}
+                className={`cat-menu-btn rounded-lg px-2.5 py-1 ${sort === key ? "active" : ""}`}
               >
                 {label}
               </Link>

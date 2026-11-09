@@ -12,6 +12,7 @@ import { getServerLocale, translate as t } from "@/lib/i18n";
 import { detectLang } from "@/lib/langdetect";
 import type { MediaItem } from "@/lib/media";
 import { isHtmlContent, stripHtml, safeJsonScript } from "@/lib/rich";
+import { metaDescription, breadcrumbJsonLd, siteUrl } from "@/lib/seo";
 import { sanitizeRich } from "@/lib/sanitize.server";
 import { getCategoryMeta } from "@/lib/category-meta";
 import { getSettings } from "@/lib/settings";
@@ -92,7 +93,7 @@ export async function generateMetadata({
     select: { title: true, description: true, tags: true, content: true, status: true },
   });
   if (!p) return { title: "未找到" };
-  const desc = stripHtml(p.description || p.content || p.title).slice(0, 200);
+  const desc = metaDescription(stripHtml(p.description || p.content || p.title));
   return {
     title: p.title,
     description: desc,
@@ -269,13 +270,23 @@ export default async function PromptDetail({
 
   const jsonLd = {
     "@context": "https://schema.org",
-    "@type": "CreativeWork",
+    "@type": "Article",
+    headline: p.title,
     name: p.title,
     description: p.description || undefined,
     keywords: p.tags.join(","),
     author: { "@type": "Person", name: p.sourceAuthor || p.user.username },
     datePublished: p.createdAt.toISOString(),
+    dateModified: p.updatedAt.toISOString(),
+    mainEntityOfPage: siteUrl(`/p/${p.id}`),
   };
+  const bcJsonLd = breadcrumbJsonLd([
+    { name: "首页", item: siteUrl() },
+    ...(p.category && catMeta
+      ? [{ name: catMeta.name[locale], item: siteUrl(`/category/${encodeURIComponent(p.category)}`) }]
+      : []),
+    { name: p.title, item: siteUrl(`/p/${p.id}`) },
+  ]);
 
   return (
     <>
@@ -411,6 +422,7 @@ export default async function PromptDetail({
         </div>
 
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonScript(jsonLd) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: bcJsonLd }} />
       </article>
 
       {/* 热搜词：紧随内容 */}

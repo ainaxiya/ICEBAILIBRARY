@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import RichEditor from "@/components/RichEditor";
+import SegmentedPromptEditor from "@/components/admin/SegmentedPromptEditor";
 import CoverUploader from "@/components/CoverUploader";
 import OptionDropdown from "@/components/OptionDropdown";
+import { isHtmlContent } from "@/lib/rich";
 import { ADMIN_BASE } from "@/lib/admin-path";
 
 type Cat = { slug: string; name: string };
@@ -64,6 +66,8 @@ export default function PromptForm({ promptId }: { promptId?: number }) {
     commentCount: 0,
     mediaText: "", // 媒体 JSON（数组），空=不修改
   });
+  // 内容编辑模式：富文本（HTML）/ 分段（[N] 标题纯文本，前台「本页结构」）
+  const [contentMode, setContentMode] = useState<"rich" | "segment">("rich");
 
   useEffect(() => {
     // 预热自动标签/简介的语料词库（冷启动构建较慢）
@@ -115,6 +119,8 @@ export default function PromptForm({ promptId }: { promptId?: number }) {
             descTouched.current = true;
             descAutoFilled.current = true;
           }
+          // 旧数据是纯文本（[N] 分段）→ 直接进分段编辑器；HTML → 富文本
+          if (d.content && !isHtmlContent(d.content)) setContentMode("segment");
         })
         .finally(() => setLoading(false));
     }
@@ -328,9 +334,40 @@ export default function PromptForm({ promptId }: { promptId?: number }) {
         <CoverUploader value={f.coverUrl} onChange={(u) => set("coverUrl", u)} />
       </div>
 
-      <label className={labelCls}>提示词内容 *（富文本，工具栏可插入图片/视频）</label>
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <label className={labelCls}>提示词内容 *</label>
+        <div className="flex rounded-lg border border-zinc-700 p-0.5">
+          {([
+            { v: "rich", l: "富文本编辑" },
+            { v: "segment", l: "分段编辑（本页结构）" },
+          ] as const).map(({ v, l }) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => {
+                if (v === "segment" && isHtmlContent(f.content) && !window.confirm("当前内容是富文本 HTML，切到分段模式按纯文本 [N] 标题格式编辑，已排版的样式会丢失，确定切换？")) return;
+                setContentMode(v);
+              }}
+              className={`rounded-md px-3 py-1 text-xs transition ${
+                contentMode === v ? "bg-emerald-500 font-medium text-zinc-950" : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-zinc-600">
+          {contentMode === "rich"
+            ? "工具栏可插入标题/表格/代码块/图片/视频，支持 Markdown 粘贴"
+            : "按 [N] 标题 分段卡片编辑，前台自动生成「本页结构」导航"}
+        </span>
+      </div>
       <div className="mb-4">
-        <RichEditor value={f.content} onChange={onContentChange} />
+        {contentMode === "rich" ? (
+          <RichEditor value={f.content} onChange={onContentChange} />
+        ) : (
+          <SegmentedPromptEditor value={f.content} onChange={onContentChange} />
+        )}
       </div>
 
       <div className="mb-4 flex items-center gap-2">

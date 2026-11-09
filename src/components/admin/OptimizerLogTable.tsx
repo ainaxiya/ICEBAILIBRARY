@@ -118,7 +118,6 @@ export default function OptimizerLogTable({ rows }: { rows: Row[] }) {
       {active && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-          onClick={() => setActive(null)}
         >
           <div
             className="max-h-[86vh] w-full max-w-3xl overflow-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-5"

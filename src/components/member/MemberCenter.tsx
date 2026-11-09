@@ -3,7 +3,14 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocale, translate as t, type DictKey } from "@/lib/i18n-client";
+import LogoutButton from "@/components/LogoutButton";
 import MessageCenter from "./MessageCenter";
+import ProfileSettings from "./ProfileSettings";
+import PasswordChange from "./PasswordChange";
+import FavoritesPanel from "./FavoritesPanel";
+import ModelsPanel from "./ModelsPanel";
+import MemberOverview, { type OverviewData } from "./MemberOverview";
+import RechargeClient from "@/components/RechargeClient";
 
 // ─── P4 用户中心：会员中心分区（余额 / 充值记录 / 用量明细 / 我的资产 / 消息·工单 / 我的发布） ───
 
@@ -26,6 +33,9 @@ type Post = {
   rejectReason: string | null;
   categoryName: string;
 };
+export type { Post };
+
+export type RechargePack = { packCode: string; priceCents: number; credits: number; bonusCredits: number };
 
 type PayOrderRow = {
   orderNo: string;
@@ -82,6 +92,7 @@ type LedgerRow = {
   reason: string;
   refType: string | null;
   refId: string | number | null;
+  source: string;
   createdAt: string;
 };
 
@@ -159,34 +170,59 @@ function fmtSize(bytes: number) {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
-type TabKey = "balance" | "pay" | "ledger" | "usage" | "apikeys" | "assets" | "messages" | "posts";
-const TABS: { key: TabKey; labelKey: DictKey }[] = [
-  { key: "balance", labelKey: "member.tabBalance" },
-  { key: "pay", labelKey: "member.tabPay" },
-  { key: "ledger", labelKey: "member.tabLedger" },
-  { key: "usage", labelKey: "member.tabUsage" },
-  { key: "apikeys", labelKey: "member.tabApiKeys" },
-  { key: "assets", labelKey: "member.tabAssets" },
-  { key: "messages", labelKey: "member.tabMessages" },
-  { key: "posts", labelKey: "member.tabPosts" },
+type TabKey =
+  | "overview" | "profile" | "password" | "recharge"
+  | "pay" | "ledger"
+  | "usage" | "apikeys"
+  | "posts" | "assets" | "favorites" | "messages"
+  | "models";
+
+// v0.94 单列图标菜单（照设计图）：会员中心/收藏/发布/资产/API/用量/订单/积分/设置/消息/模型
+const MENU: { key: TabKey; icon: string; labelKey: DictKey }[] = [
+  { key: "overview", icon: "🏠", labelKey: "member.tabOverview" },
+  { key: "favorites", icon: "❤️", labelKey: "member.tabFavorites" },
+  { key: "posts", icon: "📝", labelKey: "member.tabPosts" },
+  { key: "assets", icon: "🗂️", labelKey: "member.tabAssets" },
+  { key: "apikeys", icon: "🔑", labelKey: "member.tabApiKeys" },
+  { key: "usage", icon: "📊", labelKey: "member.tabUsage" },
+  { key: "recharge", icon: "⚡", labelKey: "member.tabRecharge" },
+  { key: "pay", icon: "🧾", labelKey: "member.tabPay" },
+  { key: "ledger", icon: "💰", labelKey: "member.tabLedger" },
+  { key: "profile", icon: "👤", labelKey: "member.tabProfile" },
+  { key: "password", icon: "🔒", labelKey: "member.tabPassword" },
+  { key: "messages", icon: "✉️", labelKey: "member.tabMessages" },
+  { key: "models", icon: "🤖", labelKey: "member.tabModels" },
 ];
+const ALL_TABS = MENU;
 
 export default function MemberCenter({
-  balance,
-  grants,
+  overview,
   posts,
-  initialTab = "balance",
+  rechargePacks,
+  payChannels,
+  initialTab = "overview",
 }: {
-  balance: number;
-  grants: Grant[];
+  overview: OverviewData;
   posts: Post[];
+  rechargePacks: RechargePack[];
+  payChannels: string[];
   initialTab?: string;
 }) {
   const locale = useLocale();
-  const [tab, setTab] = useState<TabKey>(
-    TABS.some((x) => x.key === initialTab) ? (initialTab as TabKey) : "balance"
-  );
+  const initTab: TabKey = ALL_TABS.some((x) => x.key === initialTab)
+    ? (initialTab as TabKey)
+    : "overview";
+  const [tab, setTab] = useState<TabKey>(initTab);
   const [newTicketSignal, setNewTicketSignal] = useState(0);
+  // 消息面板初始分区：概览「网站通知」跳转落到通知 tab，菜单直接进入默认工单 tab
+  const [msgSection, setMsgSection] = useState<"tickets" | "notices">("tickets");
+  // v0.96 手机端：切换面板后内容区滚动到可视区（菜单/按钮触发）
+  const contentRef = useRef<HTMLDivElement>(null);
+  const scrollContentIntoView = useCallback(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 1024) {
+      contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, []);
 
   // 充值记录
   const [orders, setOrders] = useState<PayOrderRow[] | null>(null);
@@ -431,75 +467,44 @@ export default function MemberCenter({
 
   return (
     <div className="mb-8">
-      {/* Tab 栏 */}
-      <div className="mb-4 flex flex-wrap gap-1.5">
-        {TABS.map((x) => (
-          <button
-            key={x.key}
-            type="button"
-            onClick={() => setTab(x.key)}
-            className={`rounded-lg px-3.5 py-2 text-sm transition ${
-              tab === x.key
-                ? "bg-emerald-500/15 font-medium text-emerald-300"
-                : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-            }`}
-          >
-            {t(locale, x.labelKey)}
-          </button>
-        ))}
-      </div>
+      <div className="flex flex-col gap-4 lg:flex-row">
+        {/* v0.94 单列图标菜单（PC 左侧竖列 / 手机换行网格，v0.96 去掉横向滚动） */}
+        <nav className="w-full shrink-0 lg:w-52">
+          <div className="mc-card flex flex-wrap gap-1 p-2 lg:flex-col lg:flex-nowrap">
+            {MENU.map((x) => (
+              <button
+                key={x.key}
+                type="button"
+                onClick={() => {
+                  if (x.key === "messages") setMsgSection("tickets");
+                  setTab(x.key);
+                  scrollContentIntoView();
+                }}
+                className={`mc-menu-item grow basis-[calc(50%-2px)] justify-center lg:w-full lg:basis-auto lg:justify-start ${tab === x.key ? "active" : ""}`}
+              >
+                <span className="text-base leading-none">{x.icon}</span>
+                <span className="whitespace-nowrap">{t(locale, x.labelKey)}</span>
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 flex justify-center">
+            <LogoutButton />
+          </div>
+        </nav>
 
-      {/* ── 余额 ── */}
-      {tab === "balance" && (
-        <div>
-          <div className="mb-4 flex flex-wrap items-center gap-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
-            <div>
-              <p className="text-xs text-zinc-500">当前积分</p>
-              <p className="mt-1 text-3xl font-bold text-emerald-400">{balance}</p>
-            </div>
-            <Link
-              href="/recharge"
-              className="ml-auto rounded-lg bg-emerald-500 px-5 py-2 text-sm font-medium text-zinc-950 hover:bg-emerald-400"
-            >
-              充值
-            </Link>
-          </div>
-          <h3 className="mb-2 text-sm font-semibold text-zinc-300">额度池明细</h3>
-          <div className="overflow-hidden rounded-xl border border-zinc-800">
-            {grants.length === 0 ? (
-              <div className="p-6 text-center text-sm text-zinc-500">
-                暂无积分额度，去
-                <Link href="/recharge" className="mx-1 text-emerald-400 hover:underline">
-                  充值
-                </Link>
-                获取积分
-              </div>
-            ) : (
-              <table className="w-full">
-                <thead className="bg-zinc-900/60">
-                  <tr>
-                    <th className={th}>类型</th>
-                    <th className={th}>总额</th>
-                    <th className={th}>剩余</th>
-                    <th className={th}>过期时间</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-800/70">
-                  {grants.map((g) => (
-                    <tr key={g.id}>
-                      <td className={td}>{GRANT_TYPE[g.grantType] || g.grantType}</td>
-                      <td className={td}>{g.total}</td>
-                      <td className={`${td} font-medium text-emerald-300`}>{g.remaining}</td>
-                      <td className={`${td} text-xs`}>
-                        {g.expiresAt ? fmt(g.expiresAt) : "永不过期"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
+        {/* 内容区 */}
+        <div ref={contentRef} className="min-w-0 flex-1 scroll-mt-24">
+
+      {/* ── v0.94 概览首页（照设计图） ── */}
+      {tab === "overview" && (
+        <MemberOverview
+          data={overview}
+          onOpenPanel={(k) => {
+            if (k === "messages") setMsgSection("notices");
+            setTab(k as TabKey);
+            scrollContentIntoView();
+          }}
+        />
       )}
 
       {/* ── 充值记录 ── */}
@@ -628,8 +633,8 @@ export default function MemberCenter({
                           {r.changeAmount > 0 ? `+${r.changeAmount}` : r.changeAmount}
                         </td>
                         <td className={td}>{r.balanceAfter}</td>
-                        <td className={`${td} text-xs text-zinc-400`}>
-                          {r.refType ? `${r.refType}:${r.refId}` : "—"}
+                        <td className={`${td} text-xs`} title={r.refType ? `${r.refType}:${r.refId ?? ""}` : undefined}>
+                          {r.source || "—"}
                         </td>
                       </tr>
                     ))}
@@ -907,9 +912,6 @@ export default function MemberCenter({
           {showCreateKey && (
             <div
               className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-              onClick={() => {
-                if (!creatingKey) setShowCreateKey(false);
-              }}
             >
               <div
                 className="w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-900 p-6"
@@ -1056,7 +1058,7 @@ export default function MemberCenter({
       )}
 
       {/* ── 消息·工单 ── */}
-      {tab === "messages" && <MessageCenter newTicketSignal={newTicketSignal} />}
+      {tab === "messages" && <MessageCenter newTicketSignal={newTicketSignal} initialSection={msgSection} />}
 
       {/* ── 我的发布 ── */}
       {tab === "posts" && (
@@ -1096,8 +1098,34 @@ export default function MemberCenter({
         </div>
       )}
 
-      {/* 发票说明条（仅余额页显示） */}
-      {tab === "balance" && (
+      {/* ── 充值中心（积分包 + 支付通道，与 /recharge 同源） ── */}
+      {tab === "recharge" && (
+        <div>
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <h3 className="mc-section-title">充值中心</h3>
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-2">
+              <span className="text-xs text-zinc-500">当前积分</span>
+              <span className="ml-2 text-lg font-bold text-emerald-400">{overview.balance.toLocaleString()}</span>
+            </div>
+          </div>
+          <RechargeClient packs={rechargePacks} channels={payChannels} />
+        </div>
+      )}
+
+      {/* ── 资料修改 ── */}
+      {tab === "profile" && <ProfileSettings />}
+
+      {/* ── 修改密码 ── */}
+      {tab === "password" && <PasswordChange />}
+
+      {/* ── 收藏夹 ── */}
+      {tab === "favorites" && <FavoritesPanel />}
+
+      {/* ── 模型列表 ── */}
+      {tab === "models" && <ModelsPanel />}
+
+      {/* 发票说明条（订单记录页显示） */}
+      {tab === "pay" && (
         <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/40 px-4 py-3 text-xs text-zinc-400">
           <span>🧾</span>
           <span>{t(locale, "member.invoiceTip")}</span>
@@ -1113,6 +1141,9 @@ export default function MemberCenter({
           </button>
         </div>
       )}
+        {/* /内容区 */}
+        </div>
+      </div>
     </div>
   );
 }

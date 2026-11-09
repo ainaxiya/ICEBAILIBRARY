@@ -1,8 +1,12 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import RichEditor from "@/components/RichEditor";
+import { isHtmlContent, stripHtml } from "@/lib/rich";
+import { TICKET_TYPES } from "@/lib/tickets";
 
-// ─── P4 用户中心：消息·工单（会话列表 + 对话详情 + 回复 + 新建工单） ───
+// ─── v0.92 #4 用户中心：消息·工单（会话列表 + 对话详情 + 富文本回复 + 新建工单） ───
 
 type Thread = {
   id: string;
@@ -32,16 +36,19 @@ type Msg = {
   msgType: string;
   subject: string | null;
   body: string;
+  replyByNick: string | null;
   createdAt: string;
 };
 
 const STATUS_BADGE: Record<string, string> = {
   open: "bg-amber-500/15 text-amber-300",
+  pending: "bg-amber-500/15 text-amber-300",
   replied: "bg-emerald-500/15 text-emerald-300",
   closed: "bg-zinc-700 text-zinc-400",
 };
 const STATUS_TEXT: Record<string, string> = {
   open: "待处理",
+  pending: "待处理",
   replied: "已回复",
   closed: "已关闭",
 };
@@ -52,22 +59,31 @@ function fmt(d: string | Date) {
   return `${x.getFullYear()}-${p(x.getMonth() + 1)}-${p(x.getDate())} ${p(x.getHours())}:${p(x.getMinutes())}`;
 }
 
-export default function MessageCenter({ newTicketSignal = 0 }: { newTicketSignal?: number }) {
+export default function MessageCenter({ newTicketSignal = 0, initialSection }: { newTicketSignal?: number; initialSection?: "tickets" | "notices" }) {
+  const router = useRouter();
   const [listLoading, setListLoading] = useState(true);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [notices, setNotices] = useState<Notice[]>([]);
-  const [section, setSection] = useState<"tickets" | "notices">("tickets");
+  const [section, setSection] = useState<"tickets" | "notices">(initialSection || "tickets");
+  // v0.96：通知可点击查看详情（展开），点击即标已读
+  const [expandedNotice, setExpandedNotice] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [replyText, setReplyText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  // 新建工单弹层
+  // 新建工单弹层（v0.92 #4：标题改为问题类型下拉必选）
   const [showModal, setShowModal] = useState(false);
   const [newSubject, setNewSubject] = useState("");
   const [newBody, setNewBody] = useState("");
+  const newBodyEmpty = !stripHtml(newBody).trim();
   // 初始 0：外部信号从 0 递增时触发；挂载即带信号（如发票条「提工单」）也要打开
   const lastSignal = useRef(0);
+  // 聊天式界面：消息区自动滚到底部
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ block: "end" });
+  }, [messages, selectedId]);
 
   const loadList = useCallback(async () => {
     try {
@@ -87,6 +103,26 @@ export default function MessageCenter({ newTicketSignal = 0 }: { newTicketSignal
   useEffect(() => {
     loadList();
   }, [loadList]);
+
+  // v0.96：外部切换分区（概览「全部通知」跳转）时同步 tab
+  useEffect(() => {
+    if (initialSection) setSection(initialSection);
+  }, [initialSection]);
+
+  // v0.96：通知点击查看详情，未读即标已读（并刷新页头红标）
+  const openNotice = async (n: Notice) => {
+    setExpandedNotice((cur) => (cur === n.id ? null : n.id));
+    if (n.unread) {
+      setNotices((list) => list.map((x) => (x.id === n.id ? { ...x, unread: false } : x)));
+      try {
+        await fetch(`/api/member/messages/${encodeURIComponent(n.id)}/read`, { method: "POST" });
+        loadList();
+        router.refresh();
+      } catch {
+        // 静默，下次操作重试
+      }
+    }
+  };
 
   // 发票「提工单」快捷入口等外部触发
   useEffect(() => {
@@ -117,7 +153,7 @@ export default function MessageCenter({ newTicketSignal = 0 }: { newTicketSignal
 
   const reply = async () => {
     const content = replyText.trim();
-    if (!content || !selectedId || sending) return;
+    if (!stripHtml(content).trim() || !selectedId || sending) return;
     setSending(true);
     setError("");
     try {
@@ -140,16 +176,42 @@ export default function MessageCenter({ newTicketSignal = 0 }: { newTicketSignal
     }
   };
 
-  const createTicket = async () => {
-    const content = newBody.trim();
-    if (!content || sending) return;
+  // v0.92 #6：会员侧关闭工单
+  const closeTicket = async () => {
+    if (!selectedId || sending) return;
+    if (!window.confirm("确定关闭此工单吗？关闭后将无法继续回复。")) return;
     setSending(true);
     setError("");
     try {
       const r = await fetch("/api/member/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject: newSubject.trim(), body: content }),
+        body: JSON.stringify({ action: "close", threadId: selectedId }),
+      });
+      const d = await r.json();
+      if (r.ok) {
+        loadList();
+        openThread(selectedId);
+      } else {
+        setError(d.error || "操作失败");
+      }
+    } catch {
+      setError("操作失败，请稍后重试");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const createTicket = async () => {
+    const content = newBody.trim();
+    if (!newSubject || !stripHtml(content).trim() || sending) return;
+    setSending(true);
+    setError("");
+    try {
+      const r = await fetch("/api/member/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subject: newSubject, body: content }),
       });
       const d = await r.json();
       if (r.ok) {
@@ -190,13 +252,16 @@ export default function MessageCenter({ newTicketSignal = 0 }: { newTicketSignal
           通知{notices.filter((n) => n.unread).length > 0 && ` (${notices.filter((n) => n.unread).length})`}
         </button>
         <span className="ml-auto text-xs text-zinc-500">{totalUnread > 0 ? `${totalUnread} 条未读` : "全部已读"}</span>
-        <button
-          type="button"
-          onClick={() => setShowModal(true)}
-          className="rounded-lg bg-emerald-500 px-3 py-1.5 text-sm font-medium text-zinc-950 hover:bg-emerald-400"
-        >
-          + 新建工单
-        </button>
+        {/* v0.96：通知分区下不显示「新建工单」按钮 */}
+        {section === "tickets" && (
+          <button
+            type="button"
+            onClick={() => setShowModal(true)}
+            className="rounded-lg bg-emerald-500 px-3 py-1.5 text-sm font-medium text-zinc-950 hover:bg-emerald-400"
+          >
+            + 新建工单
+          </button>
+        )}
       </div>
 
       {error && <p className="mb-2 text-xs text-rose-400">{error}</p>}
@@ -227,7 +292,7 @@ export default function MessageCenter({ newTicketSignal = 0 }: { newTicketSignal
                           </span>
                         )}
                       </div>
-                      <p className="mt-1 truncate text-xs text-zinc-500">{th.lastBody}</p>
+                      <p className="mt-1 truncate text-xs text-zinc-500">{stripHtml(th.lastBody)}</p>
                       <p className="mt-1 text-[10px] text-zinc-600">{fmt(th.lastAt)}</p>
                     </button>
                   </li>
@@ -236,70 +301,108 @@ export default function MessageCenter({ newTicketSignal = 0 }: { newTicketSignal
             )}
           </div>
 
-          {/* 对话详情 */}
-          <div className="flex min-h-[320px] flex-col rounded-xl border border-zinc-800">
+          {/* 对话详情（v0.92 #6 客服聊天软件式界面） */}
+          <div className="flex min-h-[420px] flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/30">
             {!selected ? (
-              <div className="flex flex-1 items-center justify-center p-6 text-sm text-zinc-500">
-                选择左侧会话查看对话，或点击「新建工单」
+              <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-sm text-zinc-500">
+                <span className="grid h-12 w-12 place-items-center rounded-full bg-zinc-800 text-xl">💬</span>
+                选择左侧会话开始沟通，或点击「新建工单」
               </div>
             ) : (
               <>
-                <div className="border-b border-zinc-800 px-4 py-3">
-                  <h3 className="text-sm font-semibold text-zinc-100">{selected.subject || "(无标题)"}</h3>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    创建于 {fmt(selected.createdAt)}
-                    {selected.ticketStatus && (
-                      <span className={`ml-2 rounded px-1.5 py-0.5 text-[10px] ${STATUS_BADGE[selected.ticketStatus] || ""}`}>
-                        {STATUS_TEXT[selected.ticketStatus] || selected.ticketStatus}
-                      </span>
-                    )}
-                  </p>
-                </div>
-                <div className="max-h-[300px] flex-1 space-y-3 overflow-y-auto px-4 py-3">
-                  {messages.map((m) => (
-                    <div
-                      key={m.id}
-                      className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
-                        m.direction === "user_to_admin"
-                          ? "ml-auto bg-emerald-500/15 text-zinc-200"
-                          : "bg-zinc-800/80 text-zinc-200"
-                      }`}
+                {/* 聊天顶栏 */}
+                <div className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900/60 px-4 py-3">
+                  <span className="grid h-9 w-9 place-items-center rounded-full bg-emerald-500/20 text-sm text-emerald-300">客</span>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="truncate text-sm font-semibold text-zinc-100">
+                      客服 · {selected.subject || "(无标题)"}
+                    </h3>
+                    <p className="text-[10px] text-zinc-500">创建于 {fmt(selected.createdAt)}</p>
+                  </div>
+                  {selected.ticketStatus && (
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] ${STATUS_BADGE[selected.ticketStatus] || ""}`}>
+                      {STATUS_TEXT[selected.ticketStatus] || selected.ticketStatus}
+                    </span>
+                  )}
+                  {selected.ticketStatus !== "closed" && (
+                    <button
+                      type="button"
+                      onClick={closeTicket}
+                      disabled={sending}
+                      className="rounded-full border border-zinc-700 px-3 py-1 text-xs text-zinc-400 hover:border-rose-500 hover:text-rose-300 disabled:opacity-50"
                     >
-                      <p className="mb-1 text-[10px] text-zinc-500">
-                        {m.direction === "user_to_admin" ? "我" : "管理员"} · {fmt(m.createdAt)}
-                      </p>
-                      <p className="whitespace-pre-wrap break-words">{m.body}</p>
-                    </div>
-                  ))}
+                      关闭工单
+                    </button>
+                  )}
                 </div>
+
+                {/* 消息流 */}
+                <div className="max-h-[360px] flex-1 space-y-3 overflow-y-auto px-4 py-4">
+                  {messages.map((m) => {
+                    const mine = m.direction === "user_to_admin";
+                    return (
+                      <div key={m.id} className={`flex items-start gap-2 ${mine ? "flex-row-reverse" : ""}`}>
+                        <span
+                          className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-xs ${
+                            mine ? "bg-zinc-700 text-zinc-300" : "bg-emerald-500/20 text-emerald-300"
+                          }`}
+                        >
+                          {mine ? "我" : "客"}
+                        </span>
+                        <div className={`max-w-[75%] ${mine ? "text-right" : ""}`}>
+                          <p className="mb-1 text-[10px] text-zinc-500">
+                            {mine ? "我" : m.replyByNick || "客服"} · {fmt(m.createdAt)}
+                          </p>
+                          <div
+                            className={`inline-block rounded-2xl px-3 py-2 text-left text-sm ${
+                              mine
+                                ? "rounded-tr-sm bg-emerald-500/20 text-zinc-100"
+                                : "rounded-tl-sm bg-zinc-800/80 text-zinc-200"
+                            }`}
+                          >
+                            {isHtmlContent(m.body) ? (
+                              <div className="rich-content leading-relaxed" dangerouslySetInnerHTML={{ __html: m.body }} />
+                            ) : (
+                              <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div ref={chatEndRef} />
+                </div>
+
+                {/* 输入栏 */}
                 {selected.ticketStatus !== "closed" ? (
-                  <div className="border-t border-zinc-800 p-3">
-                    <textarea
+                  <div className="border-t border-zinc-800 bg-zinc-900/60 p-3">
+                    <RichEditor
                       value={replyText}
-                      onChange={(e) => setReplyText(e.target.value)}
-                      rows={2}
-                      maxLength={5000}
-                      placeholder="输入回复内容…"
-                      className="w-full rounded-lg border border-zinc-700 bg-zinc-900/60 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-emerald-500 focus:outline-none"
+                      onChange={setReplyText}
+                      placeholder="输入消息，Enter 换行…"
+                      minHeight={80}
+                      maxImageMB={5}
+                      toolbar="imageOnly"
                     />
-                    <div className="mt-2 flex justify-end">
+                    <div className="mt-2 flex items-center gap-2">
+                      {error && <p className="text-xs text-rose-400">{error}</p>}
                       <button
                         type="button"
                         onClick={reply}
-                        disabled={sending || !replyText.trim()}
-                        className="rounded-lg bg-emerald-500 px-4 py-1.5 text-sm font-medium text-zinc-950 hover:bg-emerald-400 disabled:opacity-50"
+                        disabled={sending || !stripHtml(replyText).trim()}
+                        className="ml-auto rounded-full bg-emerald-500 px-5 py-1.5 text-sm font-medium text-zinc-950 hover:bg-emerald-400 disabled:opacity-50"
                       >
-                        {sending ? "发送中…" : "发送回复"}
+                        {sending ? "发送中…" : "发送"}
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <p className="border-t border-zinc-800 px-4 py-3 text-xs text-zinc-500">
+                  <div className="border-t border-zinc-800 px-4 py-3 text-center text-xs text-zinc-500">
                     该工单已关闭。如有新问题请
                     <button type="button" onClick={() => setShowModal(true)} className="mx-1 text-emerald-400 hover:underline">
                       新建工单
                     </button>
-                  </p>
+                  </div>
                 )}
               </>
             )}
@@ -313,13 +416,44 @@ export default function MessageCenter({ newTicketSignal = 0 }: { newTicketSignal
           ) : (
             <ul className="divide-y divide-zinc-800/70">
               {notices.map((n) => (
-                <li key={n.id} className="px-4 py-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {n.unread && <span className="h-2 w-2 rounded-full bg-emerald-400" />}
-                    <span className="text-sm font-medium text-zinc-200">{n.subject || "(无标题)"}</span>
-                    <span className="ml-auto text-[10px] text-zinc-600">{fmt(n.createdAt)}</span>
-                  </div>
-                  <p className="mt-1 whitespace-pre-wrap break-words text-sm text-zinc-400">{n.body}</p>
+                <li key={n.id}>
+                  <button
+                    type="button"
+                    onClick={() => openNotice(n)}
+                    className="block w-full px-4 py-3 text-left transition hover:bg-zinc-900/60"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      {n.unread && <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" />}
+                      <span className={`text-sm font-medium ${n.unread ? "text-zinc-100" : "text-zinc-300"}`}>
+                        {n.subject || "(无标题)"}
+                      </span>
+                      <span className="ml-auto text-[10px] text-zinc-600">{fmt(n.createdAt)}</span>
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className={`h-3.5 w-3.5 shrink-0 text-zinc-500 transition-transform ${expandedNotice === n.id ? "rotate-180" : ""}`}
+                      >
+                        <path d="M6 9l6 6 6-6" />
+                      </svg>
+                    </div>
+                    {expandedNotice !== n.id && (
+                      <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-zinc-500">{stripHtml(n.body)}</p>
+                    )}
+                  </button>
+                  {/* 展开：通知详细内容（富文本） */}
+                  {expandedNotice === n.id && (
+                    <div className="border-t border-zinc-800/70 bg-zinc-900/40 px-4 py-3">
+                      {isHtmlContent(n.body) ? (
+                        <div className="rich-content text-sm leading-relaxed text-zinc-300" dangerouslySetInnerHTML={{ __html: n.body }} />
+                      ) : (
+                        <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-300">{n.body}</p>
+                      )}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
@@ -329,26 +463,34 @@ export default function MessageCenter({ newTicketSignal = 0 }: { newTicketSignal
 
       {/* 新建工单弹层 */}
       {showModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4" onClick={() => setShowModal(false)}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
           <div
             className="w-full max-w-lg rounded-2xl border border-zinc-700 bg-zinc-900 p-5"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="mb-3 text-base font-semibold text-zinc-100">新建工单</h3>
-            <input
+            <label className="mb-1 block text-xs text-zinc-400">
+              问题类型 <span className="text-rose-400">*</span>
+            </label>
+            <select
               value={newSubject}
               onChange={(e) => setNewSubject(e.target.value)}
-              maxLength={200}
-              placeholder="标题（可选）"
-              className="mb-2 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-emerald-500 focus:outline-none"
-            />
-            <textarea
+              className="mb-2 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 focus:border-emerald-500 focus:outline-none"
+            >
+              <option value="">请选择您想提交的问题</option>
+              {TICKET_TYPES.map((t, i) => (
+                <option key={t} value={t}>
+                  {i + 1}、{t}
+                </option>
+              ))}
+            </select>
+            <RichEditor
               value={newBody}
-              onChange={(e) => setNewBody(e.target.value)}
-              rows={5}
-              maxLength={5000}
+              onChange={setNewBody}
               placeholder="请描述你的问题或需求…"
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-emerald-500 focus:outline-none"
+              minHeight={140}
+              maxImageMB={5}
+              toolbar="imageOnly"
             />
             <div className="mt-3 flex justify-end gap-2">
               <button
@@ -361,7 +503,7 @@ export default function MessageCenter({ newTicketSignal = 0 }: { newTicketSignal
               <button
                 type="button"
                 onClick={createTicket}
-                disabled={sending || !newBody.trim()}
+                disabled={sending || !newSubject || newBodyEmpty}
                 className="rounded-lg bg-emerald-500 px-4 py-1.5 text-sm font-medium text-zinc-950 hover:bg-emerald-400 disabled:opacity-50"
               >
                 {sending ? "提交中…" : "提交工单"}

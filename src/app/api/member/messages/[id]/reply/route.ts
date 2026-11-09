@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { sanitizeRich } from "@/lib/sanitize.server";
+import { isHtmlContent, stripHtml } from "@/lib/rich";
 
 export const dynamic = "force-dynamic";
 
@@ -31,9 +33,10 @@ export async function POST(
   if (root.msgType !== "ticket") return NextResponse.json({ error: "该消息不支持回复" }, { status: 400 });
 
   const body = await req.json().catch(() => null);
-  const content = typeof body?.body === "string" ? body.body.trim() : "";
-  if (!content) return NextResponse.json({ error: "回复内容不能为空" }, { status: 400 });
-  if (content.length > 5000) return NextResponse.json({ error: "内容过长（最多 5000 字符）" }, { status: 400 });
+  const raw = typeof body?.body === "string" ? body.body.trim() : "";
+  const content = isHtmlContent(raw) ? sanitizeRich(raw) : raw;
+  if (!stripHtml(content)) return NextResponse.json({ error: "回复内容不能为空" }, { status: 400 });
+  if (content.length > 20000) return NextResponse.json({ error: "内容过长（最多 20000 字符）" }, { status: 400 });
 
   const [created] = await db.$transaction([
     db.userMessage.create({
@@ -46,10 +49,10 @@ export async function POST(
         replyToId: rootId,
       },
     }),
-    // 用户再次回复 → 回到待处理
+    // v0.92 #4：用户再次回复 → 已回复工单转「新的消息需处理」；新工单保持「新工单需处理」
     db.userMessage.update({
       where: { id: rootId },
-      data: { ticketStatus: "open" },
+      data: { ticketStatus: root.ticketStatus && root.ticketStatus !== "open" ? "pending" : "open" },
     }),
   ]);
 

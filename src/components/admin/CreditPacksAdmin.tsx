@@ -7,6 +7,7 @@ type Pack = {
   packCode: string;
   priceCents: number;
   credits: number;
+  bonusCredits: number;
   isActive: boolean;
   sortOrder: number;
 };
@@ -52,6 +53,7 @@ export default function CreditPacksAdmin() {
           id: p.id,
           priceCents: p.priceCents,
           credits: p.credits,
+          bonusCredits: p.bonusCredits,
           sortOrder: p.sortOrder,
           isActive: p.isActive,
         }),
@@ -108,7 +110,7 @@ export default function CreditPacksAdmin() {
         <div>
           <h2 className="text-base font-semibold text-zinc-100">积分包管理</h2>
           <p className="mt-1 text-xs text-zinc-500">
-            充值商品与到账积分（价格单位：元；到账积分为整数，含赠送）。
+            充值商品与积分（价格单位：元；购买积分与赠送积分分开填写，前台显示「50元 5000积分 + 赠100积分」）。
           </p>
         </div>
         <button
@@ -165,7 +167,8 @@ export default function CreditPacksAdmin() {
               </th>
               <th className="px-2 py-2">商品码</th>
               <th className="px-2 py-2">价格（元）</th>
-              <th className="px-2 py-2">到账积分</th>
+              <th className="px-2 py-2">购买积分</th>
+              <th className="px-2 py-2">赠送积分</th>
               <th className="px-2 py-2">排序</th>
               <th className="px-2 py-2">上架</th>
               <th className="px-2 py-2" />
@@ -198,6 +201,15 @@ export default function CreditPacksAdmin() {
                     min={1}
                     value={p.credits}
                     onChange={(e) => setField(p.id, { credits: Number(e.target.value) })}
+                    className="w-28 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-zinc-100"
+                  />
+                </td>
+                <td className="px-2 py-2">
+                  <input
+                    type="number"
+                    min={0}
+                    value={p.bonusCredits}
+                    onChange={(e) => setField(p.id, { bonusCredits: Number(e.target.value) })}
                     className="w-28 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-zinc-100"
                   />
                 </td>
@@ -263,7 +275,7 @@ export default function CreditPacksAdmin() {
 
 // 新建积分包弹层（参照 UserManager 的 ModalShell 写法）
 function CreatePackModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
-  const [f, setF] = useState({ packCode: "", priceYuan: "", credits: "", sortOrder: "0", isActive: true });
+  const [f, setF] = useState({ packCode: "", priceYuan: "", credits: "", bonusCredits: "", sortOrder: "0", isActive: true });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -271,9 +283,11 @@ function CreatePackModal({ onClose, onDone }: { onClose: () => void; onDone: () 
     setErr("");
     const priceCents = Math.round(Number(f.priceYuan) * 100);
     const credits = Number(f.credits);
+    const bonusCredits = f.bonusCredits.trim() === "" ? 0 : Number(f.bonusCredits);
     if (!f.packCode.trim()) return setErr("请填写商品码");
     if (!Number.isFinite(priceCents) || priceCents < 1) return setErr("价格须大于 0");
-    if (!Number.isInteger(credits) || credits < 1) return setErr("到账积分须为正整数");
+    if (!Number.isInteger(credits) || credits < 1) return setErr("购买积分须为正整数");
+    if (!Number.isInteger(bonusCredits) || bonusCredits < 0) return setErr("赠送积分须为非负整数");
     setBusy(true);
     try {
       const r = await fetch("/api/admin/credits/packs", {
@@ -283,6 +297,7 @@ function CreatePackModal({ onClose, onDone }: { onClose: () => void; onDone: () 
           packCode: f.packCode.trim(),
           priceCents,
           credits,
+          bonusCredits,
           sortOrder: Number(f.sortOrder) || 0,
           isActive: f.isActive,
         }),
@@ -301,7 +316,7 @@ function CreatePackModal({ onClose, onDone }: { onClose: () => void; onDone: () 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 py-10" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 py-10">
       <div
         className="w-full max-w-lg rounded-2xl border border-zinc-800 bg-[#0f1630] p-4 shadow-2xl sm:p-6"
         onClick={(e) => e.stopPropagation()}
@@ -334,7 +349,7 @@ function CreatePackModal({ onClose, onDone }: { onClose: () => void; onDone: () 
               />
             </div>
             <div>
-              <label className={labelCls}>到账积分（整数，含赠送）</label>
+              <label className={labelCls}>购买积分（整数）</label>
               <input
                 type="number"
                 min={1}
@@ -342,6 +357,17 @@ function CreatePackModal({ onClose, onDone }: { onClose: () => void; onDone: () 
                 value={f.credits}
                 onChange={(e) => setF({ ...f, credits: e.target.value })}
                 placeholder="5000"
+              />
+            </div>
+            <div>
+              <label className={labelCls}>赠送积分（无赠送填 0）</label>
+              <input
+                type="number"
+                min={0}
+                className={inputCls}
+                value={f.bonusCredits}
+                onChange={(e) => setF({ ...f, bonusCredits: e.target.value })}
+                placeholder="100"
               />
             </div>
           </div>

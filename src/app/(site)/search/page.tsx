@@ -15,7 +15,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "搜索 / Search" };
+export const metadata = { title: "搜索 / Search", robots: { index: false, follow: true } };
 
 // 关键词高亮标记（控制字符，不可能出现在正文里）
 const HL_PRE = String.fromCharCode(1);
@@ -436,11 +436,7 @@ export default async function SearchPage({
               {/* 全部内容 */}
               <Link
                 href={qs({ type: "", category: "" })}
-                className={`flex items-center gap-1 rounded-xl border px-2.5 py-2.5 text-xs transition lg:gap-2.5 lg:px-3 lg:text-sm ${
-                  !type
-                    ? "border-emerald-400/60 bg-emerald-500/15 font-semibold text-zinc-50"
-                    : "border-zinc-800 bg-zinc-950/40 text-zinc-300 hover:border-zinc-700 hover:bg-zinc-800/60"
-                }`}
+                className={`cat-menu-btn flex items-center gap-1 rounded-xl border border-zinc-800 px-2.5 py-2.5 text-xs lg:gap-2.5 lg:px-3 lg:text-sm ${!type ? "active" : ""}`}
               >
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-zinc-700/60 to-zinc-800/60 text-zinc-300 ring-1 ring-zinc-700 lg:h-8 lg:w-8">
                   <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
@@ -462,11 +458,7 @@ export default async function SearchPage({
                 return (
                   <details key={tp} open={active} className="group">
                     <summary
-                      className={`flex cursor-pointer list-none items-center gap-1 rounded-xl border px-2.5 py-2.5 text-xs transition [&::-webkit-details-marker]:hidden lg:gap-2.5 lg:px-3 lg:text-sm ${
-                        active
-                          ? "border-emerald-400/60 bg-emerald-500/15 font-semibold text-zinc-50"
-                          : "border-zinc-800 bg-zinc-950/40 text-zinc-300 hover:border-zinc-700 hover:bg-zinc-800/60"
-                      }`}
+                      className={`cat-menu-btn flex cursor-pointer list-none items-center gap-1 rounded-xl border border-zinc-800 px-2.5 py-2.5 text-xs [&::-webkit-details-marker]:hidden lg:gap-2.5 lg:px-3 lg:text-sm ${active ? "active" : ""}`}
                     >
                       <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ring-1 lg:h-8 lg:w-8 ${st.tile}`}>
                         <TypeIcon type={tp} className="h-4 w-4" />
@@ -490,11 +482,7 @@ export default async function SearchPage({
                     <div className="mt-1.5 flex flex-wrap gap-1.5 rounded-xl border border-zinc-800/80 bg-zinc-950/40 p-2">
                       <Link
                         href={qs({ type: tp, category: "" })}
-                        className={`rounded-full px-2.5 py-1 text-xs transition ${
-                          active && !category
-                            ? "bg-emerald-500/20 font-semibold text-emerald-200 ring-1 ring-emerald-400/40"
-                            : "bg-zinc-800/80 text-zinc-400 hover:bg-zinc-700/80 hover:text-zinc-200"
-                        }`}
+                        className={`cat-menu-btn rounded-full px-2.5 py-1 text-xs ${active && !category ? "active" : ""}`}
                       >
                         {zh ? "全部" : "All"}
                       </Link>
@@ -505,11 +493,7 @@ export default async function SearchPage({
                           <Link
                             key={c.slug}
                             href={qs({ type: tp, category: c.slug })}
-                            className={`rounded-full px-2.5 py-1 text-xs transition ${
-                              sel
-                                ? "bg-royal-400/20 font-semibold text-royal-200 ring-1 ring-royal-300/40"
-                                : "bg-zinc-800/80 text-zinc-400 hover:bg-zinc-700/80 hover:text-zinc-200"
-                            }`}
+                            className={`cat-menu-btn rounded-full px-2.5 py-1 text-xs ${sel ? "active" : ""}`}
                           >
                             {zh ? c.name : c.nameEn}
                             {n > 0 && <span className="ml-1 text-[10px] tabular-nums opacity-70">{n}</span>}

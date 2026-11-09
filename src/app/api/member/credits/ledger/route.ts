@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { num } from "@/lib/model-json";
+import { describeLedgerSources } from "@/lib/ledger-source";
 
 export const dynamic = "force-dynamic";
 
@@ -35,17 +36,21 @@ export async function GET(req: NextRequest) {
     }),
   ]);
 
+  // 来源简要中文（request→AI 对话·模型名；credit_grant→充值/订阅/赠送/试用；order→充值订单；admin→管理员调账）
+  const sources = await describeLedgerSources(list);
+
   return NextResponse.json({
     page,
     pageSize,
     total,
-    items: list.map((r) => ({
+    items: list.map((r, i) => ({
       id: r.id,
       changeAmount: num(r.changeAmount),
       balanceAfter: num(r.balanceAfter),
       reason: r.reason,
       refType: r.refType,
       refId: r.refId,
+      source: sources[i],
       createdAt: r.createdAt,
     })),
   });

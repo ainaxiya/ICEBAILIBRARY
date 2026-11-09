@@ -95,3 +95,12 @@ export async function putObject(
     })
   );
 }
+
+// 服务端读取对象字节（技能整包原 zip 回传等）
+export async function getObject(cfg: BucketConfig, key: string): Promise<Buffer> {
+  const s3 = makeS3(cfg);
+  const res = await s3.send(new GetObjectCommand({ Bucket: cfg.bucket, Key: key }));
+  const bytes = await res.Body?.transformToByteArray();
+  if (!bytes) throw new Error("empty object body");
+  return Buffer.from(bytes);
+}

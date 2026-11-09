@@ -20,6 +20,7 @@ export async function GET() {
       packCode: p.packCode,
       priceCents: Number(p.priceCents),
       credits: Number(p.credits),
+      bonusCredits: Number(p.bonusCredits),
       isActive: p.isActive,
       sortOrder: p.sortOrder,
     })),
@@ -36,6 +37,8 @@ const postSchema = z.object({
     .regex(/^[A-Za-z0-9_-]+$/, "商品码仅限字母、数字、下划线、连字符"),
   priceCents: z.number().int().min(1).max(10_000_000),
   credits: z.number().int().min(1).max(100_000_000),
+  // v0.92 #2：赠送积分与购买积分分开填写
+  bonusCredits: z.number().int().min(0).max(100_000_000).optional().default(0),
   sortOrder: z.number().int().min(0).max(9999).optional().default(0),
   isActive: z.boolean().optional().default(true),
 });
@@ -51,7 +54,7 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message || "参数错误" }, { status: 400 });
   }
-  const { packCode, priceCents, credits, sortOrder, isActive } = parsed.data;
+  const { packCode, priceCents, credits, bonusCredits, sortOrder, isActive } = parsed.data;
 
   // 商品码唯一性校验
   const exists = await db.creditPack.findUnique({ where: { packCode } });
@@ -62,6 +65,7 @@ export async function POST(req: NextRequest) {
       packCode,
       priceCents: BigInt(priceCents),
       credits: BigInt(credits),
+      bonusCredits: BigInt(bonusCredits),
       sortOrder,
       isActive,
     },
@@ -72,7 +76,7 @@ export async function POST(req: NextRequest) {
     action: "create",
     targetType: "setting",
     targetId: created.id,
-    detail: JSON.stringify({ section: "credit_pack", packCode, priceCents, credits, sortOrder, isActive }),
+    detail: JSON.stringify({ section: "credit_pack", packCode, priceCents, credits, bonusCredits, sortOrder, isActive }),
     ip: await getClientIp(),
   });
 
@@ -83,6 +87,7 @@ export async function POST(req: NextRequest) {
       packCode: created.packCode,
       priceCents: Number(created.priceCents),
       credits: Number(created.credits),
+      bonusCredits: Number(created.bonusCredits),
       isActive: created.isActive,
       sortOrder: created.sortOrder,
     },
@@ -93,6 +98,7 @@ const putSchema = z.object({
   id: z.number().int().positive(),
   priceCents: z.number().int().min(1).max(10_000_000).optional(),
   credits: z.number().int().min(1).max(100_000_000).optional(),
+  bonusCredits: z.number().int().min(0).max(100_000_000).optional(),
   sortOrder: z.number().int().min(0).max(9999).optional(),
   isActive: z.boolean().optional(),
 });
@@ -117,6 +123,7 @@ export async function PUT(req: NextRequest) {
     data: {
       ...(data.priceCents !== undefined ? { priceCents: BigInt(data.priceCents) } : {}),
       ...(data.credits !== undefined ? { credits: BigInt(data.credits) } : {}),
+      ...(data.bonusCredits !== undefined ? { bonusCredits: BigInt(data.bonusCredits) } : {}),
       ...(data.sortOrder !== undefined ? { sortOrder: data.sortOrder } : {}),
       ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
     },
@@ -138,6 +145,7 @@ export async function PUT(req: NextRequest) {
       packCode: updated.packCode,
       priceCents: Number(updated.priceCents),
       credits: Number(updated.credits),
+      bonusCredits: Number(updated.bonusCredits),
       isActive: updated.isActive,
       sortOrder: updated.sortOrder,
     },

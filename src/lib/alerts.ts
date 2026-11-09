@@ -1,27 +1,35 @@
 import { db } from "@/lib/db";
 
-// ─── P6 运营告警：余额 / 毛利 / 单用户异常消耗巡检 ───
+// ─── P6 运营告警：余额 / 毛利 / 单用户异常消耗 / 支付异常 / 注册异常巡检 ───
 // 阈值配置存 SiteSetting key="alerts_config"；命中写 operational_alert 表。
-// TODO: 本地开发无 cron，checkOperationalAlerts 由后台「运营告警」页手动触发；
-//       上线后接定时任务（建议每小时）自动巡检。
+// v0.92 #1：加自动巡检总开关 + 扩充告警项；上线接 cron（/api/cron/alerts-check 每小时）自动巡检。
 
-export type AlertType = "credit_pool" | "gross_margin" | "user_burst";
+export type AlertType = "credit_pool" | "gross_margin" | "user_burst" | "pay_fail" | "register_burst";
 export type AlertLevel = "warn" | "critical";
 
 // 告警阈值配置（SiteSetting key="alerts_config"）
 export interface AlertsConfig {
+  // 自动巡检总开关：仅控制 cron 自动巡检，后台手动「立即检查」不受影响
+  enabled: boolean;
   // 全站有效 CreditGrant 剩余积分总和低于该值 → 积分池告警
   creditPoolThreshold: number;
   // 近 7 天毛利率（0-1）低于该值 → 毛利告警
   marginRateThreshold: number;
   // 单用户近 24h 消耗积分超过该值 → 异常消耗告警
   userBurst24hCredits: number;
+  // 近 24h 支付失败订单数达到该值 → 支付异常告警
+  payFail24hCount: number;
+  // 同 IP 近 24h 注册账号数达到该值 → 注册异常告警（批量注册/刷号）
+  registerBurstPerIp: number;
 }
 
 export const DEFAULT_ALERTS_CONFIG: AlertsConfig = {
+  enabled: true,
   creditPoolThreshold: 100_000,
   marginRateThreshold: 0.1,
   userBurst24hCredits: 5_000,
+  payFail24hCount: 5,
+  registerBurstPerIp: 5,
 };
 
 function toNum(v: unknown, def: number, min: number): number {
@@ -35,9 +43,12 @@ export async function getAlertsConfig(): Promise<AlertsConfig> {
   try {
     const p = JSON.parse(row.value) as Partial<AlertsConfig>;
     return {
+      enabled: typeof p.enabled === "boolean" ? p.enabled : DEFAULT_ALERTS_CONFIG.enabled,
       creditPoolThreshold: toNum(p.creditPoolThreshold, DEFAULT_ALERTS_CONFIG.creditPoolThreshold, 0),
       marginRateThreshold: toNum(p.marginRateThreshold, DEFAULT_ALERTS_CONFIG.marginRateThreshold, 0),
       userBurst24hCredits: toNum(p.userBurst24hCredits, DEFAULT_ALERTS_CONFIG.userBurst24hCredits, 0),
+      payFail24hCount: toNum(p.payFail24hCount, DEFAULT_ALERTS_CONFIG.payFail24hCount, 0),
+      registerBurstPerIp: toNum(p.registerBurstPerIp, DEFAULT_ALERTS_CONFIG.registerBurstPerIp, 1),
     };
   } catch {
     return DEFAULT_ALERTS_CONFIG;
@@ -46,9 +57,12 @@ export async function getAlertsConfig(): Promise<AlertsConfig> {
 
 export async function saveAlertsConfig(cfg: Partial<AlertsConfig>): Promise<AlertsConfig> {
   const merged: AlertsConfig = {
+    enabled: typeof cfg.enabled === "boolean" ? cfg.enabled : DEFAULT_ALERTS_CONFIG.enabled,
     creditPoolThreshold: toNum(cfg.creditPoolThreshold, DEFAULT_ALERTS_CONFIG.creditPoolThreshold, 0),
     marginRateThreshold: toNum(cfg.marginRateThreshold, DEFAULT_ALERTS_CONFIG.marginRateThreshold, 0),
     userBurst24hCredits: toNum(cfg.userBurst24hCredits, DEFAULT_ALERTS_CONFIG.userBurst24hCredits, 0),
+    payFail24hCount: toNum(cfg.payFail24hCount, DEFAULT_ALERTS_CONFIG.payFail24hCount, 0),
+    registerBurstPerIp: toNum(cfg.registerBurstPerIp, DEFAULT_ALERTS_CONFIG.registerBurstPerIp, 1),
   };
   await db.siteSetting.upsert({
     where: { key: "alerts_config" },
@@ -102,10 +116,12 @@ export interface AlertCheckResult {
     marginRateThreshold: number;
     burstUsers: number;
     userBurst24hCredits: number;
+    payFail24h: number;
+    registerBurstIps: number;
   };
 }
 
-// ─── 巡检入口：① 积分池 ② 近 7 天毛利 ③ 单用户 24h 异常消耗 ───
+// ─── 巡检入口：① 积分池 ② 近 7 天毛利 ③ 单用户 24h 异常消耗 ④ 支付异常 ⑤ 注册异常 ───
 export async function checkOperationalAlerts(): Promise<AlertCheckResult> {
   const cfg = await getAlertsConfig();
   const created: AlertCheckResult["created"] = [];
@@ -144,7 +160,7 @@ export async function checkOperationalAlerts(): Promise<AlertCheckResult> {
       const a = await createAlert(
         "gross_margin",
         "critical",
-        `近 7 天毛利为负（收入 ${revenueMilli7d} 毫积分 / 成本 ${costMilli7d} 毫积分），请立即核查定价与成本`,
+        `近 7 天毛利为负（收入 ${(revenueMilli7d / 1000).toFixed(2)} 积分 / 成本 ${(costMilli7d / 1000).toFixed(2)} 积分），请立即核查定价与成本`,
         { revenueMilli: revenueMilli7d, costMilli: costMilli7d, profitMilli: profitMilli7d, marginRate: marginRate7d, threshold: cfg.marginRateThreshold }
       );
       if (a) created.push(a);
@@ -176,6 +192,36 @@ export async function checkOperationalAlerts(): Promise<AlertCheckResult> {
     if (a) created.push(a);
   }
 
+  // ④ 近 24h 支付失败订单（通道故障 / 恶意下单）
+  const payFail24h = await db.payOrder.count({
+    where: { status: "failed", createdAt: { gte: since24h } },
+  });
+  if (payFail24h >= cfg.payFail24hCount && cfg.payFail24hCount > 0) {
+    const a = await createAlert(
+      "pay_fail",
+      payFail24h >= cfg.payFail24hCount * 3 ? "critical" : "warn",
+      `近 24 小时支付失败订单 ${payFail24h} 笔，达到阈值 ${cfg.payFail24hCount} 笔，请核查支付通道`,
+      { payFail24h, threshold: cfg.payFail24hCount }
+    );
+    if (a) created.push(a);
+  }
+
+  // ⑤ 同 IP 近 24h 注册异常（批量注册/刷号）
+  const regBursts = await db.$queryRaw<
+    { ip: string; cnt: bigint }[]
+  >`SELECT "registerIp" AS ip, COUNT(*)::bigint AS cnt FROM "User" WHERE "createdAt" >= ${since24h} AND "registerIp" IS NOT NULL GROUP BY "registerIp" HAVING COUNT(*) >= ${cfg.registerBurstPerIp} ORDER BY 2 DESC LIMIT 20`;
+  for (const r of regBursts) {
+    const ip = String(r.ip);
+    const cnt = Number(r.cnt);
+    const a = await createAlert(
+      "register_burst",
+      cnt >= cfg.registerBurstPerIp * 3 ? "critical" : "warn",
+      `IP ${ip} 近 24 小时注册 ${cnt} 个账号，达到阈值 ${cfg.registerBurstPerIp} 个，请核查是否批量注册`,
+      { ip, cnt, threshold: cfg.registerBurstPerIp }
+    );
+    if (a) created.push(a);
+  }
+
   return {
     created,
     metrics: {
@@ -188,6 +234,8 @@ export async function checkOperationalAlerts(): Promise<AlertCheckResult> {
       marginRateThreshold: cfg.marginRateThreshold,
       burstUsers: bursts.length,
       userBurst24hCredits: cfg.userBurst24hCredits,
+      payFail24h,
+      registerBurstIps: regBursts.length,
     },
   };
 }

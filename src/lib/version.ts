@@ -1,2 +1,2 @@
 // 全站版本号：后台侧栏底部等处统一调用，升级版本只改这一处
-export const APP_VERSION = "v0.90";
+export const APP_VERSION = "v0.93.2";

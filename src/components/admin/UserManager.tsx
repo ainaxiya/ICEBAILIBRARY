@@ -13,6 +13,13 @@ type Row = {
   nickname: string | null;
   avatar: string | null;
   bio: string | null;
+  // v0.96 会员资料扩展字段（联系方式/个人档案）
+  wechat: string | null;
+  qq: string | null;
+  telegram: string | null;
+  birthday: string | null;
+  gender: string | null;
+  nationality: string | null;
   status: string;
   allowPublish: boolean;
   commentBanned: boolean;
@@ -37,6 +44,12 @@ const COMMENT_OPTS = [
 ];
 
 const fmt = (s: string | null) => (s ? new Date(s).toLocaleString("zh-CN", { hour12: false }) : "—");
+const GENDER_TEXT: Record<string, string> = {
+  male: "男",
+  female: "女",
+  other: "其他",
+  secret: "保密",
+};
 const inputCls =
   "w-full rounded-lg border border-zinc-700 bg-zinc-950/80 px-3 py-2 text-sm outline-none focus:border-indigo-500";
 const labelCls = "mb-1 block text-xs text-zinc-400";
@@ -335,7 +348,7 @@ export default function UserManager() {
 
 function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 py-10" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 py-10">
       <div
         className="w-full max-w-lg rounded-2xl border border-zinc-800 bg-[#0f1630] p-4 shadow-2xl sm:p-6"
         onClick={(e) => e.stopPropagation()}
@@ -454,6 +467,12 @@ function EditModal({
     phone: user.phone || "",
     bio: user.bio || "",
     avatar: user.avatar || "",
+    wechat: user.wechat || "",
+    qq: user.qq || "",
+    telegram: user.telegram || "",
+    birthday: user.birthday ? user.birthday.slice(0, 10) : "",
+    gender: user.gender || "",
+    nationality: user.nationality || "",
     status: user.status,
     allowPublish: user.allowPublish,
     commentBanned: user.commentBanned,
@@ -595,6 +614,52 @@ function EditModal({
             onChange={(e) => setF({ ...f, bio: e.target.value })}
           />
         </div>
+
+        {/* v0.96 个人档案：联系方式 + 生日/性别/国籍（与前台会员中心资料对齐） */}
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+          <div className="mb-2 text-xs font-medium text-zinc-400">联系方式 / 个人档案</div>
+          <div className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2">
+            <div>
+              <label className={labelCls}>微信</label>
+              <input className={inputCls} value={f.wechat} onChange={(e) => setF({ ...f, wechat: e.target.value })} />
+            </div>
+            <div>
+              <label className={labelCls}>QQ</label>
+              <input className={inputCls} value={f.qq} onChange={(e) => setF({ ...f, qq: e.target.value })} />
+            </div>
+            <div>
+              <label className={labelCls}>Telegram</label>
+              <input className={inputCls} value={f.telegram} onChange={(e) => setF({ ...f, telegram: e.target.value })} />
+            </div>
+            <div>
+              <label className={labelCls}>国籍</label>
+              <input className={inputCls} value={f.nationality} onChange={(e) => setF({ ...f, nationality: e.target.value })} />
+            </div>
+            <div>
+              <label className={labelCls}>生日</label>
+              <input
+                className={inputCls}
+                type="date"
+                value={f.birthday}
+                onChange={(e) => setF({ ...f, birthday: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className={labelCls}>性别</label>
+              <select
+                className={inputCls}
+                value={f.gender}
+                onChange={(e) => setF({ ...f, gender: e.target.value })}
+              >
+                <option value="">未设置</option>
+                <option value="male">男</option>
+                <option value="female">女</option>
+                <option value="other">其他</option>
+                <option value="secret">保密</option>
+              </select>
+            </div>
+          </div>
+        </div>
         <div className="flex gap-6">
           <div>
             <label className={labelCls}>账户状态</label>
@@ -626,6 +691,8 @@ function EditModal({
             <span>注册 IP：{user.registerIp || "—"}</span>
             <span>最后登录：{fmt(user.lastLoginAt)}</span>
             <span>登录 IP：{user.lastLoginIp || "—"}</span>
+            <span>性别：{user.gender ? GENDER_TEXT[user.gender] || user.gender : "—"}</span>
+            <span>生日：{user.birthday ? user.birthday.slice(0, 10) : "—"}</span>
           </div>
         </div>
 

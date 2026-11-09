@@ -6,6 +6,7 @@ import Pagination from "@/components/Pagination";
 import CategoryIcon from "@/components/CategoryIcon";
 import { getCategoryMeta, categoryDesc, LEGACY_CAT_SLUG } from "@/lib/category-meta";
 import { getServerLocale, translate as t } from "@/lib/i18n";
+import { breadcrumbJsonLd, siteUrl } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,17 @@ const ALL_SLUG = "all";
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const s = decodeURIComponent(slug);
-  return { title: s === ALL_SLUG ? "全部提示词" : s };
+  if (s === ALL_SLUG) {
+    return {
+      title: "全部提示词",
+      description: "冰山AI资料库全部提示词合集：AI视频、绘画、音乐、编程、办公等各类提示词，按最新发布排序。",
+    };
+  }
+  const meta = getCategoryMeta(s);
+  return {
+    title: `${meta.name.zh} 提示词`,
+    description: `${meta.name.zh}提示词合集：${meta.desc.zh}`,
+  };
 }
 
 export default async function CategoryDetail({
@@ -112,11 +123,7 @@ export default async function CategoryDetail({
   const sortBtn = (active: boolean, label: string, href: string, arrow?: string) => (
     <Link
       href={href}
-      className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm transition ${
-        active
-          ? "bg-emerald-500 font-medium text-zinc-950"
-          : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-      }`}
+      className={`cat-menu-btn flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm ${active ? "active" : ""}`}
     >
       {label}
       {arrow && <span className="text-xs">{arrow}</span>}
@@ -125,6 +132,16 @@ export default async function CategoryDetail({
 
   return (
     <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: breadcrumbJsonLd([
+            { name: "首页", item: siteUrl() },
+            { name: "提示词分类浏览", item: siteUrl("/categories") },
+            { name: meta ? meta.name[locale] : "全部提示词", item: siteUrl(`/category/${encodeURIComponent(slug)}`) },
+          ]),
+        }}
+      />
       {/* 左侧：分类树（桌面端 sticky 跟随滚动） / 手机端顶部横向滚动 */}
       <aside className="w-full shrink-0 lg:sticky lg:top-20 lg:w-56">
         <h2 className="mb-3 hidden text-sm font-medium text-zinc-400 lg:block">
@@ -134,11 +151,7 @@ export default async function CategoryDetail({
           {/* 树根：全部提示词 */}
           <Link
             href={`/category/${ALL_SLUG}`}
-            className={`shrink-0 inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm transition ${
-              isAll
-                ? "bg-gradient-to-r from-emerald-500 to-teal-500 font-medium text-white shadow-lg shadow-emerald-600/25"
-                : "bg-zinc-800/70 text-zinc-300 hover:bg-zinc-700"
-            }`}
+            className={`cat-menu-btn shrink-0 inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm ${isAll ? "active" : ""}`}
           >
             {locale === "zh" ? "全部提示词" : "All Prompts"}
             <span className="text-xs opacity-70">{totalCount}</span>
@@ -152,11 +165,7 @@ export default async function CategoryDetail({
                 <Link
                   key={c.id}
                   href={`/category/${encodeURIComponent(c.slug)}`}
-                  className={`shrink-0 inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm transition ${
-                    active
-                      ? `${m.bg} ${m.fg} font-medium shadow-lg`
-                      : "bg-zinc-800/70 text-zinc-300 hover:bg-zinc-700"
-                  }`}
+                  className={`cat-menu-btn shrink-0 inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm ${active ? "active" : ""}`}
                 >
                   <CategoryIcon icon={m.icon} className="h-4 w-4" />
                   {locale === "zh" ? c.name : c.nameEn}

@@ -92,7 +92,7 @@ export default function PromptToc({ segments }: { segments: TocSegment[] }) {
 
       {/* 弹层选段 */}
       {open && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center xl:hidden" onClick={() => setOpen(false)}>
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center xl:hidden">
           <div
             className="w-full max-w-sm rounded-2xl border border-zinc-700 bg-zinc-900 p-4"
             onClick={(e) => e.stopPropagation()}

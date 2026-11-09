@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import { SITE_HOST } from "@/lib/site-config";
 
 // ─── 神器·全能提示词优化器（首页工具区，替换原 banner）───
 // 排版：统计条（单行一块）→ 大标题（一行）→ 英文名 → 介绍 → 输入框（按钮内嵌）→ 图标行 → 输出框（SKILL.md 样式，顶栏带复制/下载）
@@ -142,7 +143,7 @@ export default function PromptOptimizer({ siteName, promptCount, skillCount, sou
 
   const download = () => {
     if (!output) return;
-    const content = `【此提示词由 冰山AI资料库 wango8.com 用提示词优化神器生成】\n\n${output}`;
+    const content = `【此提示词由 冰山AI资料库 ${SITE_HOST} 用提示词优化神器生成】\n\n${output}`;
     const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -223,14 +224,12 @@ export default function PromptOptimizer({ siteName, promptCount, skillCount, sou
                       <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" className="opacity-25" />
                       <path d="M21 12a9 9 0 00-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
                     </svg>
-                    <span>优化中…</span>
+                    <span className="metal-gradient metal-text">优化中…</span>
                   </>
                 ) : (
                   <>
-                    <svg viewBox="0 0 24 24" className="h-6 w-6 transition group-active:drop-shadow-[0_0_7px_rgba(103,232,249,0.95)] sm:h-8 sm:w-8" fill="currentColor" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M12 2l2.2 6.2L20 10l-5.8 1.8L12 18l-2.2-6.2L4 10l5.8-1.8z" />
-                    </svg>
-                    <span>优化</span>
+                    <span aria-hidden="true" className="metal-gradient metal-icon h-6 w-6 sm:h-8 sm:w-8" />
+                    <span className="metal-gradient metal-text">优化</span>
                   </>
                 )}
               </span>

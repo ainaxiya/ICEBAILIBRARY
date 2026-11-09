@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
+import { requirePerm, PERMISSIONS } from "@/lib/rbac";
 import { cleanupExpiredAssets } from "@/lib/asset-cleanup";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +11,8 @@ export const dynamic = "force-dynamic";
 export async function POST() {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "未登录" }, { status: 401 });
+  const { user, ok } = await requirePerm(PERMISSIONS.STORAGE_MANAGE);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
 
   const summary = await cleanupExpiredAssets();
   return NextResponse.json({ ok: true, ...summary });

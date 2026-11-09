@@ -2,7 +2,7 @@
 
 // 判断内容是否为富文本 HTML（历史数据是纯文本 + [N] 分段标记）
 export function isHtmlContent(s: string): boolean {
-  return /<(p|br|img|video|source|h[1-6]|ul|ol|li|blockquote|div|iframe|strong|em|a)\b[\s>]/i.test(s || "");
+  return /<(p|br|img|video|source|h[1-6]|ul|ol|li|blockquote|div|iframe|strong|em|a|table|pre|code|hr|mark)\b[\s>]/i.test(s || "");
 }
 
 // HTML -> 纯文本（保留段落换行）

@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import PromptCard from "@/components/PromptCard";
 import Pagination from "@/components/Pagination";
 import { getServerLocale, translate as t } from "@/lib/i18n";
+import { breadcrumbJsonLd, siteUrl } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,10 @@ const VALID_TYPES = Object.keys(TYPE_META);
 export async function generateMetadata({ params }: { params: Promise<{ type: string }> }) {
   const { type } = await params;
   const meta = TYPE_META[decodeURIComponent(type)];
-  return { title: meta ? meta.zh : "创作类型" };
+  return {
+    title: meta ? `${meta.zh} 提示词` : "创作类型",
+    description: meta ? meta.desc.zh : undefined,
+  };
 }
 
 export default async function TypeList({
@@ -84,11 +88,7 @@ export default async function TypeList({
   const sortBtn = (active: boolean, label: string, href: string, arrow?: string) => (
     <Link
       href={href}
-      className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm transition ${
-        active
-          ? "bg-emerald-500 font-medium text-zinc-950"
-          : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-      }`}
+      className={`cat-menu-btn flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm ${active ? "active" : ""}`}
     >
       {label}
       {arrow && <span className="text-xs">{arrow}</span>}
@@ -97,6 +97,15 @@ export default async function TypeList({
 
   return (
     <div>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: breadcrumbJsonLd([
+            { name: "首页", item: siteUrl() },
+            { name, item: siteUrl(`/type/${encodeURIComponent(type)}`) },
+          ]),
+        }}
+      />
       <Link href="/categories" className="mb-4 inline-block text-sm text-zinc-500 hover:text-zinc-300">
         {t(locale, "catlist.back")}
       </Link>

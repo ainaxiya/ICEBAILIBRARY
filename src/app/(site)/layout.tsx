@@ -7,6 +7,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { getPublicSite } from "@/lib/settings";
 import { getServerLocale, translate as t } from "@/lib/i18n";
 import { APP_VERSION } from "@/lib/version";
+import { safeJsonScript } from "@/lib/rich";
+import { siteUrl } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
@@ -62,7 +64,7 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
                     </Link>
                   </li>
                   <li>
-                    <Link href="/" className="text-zinc-400 transition hover:text-emerald-300">
+                    <Link href="/categories" className="text-zinc-400 transition hover:text-emerald-300">
                       {t(locale, "footer.lnkPrompts")}
                     </Link>
                   </li>
@@ -177,6 +179,34 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
   s.parentNode.insertBefore(mtj, s);
 })();`}
       </Script>
+
+      {/* 结构化数据：Organization + WebSite（品牌实体 + 搜索框富摘要入口） */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: safeJsonScript({
+            "@context": "https://schema.org",
+            "@graph": [
+              {
+                "@type": "Organization",
+                name: site.siteName,
+                url: siteUrl(),
+                logo: siteUrl(site.appIcon || "/icon-512.png"),
+              },
+              {
+                "@type": "WebSite",
+                name: site.siteName,
+                url: siteUrl(),
+                potentialAction: {
+                  "@type": "SearchAction",
+                  target: siteUrl("/search?q={search_term_string}"),
+                  "query-input": "required name=search_term_string",
+                },
+              },
+            ],
+          }),
+        }}
+      />
 
       {/* 手机端底部标签栏（md 起自动隐藏） */}
       <MobileTabBar />

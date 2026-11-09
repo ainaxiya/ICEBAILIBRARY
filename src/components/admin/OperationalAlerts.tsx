@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-// ─── P6 后台：运营告警（告警列表 + 阈值配置 + 手动巡检 + 注册赠送开关） ───
+// ─── P6 后台：运营告警（告警列表 + 阈值配置 + 手动巡检 + 自动巡检总开关） ───
 
 type Alert = {
   id: number;
@@ -15,9 +15,12 @@ type Alert = {
 };
 
 type AlertsConfig = {
+  enabled: boolean;
   creditPoolThreshold: number;
   marginRateThreshold: number;
   userBurst24hCredits: number;
+  payFail24hCount: number;
+  registerBurstPerIp: number;
 };
 
 type CheckMetrics = {
@@ -27,12 +30,16 @@ type CheckMetrics = {
   profitMilli7d: number;
   marginRate7d: number | null;
   burstUsers: number;
+  payFail24h: number;
+  registerBurstIps: number;
 };
 
 const TYPE_TEXT: Record<string, string> = {
   credit_pool: "积分池",
   gross_margin: "毛利",
   user_burst: "用户异常消耗",
+  pay_fail: "支付异常",
+  register_burst: "注册异常",
 };
 const LEVEL_BADGE: Record<string, string> = {
   warn: "bg-amber-500/15 text-amber-300",
@@ -67,11 +74,6 @@ export default function OperationalAlerts() {
   const [cfg, setCfg] = useState<AlertsConfig | null>(null);
   const [cfgSaved, setCfgSaved] = useState(false);
 
-  // 注册赠送开关（SiteSetting key="credits_config"，默认关闭）
-  const [trialEnabled, setTrialEnabled] = useState(false);
-  const [trialCredits, setTrialCredits] = useState(0);
-  const [trialSaved, setTrialSaved] = useState(false);
-
   const load = useCallback(async (f: "all" | "unacked") => {
     setItems(null);
     try {
@@ -96,16 +98,6 @@ export default function OperationalAlerts() {
   useEffect(() => {
     load(filter);
   }, [filter, load]);
-
-  useEffect(() => {
-    fetch("/api/admin/settings/credits")
-      .then((r) => r.json())
-      .then((d) => {
-        setTrialEnabled(!!d.trialEnabled);
-        setTrialCredits(Number(d.trialCredits) || 0);
-      })
-      .catch(() => {});
-  }, []);
 
   const runCheck = async () => {
     if (busy) return;
@@ -190,9 +182,12 @@ export default function OperationalAlerts() {
         body: JSON.stringify({
           action: "saveConfig",
           config: {
+            enabled: cfg.enabled,
             creditPoolThreshold: cfg.creditPoolThreshold,
             marginRateThreshold: cfg.marginRateThreshold,
             userBurst24hCredits: cfg.userBurst24hCredits,
+            payFail24hCount: cfg.payFail24hCount,
+            registerBurstPerIp: cfg.registerBurstPerIp,
           },
         }),
       });
@@ -201,32 +196,6 @@ export default function OperationalAlerts() {
         setCfg(d.config);
         setCfgSaved(true);
         setTimeout(() => setCfgSaved(false), 2000);
-      } else {
-        setError(d.error || "保存失败");
-      }
-    } catch {
-      setError("保存失败，请稍后重试");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const saveTrial = async () => {
-    if (busy) return;
-    setBusy(true);
-    setTrialSaved(false);
-    setError("");
-    try {
-      const r = await fetch("/api/admin/settings/credits", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ trialEnabled, trialCredits }),
-      });
-      const d = await r.json();
-      if (r.ok) {
-        setTrialEnabled(!!d.value?.trialEnabled);
-        setTrialSaved(true);
-        setTimeout(() => setTrialSaved(false), 2000);
       } else {
         setError(d.error || "保存失败");
       }
@@ -280,13 +249,15 @@ export default function OperationalAlerts() {
       {metrics && (
         <div className="mb-4 grid grid-cols-2 gap-2 rounded-xl border border-zinc-800 bg-zinc-900/40 p-3 text-xs text-zinc-400 lg:grid-cols-4">
           <span>积分池剩余：{metrics.poolRemaining}</span>
-          <span>近 7 天收入：{metrics.revenueMilli7d} 毫积分</span>
-          <span>近 7 天成本：{metrics.costMilli7d} 毫积分</span>
+          <span>近 7 天收入：{(metrics.revenueMilli7d / 1000).toFixed(2)} 积分</span>
+          <span>近 7 天成本：{(metrics.costMilli7d / 1000).toFixed(2)} 积分</span>
           <span>
-            近 7 天毛利：{metrics.profitMilli7d} 毫积分
+            近 7 天毛利：{(metrics.profitMilli7d / 1000).toFixed(2)} 积分
             {metrics.marginRate7d !== null && `（${(metrics.marginRate7d * 100).toFixed(1)}%）`}
           </span>
           <span>24h 异常消耗用户：{metrics.burstUsers}</span>
+          <span>24h 支付失败订单：{metrics.payFail24h}</span>
+          <span>24h 注册异常 IP：{metrics.registerBurstIps}</span>
         </div>
       )}
 
@@ -386,6 +357,14 @@ export default function OperationalAlerts() {
           <h3 className="mb-3 text-sm font-semibold text-zinc-200">告警阈值配置</h3>
           {cfg && (
             <div className="space-y-3">
+              <label className="flex items-center gap-2 text-sm text-zinc-200">
+                <input
+                  type="checkbox"
+                  checked={cfg.enabled}
+                  onChange={(e) => setCfg({ ...cfg, enabled: e.target.checked })}
+                />
+                开启自动巡检（cron 每小时自动检查并生成告警）
+              </label>
               <div>
                 <label className={labelCls}>积分池剩余阈值（全站有效积分低于该值告警）</label>
                 <input
@@ -422,6 +401,26 @@ export default function OperationalAlerts() {
                   className={inputCls}
                 />
               </div>
+              <div>
+                <label className={labelCls}>支付失败订单阈值（近 24 小时失败订单数，0=关闭）</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={cfg.payFail24hCount}
+                  onChange={(e) => setCfg({ ...cfg, payFail24hCount: Math.max(0, parseInt(e.target.value) || 0) })}
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>同 IP 注册阈值（近 24 小时同 IP 注册账号数）</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={cfg.registerBurstPerIp}
+                  onChange={(e) => setCfg({ ...cfg, registerBurstPerIp: Math.max(1, parseInt(e.target.value) || 1) })}
+                  className={inputCls}
+                />
+              </div>
             </div>
           )}
           <button
@@ -434,42 +433,7 @@ export default function OperationalAlerts() {
           </button>
           {cfgSaved && <span className="ml-3 text-sm text-emerald-400">已保存 ✓</span>}
           <p className="mt-2 text-xs text-zinc-600">
-            本地开发无定时任务，巡检由「立即检查」手动触发；TODO：上线后接 cron 自动巡检。
-          </p>
-        </div>
-
-        {/* 注册赠送开关 */}
-        <div className="rounded-xl border border-zinc-800 p-5">
-          <h3 className="mb-3 text-sm font-semibold text-zinc-200">注册赠送开关</h3>
-          <label className="flex items-center gap-2 text-sm text-zinc-300">
-            <input
-              type="checkbox"
-              checked={trialEnabled}
-              onChange={(e) => setTrialEnabled(e.target.checked)}
-            />
-            开启注册赠送积分（默认关闭）
-          </label>
-          <div className="mt-3">
-            <label className={labelCls}>每个新用户赠送积分</label>
-            <input
-              type="number"
-              min={0}
-              value={trialCredits}
-              onChange={(e) => setTrialCredits(Math.max(0, parseInt(e.target.value) || 0))}
-              className={inputCls}
-            />
-          </div>
-          <button
-            type="button"
-            onClick={saveTrial}
-            disabled={busy}
-            className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
-          >
-            保存配置
-          </button>
-          {trialSaved && <span className="ml-3 text-sm text-emerald-400">已保存 ✓</span>}
-          <p className="mt-2 text-xs text-zinc-600">
-            支付代扣签约落地后一键开。开关仅对新注册用户生效（写 trial 类型积分发放记录），已注册用户不补发。
+            自动巡检已接 cron（每小时）；「立即检查」为手动巡检，两者独立。关闭总开关仅停自动巡检。
           </p>
         </div>
       </div>

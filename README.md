@@ -1,13 +1,13 @@
-# 冰山AI资料库 Iceberg AI Library（v0.90）
+# 冰山AI资料库 Iceberg AI Library（v0.93.2）
 
 原「完整提示词 CompletePrompt」升级版。收集、分享、发现优质 AI 提示词 / AI 技能 / AI 软件的资料库网站。内置 20000+ 条真实创作过程提示词（图片/视频/音频/文本）与 600+ 条 AI 技能（SKILL.md），其中大量条目含与提示词分段精确对应的实拍效果图与视频截图，全部本地化存储。
 
 ## 图片展示
 
-- 在线演示：https://www.wango8.com
-- PC 端截图：![PC.png](https://github.com/ainaxiya/CompletePrompt/blob/214691d3282ec41f3aa231b9f841b8d1050e0445/PC.png)
-- 手机端截图：![mobile.png](https://github.com/ainaxiya/CompletePrompt/blob/214691d3282ec41f3aa231b9f841b8d1050e0445/mobile.png)
-- 一键采集截图：<img src="caiji.png" width="500" alt="采集">
+- 在线演示：https://www.icebai.com（备用域名：https://www.wango8.com）
+- PC 端截图：![PC.png](https://github.com/ainaxiya/CompletePrompt/blob/master/PC.png)
+- 手机端截图：![mobile.png](https://github.com/ainaxiya/CompletePrompt/blob/master/mobile.png)
+- 后台截图：![caiji.png](https://github.com/ainaxiya/CompletePrompt/blob/master/caiji.png)
 
 ## 功能介绍
 
@@ -93,9 +93,64 @@ pm2 start ecosystem.config.cjs
 
 ## 更新日志
 
+### v0.93.2
+
+> 修复存储桶「测试连接」报错（「Unexpected end of JSON input」）。
+
+- **存储桶测试连接接口容错**：`/api/admin/storage/buckets/[id]/test` 与 `/api/admin/storage/buckets/test` 全链路 try/catch，异常一律返回 JSON 错误（此前未捕获异常返回空 500，前端报「Unexpected end of JSON input」）；桶 SecretKey 解密失败时给出明确提示「请重新填写并保存该桶的 SecretKey 后再测试」
+- **前端安全解析**：存储桶设置（测试连接/保存/创建/删除）响应改为容错解析 JSON，空响应/非 JSON 响应给出明确提示
+- 版本号升级 `v0.93.2`（`src/lib/version.ts`）/ `0.93.2`（package.json）
+
+### v0.93.1
+
+> 修复技能整包 .zip 上传报错（「Unexpected end of JSON input」）。
+
+- **中间件请求体 10MB 截断修复**：Next.js 中间件缓冲请求体默认上限 10MB，会截断大文件上传（技能整包 zip / 软件包），配置 `experimental.middlewareClientMaxBodySize: 250MB` 放开
+- **存储桶密钥解密失败可读化**：历史密文（桶 SecretKey）用旧密钥加密、当前密钥解不开时，`decryptSecret` 抛出可读错误；技能整包上传接口全链路 try/catch，异常一律返回 JSON 错误（此前未捕获异常返回空 500，前端报「Unexpected end of JSON input」）；提示到「存储桶设置」重新保存 SecretKey 恢复
+- **前端安全解析**：技能表单上传/保存响应先取文本再容错解析 JSON，空响应/非 JSON 响应给出明确提示
+- 版本号升级 `v0.93.1`（`src/lib/version.ts`）/ `0.93.1`（package.json）
+
+### v0.93
+
+> 后台编辑器升级与技能整包上传，附前台视觉微调。
+
+- **后台富文本编辑器升级（P0）**：RichEditor 基于 Tiptap v3 全面重写——H1-H6 全级标题、表格（增删行列/合并拆分）、代码块（16 种语言高亮）、行内代码、高亮标记、引用、列表、分割线、链接、图片（上传+URL）、视频、HTML 源码模式、撤销重做，支持 Markdown 粘贴自动转换为富文本；全站 7 处富文本（工单、消息中心、发布提示词等）统一生效；sanitize 白名单同步扩充（h4-h6/hr/mark/表格/colspan/rowspan），前台 `.rich-content` 补表格/代码块/高亮排版样式
+- **分段提示词编辑器（P0）**：新增 SegmentedPromptEditor——`[N] 标题` 分段卡片式编辑，支持增删/上下移动/自动重编号/粘贴长文一键拆分为分段；后台提示词表单支持「富文本 / 分段」双内容模式，旧纯文本数据自动进入分段模式，可直接编辑出「本页结构 53 段」式大篇幅提示词
+- **技能 .zip 整包上传（P0）**：后台技能管理支持上传 .zip 整包（必须含 SKILL.md，自动剥一层包装目录，拒绝越级路径），原始 zip 直存默认桶、下载时原样回传；支持多选 .md 文件与文件树预览；前台技能详情页展示文件树并隐藏内部哨兵文件
+- **前台视觉微调**：提示词分类页大标题/副标题波浪线动画加粗加密（全蓝配色、隐约白色分割线），「已存 N 条提示词」改圆角胶囊（无动画）；技能详情页「相关技能」升级为完整卡片（随机 8 条，含说明/关联标签/复制次数/浏览数/查看按钮）
+- 版本号升级 `v0.93`（`src/lib/version.ts`）/ `0.93.0`（package.json）
+
+### v0.92
+
+> v0.92 迭代（11 项需求）分批上线，本批交付「API 多线路 Base URL 与网关体验」补充需求与前台体验微调。
+
+- **API 多线路 Base URL**：后台删除「API 网关域名（多线路，一行一个）」输入框，改为 Base URL 多线路编辑器——每行 名称 + URL（如「中国大陆线网关 / xinapi.com」，URL 支持一级/二级域名，保存后锁定不可改、逐行删除，「＋ 新增 Base URL」加行）；首条线路为文档主 Base URL，各线路域名为 `/v1` 网关白名单（`api_gateway_routes` 配置）
+- **API 域名根路径 JSON 指引**：API 网关域名下非 `/v1` 路径不再渲染站点首页，统一返回 JSON 指引 `{"message": "The API documentation for this site can be found at the following URL: \`https://www.icebai.com/api-docs\`"}`（middleware + `/api/gateway-meta`，域名取配置 `NEXT_PUBLIC_SITE_URL`）
+- **/v1 报错全英文化**：API 鉴权语义统一为 Key 语境英文提示（如 "Missing API key. Provide your key in the Authorization header: Authorization: Bearer sk-YOUR_KEY"），apikey/quota/billing/chat/images 全链路
+- **弹层防误关（P0）**：全站 13 处弹层（后台管理/模型库/积分包/单页编辑/工单、会员中心/API Key、PromptToc 等）不再点击遮罩关闭，只能点关闭/取消按钮或提交成功自动关闭；提示词图片放大预览保留点外关闭
+- **前台导航微调**：「注册登录」按钮与「语言选择」按钮位置对调（登录在左、语言在右）；积分充值页去掉「本地开发模式，模拟支付（未接入真实网关）」提示文案
+- **工单后台重构（P0）**：发工单标题改「问题类型」下拉必选（请选择您想提交的问题/会员问题/资金积分问题/API使用问题/发票问题/其他问题）；工单列表改列（问题类型/会员账号/昵称/状态/消息更新时间/创建时间/回复人/查看回复），状态四档「新工单需处理/新的消息需处理/已回复过此工单/已关闭」+ 新会员消息红标数字；新增客服式详情页（左栏会员信息 2 列竖排：账号/账户状态/发布权限/评论权限/当前积分/APIKey 数量/注册时间/注册IP/登录时间/登录IP，右栏消息流 + 发票快捷模板）；回复记录管理账号（`replyBy`/`replyByNick`），前台只显管理员昵称；管理侧全功能富文本、会员侧富文本只留图片上传自动插入（写入前 sanitize）；「回复后关闭此工单」勾选默认不勾
+- **会员工单前台改版**：客服聊天软件式界面（对话气泡 + 客服头像 + 时间线 + 底部输入栏 + 自动滚到底部）；会员侧新增「关闭工单」按钮（确认后关闭，关闭后转入新建工单引导）
+- **积分包拆分（P1）**：`CreditPack` 新增 `bonusCredits` 赠送积分字段（购买积分与赠送积分分开填写，发放按 `credits + bonusCredits`）；后台积分包表格拆「购买积分/赠送积分」两列；前台充值页展示「50元 5000积分 + 赠100积分」，无赠送不显示 + 赠字样；会员中心「余额」Tab 改「我的积分」；线上数据迁移 p50=5000+100、p200=20000+2500
+- **模型计费透明化（P1）**：对外展示统一「百万 tokens 成本价/会员价（积分）」口径（1 元 = 100 积分，`perMillionCostCredits`/`perMillionMemberCredits`）；模型列表「成本预览」列改「百万tokens 成本/会员价」，模型详情定价改三行展示（成本价/会员价/单价辅助信息），定价试算与手动换算全部由毫积分改积分；用量报表、运营告警指标、毛利告警文案统一积分口径
+- **运营告警重构（P1）**：阈值配置加「自动巡检总开关」；新增「支付异常」（近 24h 失败订单数）与「注册异常」（同 IP 24h 注册数）两类告警项；注册赠送开关从运营告警页迁入「会员管理-注册设置」（`RegisterGiftForm`）；新增 `/api/cron/alerts-check` cron 自动巡检入口（CRON_SECRET 鉴权，服务器 crontab 每小时第 25 分钟执行，线上已接入并验证）
+- **会员中心重设计（P2）**：Tab 栏改「大栏目小栏目」左侧折叠菜单（账户设置/积分财务/用量·API/我的内容/模型服务）；新增「资料修改」（头像上传前端裁剪——拖动定位+缩放滑杆、canvas 裁剪后上传；昵称/手机/邮箱/微信/QQ/Telegram/生日/性别/国籍/简介，手机与邮箱唯一性校验）、修改密码（旧密码校验 + 新密码 6-64 位）、收藏夹（提示词/技能/软件三类切换+取消收藏；提示词走 `Favorite` 旧表兼容，技能/软件走新 `UserFavorite` 通用收藏表）
+- **会员中心模型列表（P2）**：新增「模型列表」Tab——全部模型计数 + 厂商计数总览卡；按厂商分组折叠菜单（组内模型计数徽章），每行展示模型名称（展示名/接口名）、类型、支持功能标签（对话补全/图像生成/视频生成等）与备注；仅显示后台已上线（online）模型
+- 版本号升级 `v0.92`（`src/lib/version.ts`）/ `0.92.0`（package.json）
+
+### v0.91
+
+> v0.90 会员订阅额度与聚合网关系统首次部署上线，连同 SEO 整站优化与列表排序修复一起发布。
+
+- **v0.90 全量上线**：会员积分与聚合网关（`/v1/chat/completions`、`/v1/images/generations`）、模型库管理、用户中心、站务单页、运营完善等全部部署至生产（数据库同步 v0.90 新增表）
+- **SEO 整站优化**：sitemap 改为索引 + 分片（`/sitemap.xml` 引导全部已发布 URL 分片，取消 2 万/5 千截断）、robots.txt 强化、HSTS 安全响应头、登录/注册/会员等页 `noindex`、全站 meta description 清洗截断（`src/lib/seo.ts`）、结构化数据 JSON-LD（BreadcrumbList 等）、各栏目/详情页 metadata 补全
+- **API 网关域名白名单**：`/v1` 网关接口仅允许后台配置的 API 域名（可多个=多线路）调用，其他任何域名一律 404 静默隐藏；后台「模型库 → API 文档」页可配置，留空默认取 `.env` 配置 `API_GATEWAY_BASE_URL` / `API_GATEWAY_HOSTS`，改完立即生效
+- **列表排序修复**：技能/软件列表按 `publishedAt` 倒序时 NULL 值不再钉在最前（`nulls: "last"` + `createdAt`/`id` 兜底），数据回填 `Skill.publishedAt` 空值
+- 版本号升级 `v0.91`（`src/lib/version.ts`）/ `0.91.0`（package.json）
+
 ### v0.90
 
-> 依据《CompletePrompt 会员订阅额度与聚合网关方案 v2.4》P0~P6 分期落地，**全部本地开发完成、暂未部署上线**（commit `ebcc548`）。
+> 依据《CompletePrompt 会员订阅额度与聚合网关方案 v2.4》P0~P6 分期落地，本地开发完成后随 v0.91 首次部署上线（commit `ebcc548`）。
 
 - **P0 站务改版**：Footer 三列（产品目录/支持/法律）+ 中英 i18n；帮助/关于/联系/服务条款/隐私政策 5 单页（后台 SitePage 可视化编辑、进 sitemap）+ API 文档页 `/api-docs`
 - **P1 原生网关底座**：`/v1/chat/completions` OpenAI 兼容 SSE 流式透传、`/v1/images/generations`；key_model_binding 优先级/权重路由、失败降级换 Key（≤3 次）；usage_record 计量入库；站内会员 / `sk-` API Key 统一鉴权

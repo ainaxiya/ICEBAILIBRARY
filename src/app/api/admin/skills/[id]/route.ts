@@ -25,7 +25,8 @@ export async function GET(
 
 const fileEntry = z.object({
   path: z.string().min(1).max(300),
-  content: z.string().max(200_000),
+  // 整包上传的文件树清单只有 path/size（content 空）；__bundle__ 哨兵的 content 是桶内对象 key
+  content: z.string().max(200_000).default(""),
   size: z.number().int().min(0).optional(),
 });
 
@@ -34,7 +35,7 @@ const patchSchema = z.object({
   name: z.string().min(2).max(200).optional(),
   summary: z.string().min(1).max(2000).optional(),
   skillMd: z.string().min(1).max(200_000).optional(),
-  files: z.array(fileEntry).max(20).optional(),
+  files: z.array(fileEntry).max(2500).optional(),
   categoryId: z.number().int().positive().optional(),
   tags: z.array(z.string().max(30)).max(8).optional(),
   author: z.string().max(100).nullable().optional(),

@@ -61,10 +61,15 @@ export async function logAdminAction(params: {
   }
 }
 
-// 从请求头获取 IP
+// 从请求头获取 IP（S0-6：取 XFF 最后一跳 = 本站 Nginx 追加的真实来源，防伪造）
 export async function getClientIp(): Promise<string | undefined> {
   const h = await headers();
-  return h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || undefined;
+  const xff = h.get("x-forwarded-for");
+  if (xff) {
+    const parts = xff.split(",").map((s) => s.trim()).filter(Boolean);
+    if (parts.length) return parts[parts.length - 1];
+  }
+  return h.get("x-real-ip") || undefined;
 }
 
 // ─── 初始化默认角色（首次启动时调用） ───

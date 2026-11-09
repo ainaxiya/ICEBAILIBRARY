@@ -67,10 +67,10 @@ export async function verifyApiKey(
   plaintext: string
 ): Promise<{ ok: true; key: VerifiedApiKey["key"]; user: VerifiedApiKey["user"] } | { ok: false; error: string }> {
   const row = await db.userApiKey.findUnique({ where: { keyHash: hashApiKey(plaintext) } });
-  if (!row) return { ok: false, error: "API Key 无效" };
-  if (row.status !== "active") return { ok: false, error: "API Key 已吊销" };
+  if (!row) return { ok: false, error: "Invalid API key" };
+  if (row.status !== "active") return { ok: false, error: "API key has been revoked" };
   if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) {
-    return { ok: false, error: "API Key 已过期" };
+    return { ok: false, error: "API key has expired" };
   }
   const user = await db.user.findUnique({
     where: { id: row.userId },
@@ -80,7 +80,7 @@ export async function verifyApiKey(
       allowPublish: true, commentBanned: true, createdAt: true,
     },
   });
-  if (!user || user.status !== "active") return { ok: false, error: "账号不可用" };
+  if (!user || user.status !== "active") return { ok: false, error: "Account unavailable" };
 
   // 回写 lastUsedAt（fire-and-forget，不阻塞调用）
   db.userApiKey

@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 const nextConfig: NextConfig = {
   // 关闭开发模式左下角的 Next.js DevTools 悬浮按钮（含 Preferences 面板）
@@ -7,6 +8,16 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   experimental: {
     serverActions: { bodySizeLimit: "4mb" },
+    // 中间件会缓冲请求体，默认 10MB 截断大文件上传（技能整包 zip / 软件包），放开到 250MB
+    middlewareClientMaxBodySize: "250mb",
+  },
+  webpack: (config) => {
+    // react-photo-editor 的 exports 字段只声明了 import 条件，webpack 解析失败，
+    // 直接 alias 到构建产物（其内部相对引用 ./index.css 会一并解析）
+    config.resolve.alias["react-photo-editor"] = path.resolve(
+      "node_modules/react-photo-editor/dist/react-photo-editor.es.js"
+    );
+    return config;
   },
   async redirects() {
     return [
@@ -24,6 +35,8 @@ const nextConfig: NextConfig = {
           { key: "X-Frame-Options", value: "SAMEORIGIN" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "X-DNS-Prefetch-Control", value: "on" },
+          // HSTS：强制 HTTPS（域名已全量 https，配合 301 跳转收敛协议信号）
+          { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
         ],
       },
       {

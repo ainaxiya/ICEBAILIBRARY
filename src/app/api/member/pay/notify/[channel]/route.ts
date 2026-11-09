@@ -50,8 +50,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "积分包不存在" }, { status: 500 });
   }
 
-  // 先发积分（grant 幂等，崩溃后可安全重试），再标记已支付
-  await grant(order.userId, "topup", pack.credits, order.orderNo);
+  // 先发积分（grant 幂等，崩溃后可安全重试），再标记已支付；v0.92 #2 购买积分 + 赠送积分
+  await grant(order.userId, "topup", pack.credits + pack.bonusCredits, order.orderNo);
   await db.payOrder.updateMany({
     where: { id: order.id, status: "pending" },
     data: { status: "paid", providerEventId: verify.eventId || null, paidAt: new Date() },

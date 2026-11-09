@@ -34,7 +34,7 @@ export const DEFAULT_SETTINGS = {
     // 账号/密码固定必填；以下三个扩展字段：off=不收集，optional=可选，required=必填
     fields: {
       email: "off" as "off" | "optional" | "required",
-      nickname: "optional" as "off" | "optional" | "required",
+      nickname: "off" as "off" | "optional" | "required", // 默认不收集：留空注册自动取随机名
       phone: "off" as "off" | "optional" | "required",
     },
   },

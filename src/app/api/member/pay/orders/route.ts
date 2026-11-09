@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
-      include: { pack: { select: { packCode: true, credits: true } } },
+      include: { pack: { select: { packCode: true, credits: true, bonusCredits: true } } },
     }),
   ]);
 
@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
       orderNo: o.orderNo,
       packCode: o.pack.packCode,
       credits: Number(o.pack.credits),
+      bonusCredits: Number(o.pack.bonusCredits),
       amountCents: Number(o.amountCents),
       channel: o.channel,
       status: o.status,

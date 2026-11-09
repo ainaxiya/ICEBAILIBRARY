@@ -45,7 +45,8 @@ export async function GET(req: NextRequest) {
 
 const fileEntry = z.object({
   path: z.string().min(1).max(300),
-  content: z.string().max(200_000),
+  // 整包上传的文件树清单只有 path/size（content 空）；__bundle__ 哨兵的 content 是桶内对象 key
+  content: z.string().max(200_000).default(""),
   size: z.number().int().min(0).optional(),
 });
 
@@ -54,7 +55,7 @@ const upsertSchema = z.object({
   name: z.string().min(2).max(200),
   summary: z.string().min(1).max(2000),
   skillMd: z.string().min(1).max(200_000),
-  files: z.array(fileEntry).max(20).optional(),
+  files: z.array(fileEntry).max(2500).optional(),
   categoryId: z.number().int().positive(),
   tags: z.array(z.string().max(30)).max(8).optional(),
   author: z.string().max(100).nullable().optional(),

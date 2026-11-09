@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
-import { logAdminAction, getClientIp } from "@/lib/rbac";
+import { logAdminAction, getClientIp, requirePerm, PERMISSIONS } from "@/lib/rbac";
+import { sanitizeRich } from "@/lib/sanitize.server";
+import { isHtmlContent, stripHtml } from "@/lib/rich";
 
 export const dynamic = "force-dynamic";
 
-// ─── P4 后台：消息·工单（工单队列 / 回复 / 关闭 / 群发 / 单发通知） ───
+// ─── v0.92 #4 后台：消息·工单（工单队列 / 回复 / 关闭 / 群发 / 单发通知） ───
 
 function msgJson(m: {
   id: bigint;
@@ -18,6 +20,9 @@ function msgJson(m: {
   ticketStatus: string | null;
   batchId: string | null;
   readAt: Date | null;
+  replyBy?: string | null;
+  replyByNick?: string | null;
+  adminReadAt?: Date | null;
   createdAt: Date;
 }) {
   return {
@@ -30,6 +35,9 @@ function msgJson(m: {
     ticketStatus: m.ticketStatus,
     batchId: m.batchId,
     readAt: m.readAt,
+    replyBy: m.replyBy ?? null,
+    replyByNick: m.replyByNick ?? null,
+    adminReadAt: m.adminReadAt ?? null,
     createdAt: m.createdAt,
   };
 }
@@ -50,6 +58,8 @@ function parseId(v: unknown): bigint | null {
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { user, ok } = await requirePerm(PERMISSIONS.USER_READ);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
 
   const sp = req.nextUrl.searchParams;
 
@@ -66,8 +76,46 @@ export async function GET(req: NextRequest) {
       where: { OR: [{ id: rootId }, { replyToId: rootId }] },
       orderBy: { createdAt: "asc" },
     });
+
+    // v0.92 #4：会员信息面板（账号/状态/权限/积分/APIKey/注册登录轨迹）
+    const [grants, apiKeyCount] = await Promise.all([
+      db.creditGrant.findMany({
+        where: {
+          userId: root.userId,
+          remainingCredits: { gt: 0 },
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        },
+        select: { remainingCredits: true },
+      }),
+      db.userApiKey.count({ where: { userId: root.userId } }),
+    ]);
+    const u = await db.user.findUnique({ where: { id: root.userId } });
+    const member = u
+      ? {
+          id: u.id,
+          username: u.username,
+          nickname: u.nickname,
+          status: u.status,
+          allowPublish: u.allowPublish,
+          commentBanned: u.commentBanned,
+          balanceCredits: grants.reduce((s, g) => s + Number(g.remainingCredits), 0),
+          apiKeyCount,
+          createdAt: u.createdAt,
+          registerIp: u.registerIp,
+          lastLoginAt: u.lastLoginAt,
+          lastLoginIp: u.lastLoginIp,
+        }
+      : null;
+
+    // 打开会话即把该会话的会员消息标记为管理员已读（红标清零）
+    await db.userMessage.updateMany({
+      where: { OR: [{ id: rootId }, { replyToId: rootId }], direction: "user_to_admin", adminReadAt: null },
+      data: { adminReadAt: new Date() },
+    });
+
     return NextResponse.json({
       thread: { ...msgJson(root), user: root.user },
+      member,
       messages: messages.map(msgJson),
     });
   }
@@ -92,7 +140,14 @@ export async function GET(req: NextRequest) {
         user: { select: { id: true, username: true, nickname: true } },
         replies: {
           orderBy: { createdAt: "asc" },
-          select: { body: true, direction: true, createdAt: true },
+          select: {
+            body: true,
+            direction: true,
+            createdAt: true,
+            replyBy: true,
+            replyByNick: true,
+            adminReadAt: true,
+          },
         },
       },
     }),
@@ -104,12 +159,19 @@ export async function GET(req: NextRequest) {
     total,
     tickets: roots.map((r) => {
       const last = r.replies[r.replies.length - 1];
+      const lastAdmin = [...r.replies].reverse().find((x) => x.direction === "admin_to_user");
+      // v0.92 #4：新会员消息红标数字（根消息 + 回复里未被管理员读过的会员消息）
+      const newMsgCount =
+        (r.adminReadAt ? 0 : 1) +
+        r.replies.filter((x) => x.direction === "user_to_admin" && !x.adminReadAt).length;
       return {
         ...msgJson(r),
         user: r.user,
         replyCount: r.replies.length,
         lastBody: last?.body ?? r.body,
         lastAt: last?.createdAt ?? r.createdAt,
+        replyBy: lastAdmin?.replyBy ?? null,
+        newMsgCount,
       };
     }),
   });
@@ -124,6 +186,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { user, ok } = await requirePerm(PERMISSIONS.USER_WRITE);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
 
   const body = await req.json().catch(() => null);
   const action = typeof body?.action === "string" ? body.action : "";
@@ -133,9 +197,12 @@ export async function POST(req: NextRequest) {
   if (action === "reply") {
     const threadId = parseId(body?.threadId);
     if (!threadId) return NextResponse.json({ error: "参数错误" }, { status: 400 });
-    const content = typeof body?.body === "string" ? body.body.trim() : "";
-    if (!content) return NextResponse.json({ error: "回复内容不能为空" }, { status: 400 });
-    if (content.length > 5000) return NextResponse.json({ error: "内容过长（最多 5000 字符）" }, { status: 400 });
+    const raw = typeof body?.body === "string" ? body.body.trim() : "";
+    const content = isHtmlContent(raw) ? sanitizeRich(raw) : raw;
+    if (!stripHtml(content)) return NextResponse.json({ error: "回复内容不能为空" }, { status: 400 });
+    if (content.length > 20000) return NextResponse.json({ error: "内容过长（最多 20000 字符）" }, { status: 400 });
+    // v0.92 #4：回复后关闭此工单（勾选才关，默认不关）
+    const closeAfter = body?.closeAfter === true;
 
     const root = await db.userMessage.findFirst({
       where: { id: threadId, msgType: "ticket", replyToId: null },
@@ -151,11 +218,14 @@ export async function POST(req: NextRequest) {
           subject: root.subject,
           body: content,
           replyToId: root.id,
+          // v0.92 #4：记录回复人（管理账号 + 昵称快照）
+          replyBy: admin.username,
+          replyByNick: admin.nickname || admin.username,
         },
       }),
       db.userMessage.update({
         where: { id: root.id },
-        data: { ticketStatus: "replied" },
+        data: { ticketStatus: closeAfter ? "closed" : "replied" },
       }),
     ]);
 

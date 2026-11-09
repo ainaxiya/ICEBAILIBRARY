@@ -1,114 +1,141 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
-import { getBalance } from "@/lib/credits";
-import LogoutButton from "@/components/LogoutButton";
-import MemberCenter from "@/components/member/MemberCenter";
-import { getServerLocale, translate as t } from "@/lib/i18n";
-import { getCategoryMeta } from "@/lib/category-meta";
+import { db } from "@/lib/db";
+import { ensureCreditPacks, getBalance } from "@/lib/credits";
+import { getEnabledChannels } from "@/lib/payments/config";
+import MemberCenter, { type Post, type RechargePack } from "@/components/member/MemberCenter";
+import type { OverviewData } from "@/components/member/MemberOverview";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "会员中心" };
-
-// P4 用户中心：账号卡片 + 统计 + 会员中心分区
-// （余额 / 充值记录 / 用量明细 / 我的资产 / 消息·工单 / 我的发布 + 发票说明条）
+// v0.95：/member 服务端聚合概览数据（统计卡 / 最近资产 / 网站通知）+ 充值中心面板的积分包/支付通道，
+// 页面主体（Hero 含账户信息 / 统计卡 / 网站通知 / 最近资产 / 快捷入口）由 MemberOverview 渲染。
 export default async function MemberPage({
   searchParams,
 }: {
   searchParams: Promise<{ tab?: string }>;
 }) {
-  const locale = await getServerLocale();
   const user = await getCurrentUser();
-  if (!user) redirect("/login?next=/member");
-  const sp = await searchParams;
+  if (!user) redirect("/login");
 
-  const [balance, grants, myPosts, postCount, viewAgg] = await Promise.all([
-    getBalance(user.id),
-    db.creditGrant.findMany({
+  const { tab: initialTab } = await searchParams;
+
+  const [
+    postCount,
+    favCount,
+    userFavCount,
+    assetCount,
+    apiCalls,
+    recentAssets,
+    pwdRow,
+    postRows,
+    notices,
+  ] = await Promise.all([
+    db.prompt.count({ where: { userId: user.id } }),
+    db.favorite.count({ where: { userId: user.id } }),
+    db.userFavorite.count({ where: { userId: user.id } }),
+    db.generatedAsset.count({ where: { userId: user.id, status: "temp" } }),
+    db.usageRecord.count({ where: { userId: user.id } }),
+    db.generatedAsset.findMany({
+      where: { userId: user.id, status: "temp" },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: { id: true, assetType: true, storageKey: true, sizeBytes: true, createdAt: true },
+    }),
+    db.user.findUnique({ where: { id: user.id }, select: { passwordHash: true } }),
+    db.prompt.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: "desc" },
       take: 50,
     }),
-    db.prompt.findMany({
-      where: { userId: user.id },
-      orderBy: { id: "desc" },
-      take: 10,
-      select: {
-        id: true, title: true, status: true, viewCount: true, commentCount: true,
-        createdAt: true, category: true, rejectReason: true,
-      },
+    // 网站通知 = 工单模块的通知消息（管理员单发/群发，msgType=notice）
+    db.userMessage.findMany({
+      where: { userId: user.id, replyToId: null, msgType: "notice" },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: { id: true, subject: true, body: true, createdAt: true, direction: true, readAt: true },
     }),
-    db.prompt.count({ where: { userId: user.id } }),
-    // 总浏览统计全部投稿（含第 10 条之后），不依赖列表截断
-    db.prompt.aggregate({ where: { userId: user.id }, _sum: { viewCount: true } }),
   ]);
 
-  const stat = (label: string, value: number | string) => (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 text-center sm:p-4">
-      <div className="truncate text-lg font-bold text-emerald-400 sm:text-xl">{value}</div>
-      <div className="mt-1 text-[11px] text-zinc-500 sm:text-xs">{label}</div>
-    </div>
-  );
+  // 余额（Hero 积分余额）
+  const balance = Number(await getBalance(user.id));
+
+  // 充值中心面板：积分包 + 启用中的支付通道（与 /recharge 同源）
+  await ensureCreditPacks();
+  const [packs, payChannels] = await Promise.all([
+    db.creditPack.findMany({
+      where: { isActive: true },
+      orderBy: { sortOrder: "asc" },
+    }),
+    getEnabledChannels(),
+  ]);
+
+  const overview: OverviewData = {
+    user: {
+      id: user.id,
+      username: user.username,
+      nickname: user.nickname,
+      avatar: user.avatar,
+      bio: user.bio,
+      membershipLevel: user.membershipLevel ?? "free",
+      membershipUntil: user.membershipUntil ? user.membershipUntil.toISOString() : null,
+      email: user.email,
+      phone: user.phone,
+      hasPassword: !!pwdRow?.passwordHash,
+    },
+    balance,
+    stats: {
+      favCount: favCount + userFavCount,
+      assetCount,
+      postCount,
+      apiCalls,
+    },
+    recentAssets: recentAssets.map((a) => ({
+      id: String(a.id),
+      assetType: a.assetType,
+      name: a.storageKey.split("/").pop() || a.storageKey,
+      sizeBytes: Number(a.sizeBytes),
+      createdAt: a.createdAt.toISOString(),
+    })),
+    notices: notices.map((n) => ({
+      id: String(n.id),
+      subject: n.subject,
+      body: n.body,
+      createdAt: n.createdAt.toISOString(),
+      unread: n.direction === "admin_to_user" && !n.readAt,
+    })),
+  };
+
+  const posts: Post[] = postRows.map((p) => ({
+    id: p.id,
+    title: p.title,
+    status: p.status,
+    viewCount: p.viewCount,
+    commentCount: p.commentCount,
+    createdAt: p.createdAt.toISOString(),
+    category: p.category,
+    categoryName: p.category,
+    rejectReason: p.rejectReason,
+  }));
+
+  const rechargePacks: RechargePack[] = packs.map((p) => ({
+    packCode: p.packCode,
+    priceCents: Number(p.priceCents),
+    credits: Number(p.credits),
+    bonusCredits: Number(p.bonusCredits),
+  }));
 
   return (
-    <div className="max-w-4xl">
-      {/* 账号卡片 */}
-      <div className="mb-6 flex flex-wrap items-center gap-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
-        <span className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500/30 to-royal-500/25 text-3xl text-emerald-300">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"
-            strokeLinecap="round" strokeLinejoin="round" className="h-9 w-9">
-            <circle cx="12" cy="8" r="3.5" />
-            <path d="M5 20c1.2-3.5 4-5 7-5s5.8 1.5 7 5" />
-          </svg>
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="truncate text-lg font-bold text-zinc-50">{user.username}</h1>
-          </div>
-          <p className="mt-1 text-xs text-zinc-500">
-            {t(locale, "member.memberSince")}：{user.createdAt.toISOString().slice(0, 10)}
-          </p>
-        </div>
-        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
-          <Link href="/publish"
-            className="flex-1 rounded-lg bg-emerald-500 px-4 py-2 text-center text-sm font-medium text-zinc-950 hover:bg-emerald-400 sm:flex-none">
-            + {t(locale, "nav.publish")}
-          </Link>
-          <span className="flex-1 [&>button]:w-full sm:flex-none"><LogoutButton /></span>
-        </div>
+    <main className="mc-page min-h-screen">
+      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
+        <MemberCenter
+          overview={overview}
+          posts={posts}
+          rechargePacks={rechargePacks}
+          payChannels={payChannels}
+          initialTab={initialTab}
+        />
       </div>
-
-      {/* 统计 */}
-      <div className="mb-8 grid grid-cols-2 gap-3">
-        {stat(t(locale, "member.myPosts"), postCount)}
-        {stat(locale === "zh" ? "总浏览" : "Total views", viewAgg._sum.viewCount ?? 0)}
-      </div>
-
-      {/* 会员中心分区（余额 / 充值记录 / 用量明细 / 我的资产 / 消息·工单 / 我的发布） */}
-      <MemberCenter
-        balance={Number(balance)}
-        grants={grants.map((g) => ({
-          id: g.id,
-          grantType: g.grantType,
-          total: Number(g.totalCredits),
-          remaining: Number(g.remainingCredits),
-          expiresAt: g.expiresAt?.toISOString() ?? null,
-        }))}
-        posts={myPosts.map((p) => ({
-          id: p.id,
-          title: p.title,
-          status: p.status,
-          viewCount: p.viewCount,
-          commentCount: p.commentCount,
-          createdAt: p.createdAt.toISOString(),
-          category: p.category,
-          categoryName: getCategoryMeta(p.category).name[locale],
-          rejectReason: p.rejectReason,
-        }))}
-        initialTab={sp.tab}
-      />
-    </div>
+    </main>
   );
 }

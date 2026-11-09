@@ -21,6 +21,9 @@ export function pricingJson(p: ModelPricing) {
     currency: p.currency,
     fxRateE8: num(p.fxRateE8),
     multiplierBps: p.multiplierBps,
+    // v0.96 直观定价：按输入/输出直接填的会员价（积分/计量基数），未填为 null
+    memberInputPrice: p.memberInputPrice == null ? null : num(p.memberInputPrice),
+    memberOutputPrice: p.memberOutputPrice == null ? null : num(p.memberOutputPrice),
     effectiveAt: p.effectiveAt.toISOString(),
     createdAt: p.createdAt.toISOString(),
   };

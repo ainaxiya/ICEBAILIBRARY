@@ -16,26 +16,49 @@ export async function POST(
   const { ok } = await requirePerm("storage:manage");
   if (!ok) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
-  const { id } = await params;
-  const row = await db.storageBucket.findUnique({ where: { id: Number(id) } });
-  if (!row) return NextResponse.json({ error: "not found" }, { status: 404 });
+  try {
+    const { id } = await params;
+    const row = await db.storageBucket.findUnique({ where: { id: Number(id) } });
+    if (!row) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  const body = await req.json().catch(() => ({}));
-  let cfg;
-  if (body && body.endpoint) {
-    const secret = body.secretKey ? String(body.secretKey) : undefined;
-    cfg = {
-      endpoint: String(body.endpoint),
-      region: (body.region || row.region || "us-east-1") as string,
-      bucket: String(body.bucket || row.bucket),
-      accessKey: String(body.accessKey || row.accessKey),
-      secretKey: secret ?? decryptSecret(row.secretKey),
-      publicBaseUrl: null,
-    };
-  } else {
-    cfg = bucketToConfig(row);
+    const body = await req.json().catch(() => ({}));
+    let cfg;
+    if (body && body.endpoint) {
+      let secret: string;
+      if (body.secretKey) {
+        secret = String(body.secretKey);
+      } else {
+        try {
+          secret = decryptSecret(row.secretKey);
+        } catch {
+          return NextResponse.json(
+            { ok: false, error: "存储桶密钥无法解密（历史密钥已变更）：请重新填写并保存该桶的 SecretKey 后再测试" },
+            { status: 500 }
+          );
+        }
+      }
+      cfg = {
+        endpoint: String(body.endpoint),
+        region: (body.region || row.region || "us-east-1") as string,
+        bucket: String(body.bucket || row.bucket),
+        accessKey: String(body.accessKey || row.accessKey),
+        secretKey: secret,
+        publicBaseUrl: null,
+      };
+    } else {
+      try {
+        cfg = bucketToConfig(row);
+      } catch {
+        return NextResponse.json(
+          { ok: false, error: "存储桶密钥无法解密（历史密钥已变更）：请到存储桶设置重新填写并保存该桶的 SecretKey 后再测试" },
+          { status: 500 }
+        );
+      }
+    }
+
+    const result = await testBucket(cfg);
+    return NextResponse.json(result, { status: result.ok ? 200 : 502 });
+  } catch (e) {
+    return NextResponse.json({ ok: false, error: `测试连接失败：${(e as Error).message}` }, { status: 500 });
   }
-
-  const result = await testBucket(cfg);
-  return NextResponse.json(result, { status: result.ok ? 200 : 502 });
 }

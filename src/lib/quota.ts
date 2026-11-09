@@ -41,10 +41,10 @@ export async function getQuotaConfig(): Promise<QuotaConfig> {
 export async function checkQuota(userId: number): Promise<{ ok: boolean; error?: string }> {
   const cfg = await getQuotaConfig();
   if (!rateLimit(`quota:daily:${userId}`, cfg.dailyCalls, 86_400_000)) {
-    return { ok: false, error: "今日调用次数已达上限，请明天再试" };
+    return { ok: false, error: "Daily call limit reached. Please try again tomorrow" };
   }
   if (!rateLimit(`quota:rpm:${userId}`, cfg.rpm, 60_000)) {
-    return { ok: false, error: "调用过于频繁（每分钟限额），请稍后再试" };
+    return { ok: false, error: "Rate limit exceeded (per-minute). Please slow down and retry later" };
   }
   return { ok: true };
 }
@@ -54,7 +54,7 @@ const KEY_RPM = 60;
 
 export function checkKeyRpm(keyId: number): { ok: boolean; error?: string } {
   if (!rateLimit(`apikey:rpm:${keyId}`, KEY_RPM, 60_000)) {
-    return { ok: false, error: "该 API Key 调用过于频繁（每分钟限额），请稍后再试" };
+    return { ok: false, error: "This API key is being used too frequently (per-minute limit). Please slow down" };
   }
   return { ok: true };
 }

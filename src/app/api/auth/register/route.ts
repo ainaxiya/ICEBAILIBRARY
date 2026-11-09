@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { signToken, setAuthCookie } from "@/lib/auth";
 import { getPublicSite } from "@/lib/settings";
+import { randomNickname } from "@/lib/random-name";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { getCreditsConfig, grant } from "@/lib/credits";
 
@@ -65,7 +66,9 @@ export async function POST(req: NextRequest) {
 
   const email = d.email?.trim() || null;
   const phone = d.phone?.trim() || null;
-  const nickname = d.nickname?.trim() || null;
+  // 未填昵称时按界面语言自动取随机名（中文界面→中文名，英文界面→英文名）
+  const locale = typeof (body as Record<string, unknown>).locale === "string" ? ((body as Record<string, unknown>).locale as string) : "zh";
+  const nickname = d.nickname?.trim() || randomNickname(locale);
 
   if (email) {
     const dup = await db.user.findUnique({ where: { email } });

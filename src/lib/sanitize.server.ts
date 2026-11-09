@@ -10,9 +10,10 @@ export function sanitizeRich(input: string): string {
 
   return sanitizeHtml(input, {
     allowedTags: [
-      "p", "br", "b", "strong", "i", "em", "u", "s", "h1", "h2", "h3",
-      "ul", "ol", "li", "blockquote", "a", "img", "video", "source",
-      "iframe", "div", "span", "pre", "code",
+      "p", "br", "b", "strong", "i", "em", "u", "s", "h1", "h2", "h3", "h4", "h5", "h6",
+      "ul", "ol", "li", "blockquote", "hr", "a", "img", "video", "source",
+      "iframe", "div", "span", "pre", "code", "mark",
+      "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption",
     ],
     allowedAttributes: {
       a: ["href", "target", "rel"],
@@ -21,10 +22,14 @@ export function sanitizeRich(input: string): string {
       source: ["src", "type"],
       iframe: ["src", "class", "allowfullscreen", "frameborder", "allow"],
       span: ["class"],
+      mark: ["class"],
       div: ["class"],
       p: ["class"],
       pre: ["class", "data-language"],
       code: ["class"],
+      table: ["class"],
+      td: ["colspan", "rowspan", "class"],
+      th: ["colspan", "rowspan", "class"],
     },
     allowedSchemes: ["http", "https", "data"],
     allowedSchemesByTag: { img: ["http", "https", "data"] },

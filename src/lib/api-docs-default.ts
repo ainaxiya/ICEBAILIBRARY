@@ -9,7 +9,9 @@
 // 样式：正文标签（h2/h3/p/ul/table/pre/code 等）由 globals.css 的 .api-docs-prose 暗色样式统一驱动，
 // class="hl" = 高亮标签，table.params = 参数表，table.models = 模型目录表，p.note = 文末提示。
 
-export const DEFAULT_API_DOCS_BASE_URL = "https://api.wango8.com/v1";
+import { API_GATEWAY_BASE_URL } from "@/lib/site-config";
+
+export const DEFAULT_API_DOCS_BASE_URL = `${API_GATEWAY_BASE_URL}/v1`;
 
 // SiteSetting 存储键（value 均为字符串；空 = 使用内置默认）
 export const API_DOCS_HTML_SETTING_KEY = "api_docs_html";
@@ -178,7 +180,7 @@ data: [DONE]</code></pre>
   "created": 1730000000,
   "data": [
     {
-      "url": "https://api.wango8.com/api/member/assets/123/download",
+      "url": "${API_GATEWAY_BASE_URL}/api/member/assets/123/download",
       "asset_id": "123",
       "transfer_status": "stored"
     }

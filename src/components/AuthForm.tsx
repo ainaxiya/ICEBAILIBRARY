@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useLocale, translate as t } from "@/lib/i18n-client";
 
@@ -12,7 +12,6 @@ const inputCls =
 
 export default function AuthForm({ mode, siteName }: { mode: "login" | "register"; siteName?: string }) {
   const locale = useLocale();
-  const router = useRouter();
   const sp = useSearchParams();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -31,7 +30,7 @@ export default function AuthForm({ mode, siteName }: { mode: "login" | "register
         .then((d) => {
           setClosed(!d.basic.allowRegister);
           setRegFields(
-            d.registerFields || { email: "off", nickname: "optional", phone: "off" }
+            d.registerFields || { email: "off", nickname: "off", phone: "off" }
           );
         })
         .catch(() => {});
@@ -50,6 +49,8 @@ export default function AuthForm({ mode, siteName }: { mode: "login" | "register
             ...(regFields?.email !== "off" && email.trim() ? { email: email.trim() } : {}),
             ...(regFields?.phone !== "off" && phone.trim() ? { phone: phone.trim() } : {}),
             ...(regFields?.nickname !== "off" && nickname.trim() ? { nickname: nickname.trim() } : {}),
+            // locale：未填昵称时后端按界面语言自动取随机名（zh→中文名 / en→英文名）
+            locale,
           }
         : { username, password };
     const res = await fetch(`/api/auth/${mode}`, {
@@ -73,8 +74,9 @@ export default function AuthForm({ mode, siteName }: { mode: "login" | "register
       rawNext.startsWith("/") && !rawNext.startsWith("//") && !rawNext.startsWith("/\\")
         ? rawNext
         : "/";
-    router.push(next);
-    router.refresh();
+    // 整页跳转：登录态在服务端布局/UserMenu 里，客户端路由跳转不会重取登录状态
+    // （router.push + refresh 有竞态，导航栏会停留在旧状态），必须整页加载
+    window.location.replace(next);
   };
 
   const f = regFields;

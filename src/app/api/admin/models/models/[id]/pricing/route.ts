@@ -36,6 +36,9 @@ const postSchema = z.object({
   currency: z.string().trim().max(10).optional(),
   fxRateE8: z.number().int().min(1).max(1_000_000_000_000).optional(),
   multiplierBps: z.number().int().min(1).max(100_000).optional(),
+  // v0.96 直观定价：会员价按输入/输出直接填（积分/计量基数）
+  memberInputPrice: z.number().min(0).max(1_000_000).nullable().optional(),
+  memberOutputPrice: z.number().min(0).max(1_000_000).nullable().optional(),
   effectiveAt: z.string().datetime().optional(),
 });
 
@@ -78,6 +81,8 @@ export async function POST(
       currency: data.currency || prev?.currency || "CNY",
       fxRateE8: BigInt(data.fxRateE8 ?? prev?.fxRateE8 ?? 100_000_000),
       multiplierBps: data.multiplierBps ?? prev?.multiplierBps ?? 150,
+      memberInputPrice: data.memberInputPrice ?? null,
+      memberOutputPrice: data.memberOutputPrice ?? null,
       effectiveAt: data.effectiveAt ? new Date(data.effectiveAt) : new Date(),
     },
   });
@@ -88,6 +93,7 @@ export async function POST(
     targetType: "model_pricing",
     targetId: row.id,
     detail: JSON.stringify({
+      modelId: model.id,
       model: model.name,
       inputPrice: data.inputPrice,
       outputPrice: data.outputPrice,

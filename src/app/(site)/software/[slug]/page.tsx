@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser, getCurrentAdmin } from "@/lib/auth";
 import { getServerLocale } from "@/lib/i18n";
 import { safeJsonScript } from "@/lib/rich";
+import { metaDescription, breadcrumbJsonLd, siteUrl } from "@/lib/seo";
 import { getSettings } from "@/lib/settings";
 import { COMMENT } from "@/lib/comment-policy";
 import CommentSection, { type CommentData } from "@/components/CommentSection";
@@ -39,7 +40,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   if (!s) return { title: "未找到" };
   return {
     title: s.name,
-    description: (s.tagline || "").slice(0, 200),
+    description: metaDescription(s.tagline, `${s.name}：精选 AI 软件，提供安全下载与使用说明。`),
     keywords: s.tags,
     robots: s.status === "published" ? undefined : { index: false, follow: false },
   };
@@ -120,12 +121,19 @@ export default async function SoftwareDetail({ params }: { params: Promise<{ slu
     applicationCategory: soft.category.nameEn,
     operatingSystem: soft.platform || undefined,
     datePublished: (soft.publishedAt || soft.createdAt).toISOString(),
+    dateModified: soft.updatedAt.toISOString(),
+    mainEntityOfPage: siteUrl(`/software/${encodeURIComponent(soft.slug)}`),
     interactionStatistic: {
       "@type": "InteractionCounter",
       interactionType: "https://schema.org/DownloadAction",
       userInteractionCount: soft.downloadCount,
     },
   };
+  const bcJsonLd = breadcrumbJsonLd([
+    { name: "首页", item: siteUrl() },
+    { name: "AI软件", item: siteUrl("/software") },
+    { name: soft.name, item: siteUrl(`/software/${encodeURIComponent(soft.slug)}`) },
+  ]);
 
   const infoItems: [string, string | null, string][] = [
     [locale === "zh" ? "版本" : "Version", soft.version ? `v${soft.version}` : null, "📦"],
@@ -248,6 +256,7 @@ export default async function SoftwareDetail({ params }: { params: Promise<{ slu
           </section>
 
           <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonScript(jsonLd) }} />
+          <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: bcJsonLd }} />
         </article>
 
         {/* 评论 */}

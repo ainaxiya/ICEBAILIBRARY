@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
+import { requirePerm, PERMISSIONS } from "@/lib/rbac";
 import { db } from "@/lib/db";
 import { invalidateCategoryCache } from "@/lib/categories";
 
@@ -12,6 +13,8 @@ export async function PATCH(
 ) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { user, ok } = await requirePerm(PERMISSIONS.CATEGORY_WRITE);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
 
   const { id } = await params;
   const body = await req.json().catch(() => null);
@@ -55,6 +58,8 @@ export async function DELETE(
 ) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { user, ok } = await requirePerm(PERMISSIONS.CATEGORY_DELETE);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
 
   const { id } = await params;
   const cat = await db.category.findUnique({ where: { id: Number(id) } });

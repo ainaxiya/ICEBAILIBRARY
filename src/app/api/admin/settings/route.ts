@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
+import { requirePerm, PERMISSIONS } from "@/lib/rbac";
 import { getSettings, saveSetting } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
@@ -7,12 +8,16 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { user, ok } = await requirePerm(PERMISSIONS.SETTING_READ);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
   return NextResponse.json(await getSettings());
 }
 
 export async function PUT(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { user, ok } = await requirePerm(PERMISSIONS.SETTING_WRITE);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
 
   const body = await req.json().catch(() => null);
   const section = body?.section;

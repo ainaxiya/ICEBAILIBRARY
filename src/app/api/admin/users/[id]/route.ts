@@ -16,6 +16,17 @@ const patchSchema = z.object({
     .optional(),
   avatar: z.string().url().max(500).or(z.literal("")).optional(),
   bio: z.string().max(500).optional(),
+  // v0.96 会员资料扩展字段（与前台会员中心资料修改对齐）
+  wechat: z.string().max(50).or(z.literal("")).optional(),
+  qq: z.string().max(30).or(z.literal("")).optional(),
+  telegram: z.string().max(50).or(z.literal("")).optional(),
+  birthday: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "生日格式不正确（YYYY-MM-DD）")
+    .or(z.literal(""))
+    .optional(),
+  gender: z.enum(["male", "female", "other", "secret", ""]).optional(),
+  nationality: z.string().max(50).or(z.literal("")).optional(),
   status: z.enum(["active", "banned"]).optional(),
   allowPublish: z.boolean().optional(),
   // 评论禁言/解除（独立于登录封禁）
@@ -60,6 +71,12 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (phone !== undefined) data.phone = phone;
   if (d.avatar !== undefined) data.avatar = d.avatar || null;
   if (d.bio !== undefined) data.bio = d.bio.trim() || null;
+  if (d.wechat !== undefined) data.wechat = d.wechat.trim() || null;
+  if (d.qq !== undefined) data.qq = d.qq.trim() || null;
+  if (d.telegram !== undefined) data.telegram = d.telegram.trim() || null;
+  if (d.birthday !== undefined) data.birthday = d.birthday ? new Date(d.birthday) : null;
+  if (d.gender !== undefined) data.gender = d.gender || null;
+  if (d.nationality !== undefined) data.nationality = d.nationality.trim() || null;
   if (d.status !== undefined) data.status = d.status;
   if (d.allowPublish !== undefined) data.allowPublish = d.allowPublish;
   if (d.commentBanned !== undefined) data.commentBanned = d.commentBanned;

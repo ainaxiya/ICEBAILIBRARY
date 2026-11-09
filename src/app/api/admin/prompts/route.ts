@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
+import { requirePerm, PERMISSIONS } from "@/lib/rbac";
 import { db } from "@/lib/db";
 import { syncPromptToMeili } from "@/lib/meili";
 import { detectLang } from "@/lib/langdetect";
@@ -15,6 +16,8 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { user, ok } = await requirePerm(PERMISSIONS.PROMPT_READ);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
 
   const { searchParams } = new URL(req.url);
   const page = Math.max(1, parseInt(searchParams.get("page") || "1") || 1);
@@ -102,6 +105,8 @@ const createSchema = z.object({
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { user, ok } = await requirePerm(PERMISSIONS.PROMPT_WRITE);
+  if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
 
   const parsed = createSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
