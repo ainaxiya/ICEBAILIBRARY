@@ -4,11 +4,14 @@
 // 快捷启禁用、重置密码、删除（带超管存活保护）
 import { useEffect, useState } from "react";
 import OptionDropdown from "@/components/OptionDropdown";
+import { adminFetch } from "@/lib/admin-fetch";
 
 type AdminItem = {
   id: number;
   username: string;
   nickname: string | null;
+  // b16：告警通知邮箱（空 = 不接收邮件告警）
+  email: string | null;
   status: string;
   isSuper: boolean;
   adminRoleId: number | null;
@@ -52,7 +55,7 @@ export default function AdminManager({ currentAdminId }: { currentAdminId: numbe
   }, []);
 
   const quickStatus = async (a: AdminItem, status: string) => {
-    const r = await fetch(`/api/admin/admins/${a.id}`, {
+    const r = await adminFetch(`/api/admin/admins/${a.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
@@ -86,6 +89,7 @@ export default function AdminManager({ currentAdminId }: { currentAdminId: numbe
             <tr>
               <th className="px-4 py-3">账号</th>
               <th className="px-4 py-3">昵称</th>
+              <th className="px-4 py-3">告警邮箱</th>
               <th className="px-4 py-3">权限</th>
               <th className="px-4 py-3">状态</th>
               <th className="px-4 py-3">添加时间</th>
@@ -102,10 +106,11 @@ export default function AdminManager({ currentAdminId }: { currentAdminId: numbe
                 <td className="px-4 py-3 font-medium text-zinc-200">
                   {a.username}
                   {a.id === currentAdminId && (
-                    <span className="ml-2 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">当前</span>
+                    <span className="ml-2 rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-400">当前</span>
                   )}
                 </td>
                 <td className="px-4 py-3 text-zinc-400">{a.nickname || "—"}</td>
+                <td className="px-4 py-3 text-xs text-zinc-500">{a.email || "—"}</td>
                 <td className="px-4 py-3">
                   {a.isSuper ? (
                     <span className="text-xs text-amber-400">超级管理员</span>
@@ -178,7 +183,7 @@ const inputCls =
 const labelCls = "mb-1 block text-xs text-zinc-400";
 
 function CreateModal({ roles, onClose, onDone }: { roles: Role[]; onClose: () => void; onDone: () => void }) {
-  const [f, setF] = useState({ username: "", nickname: "", password: "", isSuper: true, adminRoleId: 0, status: "active" });
+  const [f, setF] = useState({ username: "", nickname: "", email: "", password: "", isSuper: true, adminRoleId: 0, status: "active" });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -186,12 +191,13 @@ function CreateModal({ roles, onClose, onDone }: { roles: Role[]; onClose: () =>
     setErr("");
     setBusy(true);
     try {
-      const r = await fetch("/api/admin/admins", {
+      const r = await adminFetch("/api/admin/admins", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           username: f.username.trim(),
           nickname: f.nickname.trim(),
+          email: f.email.trim(),
           password: f.password,
           isSuper: f.isSuper,
           adminRoleId: f.isSuper ? null : f.adminRoleId || null,
@@ -219,6 +225,10 @@ function CreateModal({ roles, onClose, onDone }: { roles: Role[]; onClose: () =>
         <div>
           <label className={labelCls}>昵称（后台展示用）</label>
           <input className={inputCls} value={f.nickname} onChange={(e) => setF({ ...f, nickname: e.target.value })} placeholder="可选" />
+        </div>
+        <div>
+          <label className={labelCls}>告警通知邮箱（可选；命中订阅时发运营告警邮件）</label>
+          <input className={inputCls} type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="name@example.com" />
         </div>
         <div>
           <label className={labelCls}>初始密码（至少 6 位）</label>
@@ -285,6 +295,7 @@ function EditModal({
   onDone: () => void;
 }) {
   const [nickname, setNickname] = useState(admin.nickname || "");
+  const [email, setEmail] = useState(admin.email || "");
   const [status, setStatus] = useState(admin.status);
   const [isSuper, setIsSuper] = useState(admin.isSuper);
   const [roleId, setRoleId] = useState(admin.adminRoleId || 0);
@@ -294,7 +305,7 @@ function EditModal({
 
   const patch = async (body: Record<string, unknown>, okMsg?: string) => {
     setErr("");
-    const r = await fetch(`/api/admin/admins/${admin.id}`, {
+    const r = await adminFetch(`/api/admin/admins/${admin.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -312,6 +323,7 @@ function EditModal({
     setBusy(true);
     const ok = await patch({
       nickname: nickname.trim(),
+      email: email.trim(),
       status,
       isSuper,
       adminRoleId: isSuper ? null : roleId || null,
@@ -332,7 +344,7 @@ function EditModal({
   const del = async () => {
     if (!confirm(`确认删除管理员「${admin.username}」？此操作不可恢复。`)) return;
     setErr("");
-    const r = await fetch(`/api/admin/admins/${admin.id}`, { method: "DELETE" });
+    const r = await adminFetch(`/api/admin/admins/${admin.id}`, { method: "DELETE" });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) {
       setErr(d.error || "删除失败");
@@ -352,6 +364,10 @@ function EditModal({
           <label className={labelCls}>昵称</label>
           <input className={inputCls} value={nickname} onChange={(e) => setNickname(e.target.value)} />
         </div>
+        <div>
+          <label className={labelCls}>告警通知邮箱（可选；订阅类型在「运营告警」页设置）</label>
+          <input className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" />
+        </div>
         <div className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2">
           <div>
             <label className={labelCls}>账户状态</label>
@@ -362,7 +378,7 @@ function EditModal({
               size="md"
               disabled={isSelf}
             />
-            {isSelf && <p className="mt-1 text-[10px] text-zinc-600">不能禁用自己</p>}
+            {isSelf && <p className="mt-1 text-xs text-zinc-600">不能禁用自己</p>}
           </div>
           <div>
             <label className={labelCls}>权限类型</label>
@@ -373,7 +389,7 @@ function EditModal({
               size="md"
               disabled={isSelf}
             />
-            {isSelf && <p className="mt-1 text-[10px] text-zinc-600">不能降级自己</p>}
+            {isSelf && <p className="mt-1 text-xs text-zinc-600">不能降级自己</p>}
           </div>
         </div>
         {!isSuper && (

@@ -37,8 +37,9 @@
 
 ### User（前台会员）
 - 登录：`username`(unique) / `email` / `phone`（后两者可空 unique）、`passwordHash`
-- `role`：`user`=会员、`importer`=采集系统账号（system，不可登录）、`admin_legacy`=历史管理员
-- `membershipLevel` / `membershipUntil`：会员级别（界面不再展示，字段保留）
+- `membershipLevel` → MembershipLevel.code：账号类别与等级统一由等级表表达（`importer`=采集系统账号，系统等级不可登录；普通等级见 `free`/`pro`/`vip`）
+- `membershipUntil`：会员到期时间（等级本身不再用该字段判定登录）
+- 旧 `role` 列已删除，`User` 不再有角色概念
 - `status`(active|banned)、`allowPublish`、`commentBanned`
 - 防审计：`registerIp`、`lastLoginAt`、`lastLoginIp`
 
@@ -123,7 +124,7 @@
 - UserMessage 双向合一：`direction`(user_to_admin|admin_to_user)、会话 = 根消息 + `replyToId` 回复串、`ticketStatus` 维护在根消息（open|replied|closed）、`batchId` 群发批次、`readAt` 未读判定
 - GeneratedAsset：`status`(temp|deleted)、`expireAt` 默认创建后 30 天、转存路径 `generated/{uid}/{yymm}/{uuid}.{ext}`，`sourceUrl` 仅转存失败留存供重试
 - UserApiKey：明文 `sk-` 创建时一次性返回，库内只存 `keyHash`(sha256 unique) + `keyPrefix`
-- OperationalAlert：`alertType`(credit_pool|gross_margin|user_burst)、`payload` 巡检快照 JSON、`ackAt` 确认标记
+- OperationalAlert：`alertType`(credit_pool|gross_margin|pay_fail|register_burst|usage_invalid|reconcile_failed)、`payload` 巡检快照 JSON、`ackAt` 确认标记
 
 ## 设计约定
 

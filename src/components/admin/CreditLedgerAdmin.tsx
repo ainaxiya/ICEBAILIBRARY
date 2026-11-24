@@ -1,6 +1,6 @@
 "use client";
 
-// 后台积分流水：按会员（userId）与变动类型筛选、分页浏览全站积分变动记录。
+// 后台积分明细：按会员（userId）与变动类型筛选、分页浏览全站积分变动记录。
 import { useCallback, useEffect, useState } from "react";
 import Pagination from "@/components/Pagination";
 
@@ -23,7 +23,7 @@ const PAGE_SIZE = 20;
 const REASON_TEXT: Record<string, string> = {
   grant: "入账",
   consume: "消费",
-  refund: "退回",
+  refund: "预扣退回",
   admin_adjust: "调账",
 };
 const REASON_BADGE: Record<string, string> = {
@@ -151,7 +151,7 @@ export default function CreditLedgerAdmin() {
             {loaded && rows.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-10 text-center text-sm text-zinc-600">
-                  暂无流水记录
+                  暂无积分明细
                 </td>
               </tr>
             )}

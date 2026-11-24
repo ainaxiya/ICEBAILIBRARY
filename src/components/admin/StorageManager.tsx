@@ -207,7 +207,7 @@ export default function StorageManager({ initial }: { initial: Bucket[] }) {
                 placeholder={form.type === "s3" ? "https://s3.ap-southeast-1.amazonaws.com" : "https://minio.example.com"}
               />
               {form.type === "s3" && (
-                <p className="mt-1 text-[10px] leading-relaxed text-zinc-600">
+                <p className="mt-1 text-xs leading-relaxed text-zinc-600">
                   亚马逊 S3 需填区域端点：https://s3.&lt;区域&gt;.amazonaws.com（如 s3.ap-southeast-1），不能填 amazonaws.com
                 </p>
               )}
@@ -282,7 +282,7 @@ export default function StorageManager({ initial }: { initial: Bucket[] }) {
                 <td className="px-4 py-3 font-medium text-zinc-100">
                   {b.name}
                   {b.isDefault && (
-                    <span className="ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-400">默认</span>
+                    <span className="ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs text-amber-400">默认</span>
                   )}
                 </td>
                 <td className="px-4 py-3 text-zinc-400">{b.type === "s3" ? "S3" : "MinIO"}</td>

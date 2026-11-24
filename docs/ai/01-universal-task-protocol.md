@@ -51,7 +51,7 @@
 
 ## 二、本地验证手段
 
-- 本地 PG：`npm run db:up`（embedded-postgres）；改 schema 后 `npx prisma db push`
+- 本地 PG：直连 Windows PostgreSQL 服务（`localhost:5433/icebaidata`）；改 schema 后 `npx prisma db push`（不再自建/启动实例）
 - 起服务：`npm run dev`（3000）。**注意：本机 CompletePrompt 目录可能没有 node_modules**，此时类型检查只能靠 GetDiagnostics；构建验证放到服务器或先 `npm install`
 - 生产构建自检命令：`NEXT_TELEMETRY_DISABLED=1 npm run build`
 - 无法本地起服务时，至少完成：诊断零错误 + 逐文件复读改动段 + 对照触点矩阵自检
@@ -79,8 +79,8 @@
 | `Unexpected end of JSON input` | API 抛了未捕获异常返回空体；按陷阱册"所有写接口必 JSON"修，看服务端日志拿真因 |
 | 改了代码页面没变 | force-dynamic 缺失被静态化 / 设置 30s 缓存没走 saveSetting / 浏览器缓存（加 ?v=）/ 没 rebuild |
 | TS 报新字段不存在 | 没跑 prisma generate（db push 会自动跑；手动 `npx prisma generate`） |
-| 本地连不上库 | db:up 没起；DATABASE_URL 指向错误（本地 5432 vs 服务器 35432） |
-| 后台 403 | role 不是 admin / status 非 active / 角色权限缺该点 |
+| 本地连不上库 | Windows PG 服务未启动；DATABASE_URL 指向错误（本地 5433/icebaidata vs 服务器 35432/prompthub） |
+| 后台 403 | 未登录或 admin_token 无效 / AdminAccount status 非 active / 角色权限缺该点 |
 | 前台列表少数据 | status≠published；publishedAt 为空（老数据回填）；分类 slug 不匹配 |
 | 搜索搜不到/筛选失效 | Meili 未同步（写入时 try/catch 吞了 warn）；字段没进 syncPromptToMeili；跑 reindex-meili.mjs |
 | Hydration 报错 | 服务端/客户端首屏文本不一致；客户端语言初始必须 zh（useLocale 已处理，别直接读 cookie 渲染） |

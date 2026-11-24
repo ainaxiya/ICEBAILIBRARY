@@ -3,12 +3,14 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { requireAdmin } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { logAdminAction, getClientIp } from "@/lib/rbac";
+import { logAdminAction, getClientIp, hasRecentReauth, reauthRequired } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
 const patchSchema = z.object({
   nickname: z.string().max(20).optional(),
+  // b16：告警通知邮箱（空串 = 清空）
+  email: z.string().trim().max(120).optional(),
   status: z.enum(["active", "disabled"]).optional(),
   isSuper: z.boolean().optional(),
   adminRoleId: z.number().int().positive().nullable().optional(),
@@ -20,6 +22,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   const operator = await requireAdmin();
   if (!operator) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   if (!operator.isSuper) return NextResponse.json({ error: "仅超级管理员可操作" }, { status: 403 });
+  // 修改管理员（含改权限/重置密码）属敏感操作：需 10 分钟内二次密码验证
+  if (!(await hasRecentReauth(operator.id))) return reauthRequired();
 
   const { id } = await ctx.params;
   const aid = parseInt(id);
@@ -32,6 +36,10 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   }
   const d = parsed.data;
   const isSelf = operator.id === target.id;
+
+  if (d.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) {
+    return NextResponse.json({ error: "邮箱格式不正确" }, { status: 400 });
+  }
 
   // 自我保护：不能禁用/降级自己
   if (isSelf && d.status === "disabled") {
@@ -67,6 +75,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   const data: Record<string, unknown> = {
     nickname: d.nickname !== undefined ? d.nickname || null : undefined,
+    email: d.email !== undefined ? d.email || null : undefined,
     status: d.status,
     isSuper: d.isSuper,
     adminRoleId: d.isSuper !== undefined || d.adminRoleId !== undefined ? nextRoleId : undefined,
@@ -100,6 +109,8 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
   const operator = await requireAdmin();
   if (!operator) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   if (!operator.isSuper) return NextResponse.json({ error: "仅超级管理员可操作" }, { status: 403 });
+  // 删除管理员属敏感操作：需 10 分钟内二次密码验证
+  if (!(await hasRecentReauth(operator.id))) return reauthRequired();
 
   const { id } = await ctx.params;
   const aid = parseInt(id);

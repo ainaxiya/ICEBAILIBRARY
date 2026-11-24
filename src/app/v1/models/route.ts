@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { authenticateV1 } from "@/lib/gateway/auth";
+import { apiError } from "@/lib/gateway/errors";
+import { vendorHasAvailableKey } from "@/lib/gateway/router";
 
 export const dynamic = "force-dynamic";
 
@@ -10,10 +12,7 @@ export const dynamic = "force-dynamic";
 // owned_by=厂商显示名，endpoint_type 决定调用哪个端点（chat→/v1/chat/completions，
 // image/video→/v1/images/generations）。
 
-// OpenAI 风格错误体（与 /v1/chat/completions、/v1/images/generations 保持一致）
-function apiError(status: number, message: string, type: string, code: string) {
-  return NextResponse.json({ error: { message, type, code } }, { status });
-}
+// 统一错误体（P1 契约）：由 gateway/errors.ts 提供
 
 export async function GET(req: NextRequest) {
   // ── 鉴权（站内登录态 / 站外 Bearer sk- Key） ──
@@ -24,6 +23,7 @@ export async function GET(req: NextRequest) {
 
   // S0-5：只返回可实际调用的模型 —— online + 厂商至少 1 把 active Key（健康渠道）
   // + 已配置定价（未定价模型调用时必然 404，不应对外暴露）
+  // P2：Key 全部熔断中的厂商视为无健康渠道，模型从列表隐藏
   // （用户级模型权限白名单属 P3/P5 范围，当前语义：全部活跃会员可用全部在线模型）
   const models = await db.aiModel.findMany({
     where: {
@@ -31,18 +31,23 @@ export async function GET(req: NextRequest) {
       vendor: { status: "online", keys: { some: { status: "active" } } },
       pricings: { some: {} },
     },
-    include: { vendor: true },
+    include: { vendor: { include: { keys: { where: { status: "active" }, select: { id: true, status: true } } } } },
     orderBy: [{ vendorId: "asc" }, { id: "asc" }],
   });
+  const healthy = models.filter((m) => vendorHasAvailableKey(m.vendor.keys));
 
-  return NextResponse.json({
-    object: "list",
-    data: models.map((m) => ({
-      id: m.name,
-      object: "model",
-      created: Math.floor(m.createdAt.getTime() / 1000),
-      owned_by: m.vendor.name,
-      endpoint_type: m.endpointType,
-    })),
-  });
+  // 列表随 Key 健康/模型上下线变化，且响应与鉴权身份绑定：禁止任何中间层缓存
+  return NextResponse.json(
+    {
+      object: "list",
+      data: healthy.map((m) => ({
+        id: m.name,
+        object: "model",
+        created: Math.floor(m.createdAt.getTime() / 1000),
+        owned_by: m.vendor.name,
+        endpoint_type: m.endpointType,
+      })),
+    },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 }

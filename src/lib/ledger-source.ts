@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 
-// ─── 积分流水「来源」简要中文 ───
+// ─── 积分明细「来源」简要中文 ───
 // refType=request → 关联 usage_record 显示「AI 对话 · 模型名」；
 // refType=credit_grant → 关联 credit_grant 显示发放类型（充值/订阅/赠送/试用）；
 // refType=order → 充值订单；refType=admin → 管理员调账（备注）。

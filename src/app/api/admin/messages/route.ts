@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 function msgJson(m: {
   id: bigint;
-  userId: number;
+  userId: number | null;
   direction: string;
   msgType: string;
   subject: string | null;
@@ -78,18 +78,22 @@ export async function GET(req: NextRequest) {
     });
 
     // v0.92 #4：会员信息面板（账号/状态/权限/积分/APIKey/注册登录轨迹）
-    const [grants, apiKeyCount] = await Promise.all([
-      db.creditGrant.findMany({
-        where: {
-          userId: root.userId,
-          remainingCredits: { gt: 0 },
-          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-        },
-        select: { remainingCredits: true },
-      }),
-      db.userApiKey.count({ where: { userId: root.userId } }),
-    ]);
-    const u = await db.user.findUnique({ where: { id: root.userId } });
+    // 会员被删除后 userId 为空：工单照常展示，会员面板为空
+    const memberId = root.userId;
+    const [grants, apiKeyCount] = memberId
+      ? await Promise.all([
+          db.creditGrant.findMany({
+            where: {
+              userId: memberId,
+              remainingCredits: { gt: 0 },
+              OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+            },
+            select: { remainingCredits: true },
+          }),
+          db.userApiKey.count({ where: { userId: memberId } }),
+        ])
+      : [[], 0];
+    const u = memberId ? await db.user.findUnique({ where: { id: memberId } }) : null;
     const member = u
       ? {
           id: u.id,
@@ -122,10 +126,17 @@ export async function GET(req: NextRequest) {
 
   const status = sp.get("status") || "open";
   const page = Math.max(1, parseInt(sp.get("page") || "1") || 1);
+  // 可选按会员过滤（会员详情页工单区块）
+  const userIdRaw = (sp.get("userId") || "").trim();
+  const filterUserId = userIdRaw ? parseInt(userIdRaw, 10) : 0;
+  if (userIdRaw && (!Number.isInteger(filterUserId) || filterUserId <= 0)) {
+    return NextResponse.json({ error: "会员 userId 无效" }, { status: 400 });
+  }
   const where = {
     direction: "user_to_admin",
     msgType: "ticket",
     replyToId: null,
+    ...(filterUserId ? { userId: filterUserId } : {}),
     ...(status !== "all" ? { ticketStatus: status } : {}),
   };
 
@@ -338,7 +349,8 @@ export async function POST(req: NextRequest) {
           const bal = Number(g._sum.remainingCredits ?? 0n);
           return (balanceMin === null || bal >= balanceMin) && (balanceMax === null || bal <= balanceMax);
         })
-        .map((g) => g.userId);
+        .map((g) => g.userId)
+        .filter((v): v is number => v !== null);
       targets = ids.length
         ? await db.user.findMany({ where: { id: { in: ids }, status: { not: "banned" } }, select: { id: true } })
         : [];

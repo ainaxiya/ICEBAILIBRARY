@@ -80,7 +80,7 @@ function MsgBody({ body }: { body: string }) {
 function InfoItem({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2">
-      <p className="text-[10px] text-zinc-500">{label}</p>
+      <p className="text-xs text-zinc-500">{label}</p>
       <p className="mt-0.5 break-all text-xs text-zinc-200">{value}</p>
     </div>
   );
@@ -181,7 +181,7 @@ export default function TicketDetail({ threadId }: { threadId: string }) {
           href={`${ADMIN_BASE}/messages`}
           className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
         >
-          ← 返回工单列表
+          返回工单列表
         </Link>
         <span className="rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-300">{thread.subject || "(无标题)"}</span>
         {thread.ticketStatus && (
@@ -246,10 +246,10 @@ export default function TicketDetail({ threadId }: { threadId: string }) {
                       : "ml-auto border-emerald-500/20 bg-emerald-500/10"
                   }`}
                 >
-                  <p className="mb-1 flex items-center gap-1.5 text-[10px] text-zinc-500">
+                  <p className="mb-1 flex items-center gap-1.5 text-xs text-zinc-500">
                     {m.direction === "user_to_admin" ? (
                       <>
-                        <span>{thread.user.nickname || thread.user.username}（会员）</span>
+                        <span>{(thread.user ? thread.user.nickname || thread.user.username : "该会员号已注销")}（会员）</span>
                         {badge && (
                           <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 font-semibold text-white">
                             {badge}

@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { PERMISSIONS, requirePerm, logAdminAction, getClientIp } from "@/lib/rbac";
 import { num } from "@/lib/model-json";
+import { dateRangeFilter } from "@/lib/date-range";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +24,13 @@ export async function GET(req: NextRequest) {
   const channel = (sp.get("channel") || "").trim();
   const page = Math.max(1, parseInt(sp.get("page") || "1") || 1);
   const pageSize = Math.min(100, Math.max(1, parseInt(sp.get("pageSize") || "20") || 20));
+  // 会员详情页：按会员 + 时间区间筛选
+  const userId = parseInt(sp.get("userId") || "0", 10) || 0;
+  const range = dateRangeFilter(sp.get("dateFrom"), sp.get("dateTo"));
 
   const where: Prisma.PayOrderWhereInput = {
+    ...(userId > 0 ? { userId } : {}),
+    ...(range ? { createdAt: range } : {}),
     ...(status !== "all" && status ? { status } : {}),
     ...(channel !== "all" && channel ? { channel } : {}),
     ...(q
@@ -59,7 +65,7 @@ export async function GET(req: NextRequest) {
       id: o.id,
       orderNo: o.orderNo,
       userId: o.userId,
-      username: o.user.username,
+      username: o.user?.username ?? "该会员号已注销",
       packCode: o.pack.packCode,
       amountCents: num(o.amountCents),
       credits: num(o.pack.credits),
@@ -119,6 +125,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  const orderUserId = order.userId;
+  if (orderUserId === null) {
+    return NextResponse.json({ error: "订单所属会员已注销，无法补单入账" }, { status: 400 });
+  }
+
   // ── markPaid 手动补单：事务内完成 置已支付 → 发积分（CreditGrant）→ 写流水 → 通知会员 ──
   // 入账字段与支付回调（/api/member/pay/notify/[channel]）一致：grantType=topup、sourceRef=orderNo、金额=pack.credits
   let result: "ok" | "granted" | "conflict";
@@ -135,7 +146,7 @@ export async function POST(req: NextRequest) {
       const existing = await tx.creditGrant.findUnique({
         where: {
           userId_grantType_sourceRef: {
-            userId: order.userId,
+            userId: orderUserId,
             grantType: "topup",
             sourceRef: order.orderNo,
           },
@@ -145,7 +156,7 @@ export async function POST(req: NextRequest) {
 
       await tx.creditGrant.create({
         data: {
-          userId: order.userId,
+          userId: orderUserId,
           grantType: "topup",
           // v0.92 #2：购买积分 + 赠送积分
           totalCredits: order.pack.credits + order.pack.bonusCredits,
@@ -158,7 +169,7 @@ export async function POST(req: NextRequest) {
       // 新余额 = 有效 grant 剩余之和（与 getBalance 口径一致）
       const agg = await tx.creditGrant.aggregate({
         where: {
-          userId: order.userId,
+          userId: orderUserId,
           remainingCredits: { gt: 0 },
           OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
         },
@@ -168,7 +179,7 @@ export async function POST(req: NextRequest) {
 
       await tx.creditLedger.create({
         data: {
-          userId: order.userId,
+          userId: orderUserId,
           changeAmount: order.pack.credits + order.pack.bonusCredits,
           balanceAfter,
           reason: "grant",
@@ -181,7 +192,7 @@ export async function POST(req: NextRequest) {
       // 会员到账通知（字段同后台单发通知：admin_to_user / notice）
       await tx.userMessage.create({
         data: {
-          userId: order.userId,
+          userId: orderUserId,
           direction: "admin_to_user",
           msgType: "notice",
           subject: "充值到账通知",

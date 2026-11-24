@@ -2,15 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { encryptSecret } from "@/lib/crypto";
+import { encryptSecret, storageKeySecretStatus } from "@/lib/crypto";
 import { PERMISSIONS, requirePerm, logAdminAction, getClientIp } from "@/lib/rbac";
 import { keyPrefixOf } from "@/lib/model-json";
+import { keyHealthSnapshot } from "@/lib/gateway/router";
 
 export const dynamic = "force-dynamic";
 
 const STATUS = ["active", "disabled"] as const;
 
-// GET /api/admin/models/keys —— Key 列表（只回 keyPrefix，不回明文/密文）
+// GET /api/admin/models/keys —— Key 列表（只回 keyPrefix，不回明文/密文；含 P5 健康度/维护窗口）
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
@@ -29,7 +30,10 @@ export async function GET(req: NextRequest) {
     include: { vendor: { select: { name: true } } },
   });
 
+  const now = Date.now();
   return NextResponse.json({
+    // o4：加密密钥来源状态（配置是否独立；缺失时回退 JWT_SECRET 会随其轮换导致解密失败）
+    keySecurity: storageKeySecretStatus(),
     keys: keys.map((k) => ({
       id: k.id,
       vendorId: k.vendorId,
@@ -38,7 +42,14 @@ export async function GET(req: NextRequest) {
       keyPrefix: k.keyPrefix,
       configured: true,
       status: k.status,
+      weight: k.weight,
+      maintainUntil: k.maintainUntil ? k.maintainUntil.toISOString() : null,
+      // P5 健康度：熔断状态 + 滑动窗口样本/失败率（进程内存态，只读展示）
+      health: keyHealthSnapshot(k.id),
+      // 维护中标志（maintainUntil 已过但未清除时视为不在维护）
+      maintaining: !!(k.maintainUntil && k.maintainUntil.getTime() > now),
       remark: k.remark,
+      tags: k.tags,
       lastUsedAt: k.lastUsedAt ? k.lastUsedAt.toISOString() : null,
       createdAt: k.createdAt.toISOString(),
     })),

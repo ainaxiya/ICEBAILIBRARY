@@ -1,35 +1,35 @@
-import { uniqueNamesGenerator } from "unique-names-generator";
+// ─── 注册自动取名：网络昵称风（非真名）───
+// 中文：2 字状态词 + 1~2 字主体 + 2 位数字尾缀（总长 5-6 字符，符合 2-6 要求）；
+// 英文：单词 + 单词 + 2 位数字尾缀（3-20 字符）。
+// 固定数字尾缀 + 拟物组合让用户一眼看出是系统自动分配的昵称。
 
-// ─── 注册自动取名（unique-names-generator 插件 + 中/英自定义词库）───
-// 中文界面 → 中文姓名（姓 + 1~2 字名）；英文界面 → 英文姓名（First Last）。
-
-const ZH_SURNAMES = [
-  "李", "王", "张", "刘", "陈", "杨", "黄", "赵", "周", "吴", "徐", "孙", "马", "朱", "胡", "郭", "何", "高", "林", "罗",
-  "郑", "梁", "谢", "宋", "唐", "许", "韩", "冯", "邓", "曹", "彭", "曾", "肖", "田", "董", "袁", "潘", "于", "蒋", "蔡",
-  "余", "杜", "叶", "程", "苏", "魏", "吕", "丁", "任", "沈", "姚", "卢", "姜", "崔", "钟", "谭", "陆", "汪", "范", "金",
+const ZH_MODIFIERS = [
+  "摸鱼", "冲浪", "熬夜", "干饭", "划水", "追风", "星河", "云端", "打盹", "蹭网",
+  "满级", "氪金", "咸鱼", "蹦跶", "隐身", "电竞", "躺平", "种草", "攒钱", "逆风",
 ];
 
-const ZH_GIVEN = [
-  "子墨", "雨萱", "浩然", "梦琪", "思远", "婉清", "嘉懿", "睿渊", "静怡", "泽宇",
-  "慕白", "星河", "若曦", "沐辰", "语嫣", "楚寒", "亦凡", "晨曦", "诗涵", "天佑",
-  "清欢", "望舒", "云舟", "青临", "映雪", "归鸿", "疏影", "芳华", "立诚", "煜祺",
-  "书瑶", "瑾瑜", "念安", "南絮", "知许", "可心", "以宁", "星阑",
+const ZH_SUBJECTS = [
+  "猫", "兔", "鹿", "熊", "狐", "鲸", "侠", "精灵", "玩家", "达人",
+  "小厨", "海豹", "企鹅", "海豚", "旅人", "奶茶", "布丁", "团子", "小鹅", "柯基",
 ];
 
-const EN_FIRST = [
-  "Alex", "Sophia", "Liam", "Olivia", "Noah", "Emma", "Ava", "Ethan", "Isabella", "Lucas",
-  "Mia", "Mason", "Charlotte", "Elijah", "Amelia", "Logan", "Harper", "James", "Evelyn", "Benjamin",
+const EN_MODIFIERS = [
+  "Turbo", "Pixel", "Cosmic", "Ninja", "Lazy", "Hyper", "Quantum", "Cyber", "Mango", "Rocket",
+  "Silent", "Lucky", "Funky", "Astro", "Echo", "Sunny", "Frosty", "Rapid", "Lunar", "Vivid",
 ];
 
-const EN_LAST = [
-  "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez",
-  "Hernandez", "Lopez", "Wilson", "Anderson", "Thomas", "Taylor", "Moore", "Jackson", "Martin", "Lee",
+const EN_SUBJECTS = [
+  "Panda", "Otter", "Ranger", "Falcon", "Tiger", "Rabbit", "Wolf", "Koala", "Pilot", "Rider",
+  "Wizard", "Gamer", "Drifter", "Hunter", "Camper", "Runner", "Keeper", "Racer", "Sailor", "Sparrow",
 ];
 
-// 生成随机昵称：locale 为 "en" 取英文名，其余取中文名
+const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+const digits = () => String(10 + Math.floor(Math.random() * 90)); // 10-99
+
+// 生成随机昵称：locale 为 "en" 取英文网络昵称，其余取中文网络昵称
 export function randomNickname(locale?: string | null): string {
   if (locale === "en") {
-    return uniqueNamesGenerator({ dictionaries: [EN_FIRST, EN_LAST], separator: " ", length: 2 });
+    return `${pick(EN_MODIFIERS)}${pick(EN_SUBJECTS)}${digits()}`;
   }
-  return uniqueNamesGenerator({ dictionaries: [ZH_SURNAMES, ZH_GIVEN], separator: "", length: 2 });
+  return `${pick(ZH_MODIFIERS)}${pick(ZH_SUBJECTS)}${digits()}`;
 }

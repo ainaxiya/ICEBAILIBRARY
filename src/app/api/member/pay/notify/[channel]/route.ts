@@ -50,6 +50,15 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "积分包不存在" }, { status: 500 });
   }
 
+  // 会员已注销但订单仍待支付：不能再入账，直接返回并关闭订单
+  if (!order.userId) {
+    await db.payOrder.updateMany({
+      where: { id: order.id, status: "pending" },
+      data: { status: "closed", providerEventId: verify.eventId || null },
+    });
+    return NextResponse.json({ error: "订单所属会员已注销" }, { status: 400 });
+  }
+
   // 先发积分（grant 幂等，崩溃后可安全重试），再标记已支付；v0.92 #2 购买积分 + 赠送积分
   await grant(order.userId, "topup", pack.credits + pack.bonusCredits, order.orderNo);
   await db.payOrder.updateMany({

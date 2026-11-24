@@ -3,6 +3,7 @@ import { requireAdmin } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/crypto";
 import { PERMISSIONS, requirePerm, logAdminAction, getClientIp } from "@/lib/rbac";
+import { computeModelDiff } from "@/lib/admin/model-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -16,20 +17,21 @@ export const dynamic = "force-dynamic";
 //   勾选入库：仅创建勾选的候选模型（@@unique([vendorId,name]) 幂等），同时同步已在库模型的可用性；
 //   applyPricing=true 时把 /models/pricing 价格写入「尚无定价」模型的成本价（USD 按 fxRate 汇率换算 RMB 计费）。
 
-// 端点类型启发式判定（按 image → video → audio 顺序匹配，默认 chat）
+// 端点类型启发式判定：视频家族先匹配（v0.113 修复 image-to-video 等被 "image" 误判为图片模型），默认 chat
 function guessEndpointType(name: string): "chat" | "image" | "video" | "audio" {
   const n = name.toLowerCase();
+  if (/-to-video|video-to-video|i2v|t2v|r2v|sora|video|veo|kling|runway|pika|hailuo|wan|keling|seedance|minimax-h3/.test(n)) return "video";
   if (/dall-e|image|flux|seedream|stable-diffusion|midjourney|\bsd[-_ ]?\d/.test(n)) return "image";
-  if (/sora|video|veo|kling|runway|pika|hailuo|wan|keling/.test(n)) return "video";
   if (/whisper|tts|speech|audio/.test(n)) return "audio";
   return "chat";
 }
 
-// 上游模型条目：id + 停用日期 + 归属 + 视频功能参数（/models?type=video 额外字段）
+// 上游模型条目：id + 停用日期 + 归属 + 可用状态 + 视频功能参数（/models?type=video 额外字段）
 interface UpstreamModel {
   id: string;
   shutdownDate: string | null;
   ownedBy: string | null;
+  status: string | null;
   params: Record<string, unknown> | null;
 }
 
@@ -45,8 +47,26 @@ function parseOwnedBy(m: Record<string, unknown>): string | null {
   return typeof raw === "string" && raw.length > 0 ? raw : null;
 }
 
+// 提取模型可用状态（火山方舟返回 status: Available / Unavailable；兼容 state / availability 写法）
+function parseStatus(m: Record<string, unknown>): string | null {
+  const raw = m.status ?? m.state ?? m.availability;
+  return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : null;
+}
+
 // 视频模型功能参数：条目上除标准字段外的其余键值（duration/resolution/fps/audio 等），原样保留
-const STANDARD_KEYS = new Set(["id", "object", "created", "owned_by", "ownedBy", "shutdown_date", "shutdownDate", "type"]);
+const STANDARD_KEYS = new Set([
+  "id",
+  "object",
+  "created",
+  "owned_by",
+  "ownedBy",
+  "shutdown_date",
+  "shutdownDate",
+  "type",
+  "status",
+  "state",
+  "availability",
+]);
 function parseExtraParams(m: Record<string, unknown>): Record<string, unknown> | null {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(m)) {
@@ -65,6 +85,19 @@ function isShutdown(shutdownDate: string | null): boolean {
 // 判定仅内部使用：owned_by 含 internal（如 "openai-internal"，公司内部人员专用，外部调用不了）
 function isInternalOnly(ownedBy: string | null): boolean {
   return !!ownedBy && /internal/i.test(ownedBy);
+}
+
+// 不可用原因（null = 可用）：上游 status=Unavailable > 待下线(Retiring) > 已过停用日期 > 仅内部可用
+// 注意：火山方舟公共目录 GET /models 的 status 取值是 Published / Retiring（生命周期），
+// 不是账号权益的 Available / Unavailable（那个来自 ListModelChargeItems）；
+// Retiring = 仍可调用但已进入下线流程，默认不作为可入库候选。
+type UnavailableReason = "status_unavailable" | "retiring" | "shutdown" | "internal";
+function unavailableReasonOf(m: UpstreamModel): UnavailableReason | null {
+  if (m.status && /^(unavailable|disabled|inactive|offline)$/i.test(m.status)) return "status_unavailable";
+  if (m.status && /^(retiring|retire|deprecated|deprecating)$/i.test(m.status)) return "retiring";
+  if (isShutdown(m.shutdownDate)) return "shutdown";
+  if (isInternalOnly(m.ownedBy)) return "internal";
+  return null;
 }
 
 // 候选地址：base 不带 /v1 时两个都试（聚合 AI 两种挂法都常见）
@@ -125,7 +158,13 @@ async function fetchUpstreamModels(
     .map((obj) => {
       const id = obj.id ?? obj.name;
       return typeof id === "string" && id.length > 0
-        ? { id, shutdownDate: parseShutdownDate(obj), ownedBy: parseOwnedBy(obj), params: parseExtraParams(obj) }
+        ? {
+            id,
+            shutdownDate: parseShutdownDate(obj),
+            ownedBy: parseOwnedBy(obj),
+            status: parseStatus(obj),
+            params: parseExtraParams(obj),
+          }
         : null;
     })
     .filter((m): m is UpstreamModel => m !== null);
@@ -362,6 +401,7 @@ export async function GET(
   const merged = mergeModels(upstream.models, videoModels);
 
   let candidates = 0;
+  let availableCount = 0;
   let inDb = 0;
   let skippedUnavailable = 0;
   let toDeactivate = 0;
@@ -371,35 +411,65 @@ export async function GET(
     path: string | null;
     shutdownDate: string | null;
     ownedBy: string | null;
+    status: string | null;
+    available: boolean;
+    unavailableReason: UnavailableReason | null;
+    inDb: boolean;
+    dbStatus: string | null;
     videoParams: Record<string, unknown> | null;
   }[] = [];
 
-  for (const { id: name, shutdownDate, ownedBy, params: extra } of merged) {
-    const unavailable = isShutdown(shutdownDate) || isInternalOnly(ownedBy);
+  // 全量返回上游模型（含已在库 / 不可用），由后台按 Available / Unavailable 筛选后勾选入库；
+  // candidates 仅为「可用且未入库」的子集（兼容批量勾选的默认口径）。
+  for (const m of merged) {
+    const reason = unavailableReasonOf(m);
+    const available = reason === null;
     const existing = await db.aiModel.findUnique({
-      where: { vendorId_name: { vendorId: key.vendorId, name } },
+      where: { vendorId_name: { vendorId: key.vendorId, name: m.id } },
     });
 
+    if (available) availableCount += 1;
     if (existing) {
       inDb += 1;
-      if (unavailable && existing.status !== "offline") toDeactivate += 1;
-      continue;
-    }
-    if (unavailable) {
+      // 与 POST 同口径：Retiring（待下线）不作为下线标记，避免预览计数与实际入库动作不一致
+      if (reason !== null && reason !== "retiring" && existing.status !== "offline") toDeactivate += 1;
+    } else if (!available) {
       skippedUnavailable += 1;
-      continue;
+    } else {
+      candidates += 1;
     }
-    // 可用且未入库 → 候选，供勾选入库
-    const endpointType = guessEndpointType(name);
-    candidates += 1;
-    items.push({ name, endpointType, path: endpointPathOf(endpointType), shutdownDate, ownedBy, videoParams: extra });
+
+    // 已在库的用库内端点类型（可能是人工调整过的），否则用启发式判定
+    const endpointType = existing ? existing.endpointType : guessEndpointType(m.id);
+    items.push({
+      name: m.id,
+      endpointType,
+      path: endpointPathOf(endpointType),
+      shutdownDate: m.shutdownDate,
+      ownedBy: m.ownedBy,
+      status: m.status,
+      available,
+      unavailableReason: reason,
+      inDb: !!existing,
+      dbStatus: existing?.status ?? null,
+      videoParams: m.params,
+    });
   }
+
+  // b15：变更检测（新增 / 下线 / 恢复 / 参数变化），供后台 diff 预览
+  const dbRows = await db.aiModel.findMany({
+    where: { vendorId: key.vendorId },
+    select: { name: true, status: true, advancedConfig: true },
+  });
+  const diff = computeModelDiff(items, dbRows);
 
   return NextResponse.json({
     ok: true,
     total: merged.length,
-    counts: { candidates, inDb, skippedUnavailable, toDeactivate },
-    candidates: items,
+    counts: { candidates, available: availableCount, inDb, skippedUnavailable, toDeactivate },
+    candidates: items.filter((i) => i.available && !i.inDb),
+    items,
+    diff,
     videoSource: videoRes.ok ? "ok" : "unavailable",
   });
 }
@@ -465,6 +535,8 @@ export async function POST(
   const fxRow = await db.fxRate.findUnique({ where: { currency: "USD" } });
   let fxRate = fxRow ? Number(fxRow.rateE8) / 1e8 : 7.15;
   let createAll = false;
+  // b15：一键应用「恢复上线」的已下线模型
+  let restoreNames: string[] = [];
   try {
     const body = (await req.json()) as {
       mode?: unknown;
@@ -472,9 +544,13 @@ export async function POST(
       applyPricing?: unknown;
       fxRate?: unknown;
       createAll?: unknown;
+      restoreNames?: unknown;
     };
     if (Array.isArray(body?.names)) {
       names = body.names.filter((n): n is string => typeof n === "string" && n.length > 0);
+    }
+    if (Array.isArray(body?.restoreNames)) {
+      restoreNames = body.restoreNames.filter((n): n is string => typeof n === "string" && n.length > 0);
     }
     applyPricing = body?.applyPricing === true;
     pricingOnly = body?.mode === "pricing";
@@ -486,7 +562,7 @@ export async function POST(
   }
 
   // ── 获取原价（独立动作）：不入库，只按已入库模型 ID 匹配填入成本价 ──
-  if (pricingOnly || (applyPricing && names.length === 0 && !createAll)) {
+  if (pricingOnly || (applyPricing && names.length === 0 && !createAll && restoreNames.length === 0)) {
     const modelCount = await db.aiModel.count({ where: { vendorId: key.vendorId } });
     if (modelCount === 0) {
       return NextResponse.json({ error: "该厂商还没有模型：请先用「获取所有模型」入库，再获取原价" }, { status: 400 });
@@ -503,10 +579,11 @@ export async function POST(
     return NextResponse.json({ ok: true, ...r });
   }
 
-  if (names.length === 0 && !createAll) {
+  if (names.length === 0 && !createAll && restoreNames.length === 0) {
     return NextResponse.json({ error: "请勾选要入库的模型" }, { status: 400 });
   }
   const selected = new Set(names);
+  const restoreSet = new Set(restoreNames);
 
   const upstream = await fetchUpstreamModels(key.vendor.apiBase, apiKey, "");
   if (!upstream.ok) return NextResponse.json({ error: upstream.error }, { status: 502 });
@@ -516,29 +593,40 @@ export async function POST(
   let created = 0;
   let kept = 0;
   let deactivated = 0;
+  let restored = 0;
   let skipped = 0;
   let unselected = 0;
   const items: {
     name: string;
     endpointType: string;
-    state: "created" | "kept" | "deactivated" | "skipped" | "unselected";
+    state: "created" | "kept" | "deactivated" | "restored" | "skipped" | "unselected";
     shutdownDate: string | null;
     ownedBy: string | null;
   }[] = [];
 
-  for (const { id: name, shutdownDate, ownedBy, params: extra } of merged) {
-    // 不可用 = 已过停用日期，或仅内部使用（owned_by 含 internal，外部调用不了）
-    const unavailable = isShutdown(shutdownDate) || isInternalOnly(ownedBy);
+  for (const m of merged) {
+    const name = m.id;
+    const { shutdownDate, ownedBy, params: extra } = m;
+    // 不可用 = 上游 status=Unavailable / 已过停用日期 / 仅内部使用（owned_by 含 internal，外部调用不了）
+    // Retiring（待下线）只影响「是否作为新候选入库」，不自动把已在库模型置 offline，避免误停线上流量
+    const reason = unavailableReasonOf(m);
+    const unavailable = reason !== null;
+    const shouldDeactivate = reason !== null && reason !== "retiring";
     const existing = await db.aiModel.findUnique({
       where: { vendorId_name: { vendorId: key.vendorId, name } },
     });
 
     if (existing) {
-      if (unavailable && existing.status !== "offline") {
+      if (shouldDeactivate && existing.status !== "offline") {
         // 已存在但上游不可用 → 标记下线（同步可用性，不动定价/端点等其余配置）
         await db.aiModel.update({ where: { id: existing.id }, data: { status: "offline" } });
         deactivated += 1;
         items.push({ name, endpointType: existing.endpointType, state: "deactivated", shutdownDate, ownedBy });
+      } else if (!unavailable && existing.status === "offline" && restoreSet.has(name)) {
+        // b15：上游恢复可用且勾选了「恢复」→ 重新上线
+        await db.aiModel.update({ where: { id: existing.id }, data: { status: "online" } });
+        restored += 1;
+        items.push({ name, endpointType: existing.endpointType, state: "restored", shutdownDate, ownedBy });
       } else {
         // 已存在且可用（或本就 offline）→ 不动（不覆盖 status/pricing/displayName/endpointType）
         kept += 1;
@@ -562,12 +650,9 @@ export async function POST(
     }
 
     const endpointType = guessEndpointType(name);
-    // 视频功能参数入库到备注（JSON，供后台查阅）
-    let remark: string | null = null;
-    if (extra) {
-      const json = JSON.stringify(extra);
-      remark = `video-params:${json}`.slice(0, 500);
-    }
+    // v0.113：视频功能参数完整写入「高级配置」（advancedConfig，Text 无限长）；
+    // 之前塞 remark 且 slice(0,500) 导致 JSON 截断不完整（存量数据已迁移）
+    const advancedConfig: string | null = extra ? JSON.stringify(extra) : null;
     const model = await db.aiModel.create({
       data: {
         vendorId: key.vendorId,
@@ -575,7 +660,8 @@ export async function POST(
         displayName: name,
         endpointType,
         status: "online",
-        remark,
+        remark: null,
+        advancedConfig,
       },
     });
     const path = endpointPathOf(endpointType);
@@ -608,6 +694,7 @@ export async function POST(
       created,
       kept,
       deactivated,
+      restored,
       skipped,
       unselected,
       applyPricing,
@@ -622,6 +709,7 @@ export async function POST(
     created,
     kept,
     deactivated,
+    restored,
     skipped,
     unselected,
     priced,

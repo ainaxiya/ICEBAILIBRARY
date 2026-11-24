@@ -43,7 +43,13 @@ export async function GET(
   if (asset.expireAt && asset.expireAt.getTime() <= Date.now()) {
     return NextResponse.json({ error: "资产已过期，请重新生成" }, { status: 410 });
   }
-  if (!asset.bucket) return NextResponse.json({ error: "资产未关联存储" }, { status: 404 });
+  // 本地落盘产物（实验场默认存储）：storageKey 就是 /uploads/ 直链
+  if (!asset.bucket) {
+    if (asset.storageKey.startsWith("/uploads/")) {
+      return NextResponse.json({ url: asset.storageKey });
+    }
+    return NextResponse.json({ error: "资产未关联存储" }, { status: 404 });
+  }
 
   // 私有读 + 签名 URL（60 秒有效），不走 publicBaseUrl 直链防外链遍历
   const url = await presignDownload(bucketToConfig(asset.bucket), asset.storageKey);

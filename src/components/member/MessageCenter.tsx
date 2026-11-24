@@ -81,6 +81,14 @@ export default function MessageCenter({ newTicketSignal = 0, initialSection }: {
   const lastSignal = useRef(0);
   // 聊天式界面：消息区自动滚到底部
   const chatEndRef = useRef<HTMLDivElement | null>(null);
+  // 当前用户头像（工单气泡「我」侧显示；加载失败回退「我」字圆标）
+  const [myAvatar, setMyAvatar] = useState<string | null>(null);
+  useEffect(() => {
+    fetch("/api/me")
+      .then((r) => r.json())
+      .then((d) => setMyAvatar(d.user?.avatar || null))
+      .catch(() => {});
+  }, []);
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ block: "end" });
   }, [messages, selectedId]);
@@ -287,13 +295,13 @@ export default function MessageCenter({ newTicketSignal = 0, initialSection }: {
                         {th.unread > 0 && <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" />}
                         <span className="min-w-0 flex-1 truncate text-sm text-zinc-200">{th.subject || "(无标题)"}</span>
                         {th.ticketStatus && (
-                          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${STATUS_BADGE[th.ticketStatus] || ""}`}>
+                          <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${STATUS_BADGE[th.ticketStatus] || ""}`}>
                             {STATUS_TEXT[th.ticketStatus] || th.ticketStatus}
                           </span>
                         )}
                       </div>
                       <p className="mt-1 truncate text-xs text-zinc-500">{stripHtml(th.lastBody)}</p>
-                      <p className="mt-1 text-[10px] text-zinc-600">{fmt(th.lastAt)}</p>
+                      <p className="mt-1 text-xs text-zinc-600">{fmt(th.lastAt)}</p>
                     </button>
                   </li>
                 ))}
@@ -317,10 +325,10 @@ export default function MessageCenter({ newTicketSignal = 0, initialSection }: {
                     <h3 className="truncate text-sm font-semibold text-zinc-100">
                       客服 · {selected.subject || "(无标题)"}
                     </h3>
-                    <p className="text-[10px] text-zinc-500">创建于 {fmt(selected.createdAt)}</p>
+                    <p className="text-xs text-zinc-500">创建于 {fmt(selected.createdAt)}</p>
                   </div>
                   {selected.ticketStatus && (
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] ${STATUS_BADGE[selected.ticketStatus] || ""}`}>
+                    <span className={`rounded-full px-2 py-0.5 text-xs ${STATUS_BADGE[selected.ticketStatus] || ""}`}>
                       {STATUS_TEXT[selected.ticketStatus] || selected.ticketStatus}
                     </span>
                   )}
@@ -343,14 +351,19 @@ export default function MessageCenter({ newTicketSignal = 0, initialSection }: {
                     return (
                       <div key={m.id} className={`flex items-start gap-2 ${mine ? "flex-row-reverse" : ""}`}>
                         <span
-                          className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-xs ${
+                          className={`grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full text-xs ${
                             mine ? "bg-zinc-700 text-zinc-300" : "bg-emerald-500/20 text-emerald-300"
                           }`}
                         >
-                          {mine ? "我" : "客"}
+                          {mine && myAvatar ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={myAvatar} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            (mine ? "我" : "客")
+                          )}
                         </span>
                         <div className={`max-w-[75%] ${mine ? "text-right" : ""}`}>
-                          <p className="mb-1 text-[10px] text-zinc-500">
+                          <p className="mb-1 text-xs text-zinc-500">
                             {mine ? "我" : m.replyByNick || "客服"} · {fmt(m.createdAt)}
                           </p>
                           <div
@@ -382,7 +395,7 @@ export default function MessageCenter({ newTicketSignal = 0, initialSection }: {
                       placeholder="输入消息，Enter 换行…"
                       minHeight={80}
                       maxImageMB={5}
-                      toolbar="imageOnly"
+                      toolbar="simple"
                     />
                     <div className="mt-2 flex items-center gap-2">
                       {error && <p className="text-xs text-rose-400">{error}</p>}
@@ -427,7 +440,7 @@ export default function MessageCenter({ newTicketSignal = 0, initialSection }: {
                       <span className={`text-sm font-medium ${n.unread ? "text-zinc-100" : "text-zinc-300"}`}>
                         {n.subject || "(无标题)"}
                       </span>
-                      <span className="ml-auto text-[10px] text-zinc-600">{fmt(n.createdAt)}</span>
+                      <span className="ml-auto text-xs text-zinc-600">{fmt(n.createdAt)}</span>
                       <svg
                         viewBox="0 0 24 24"
                         fill="none"
@@ -490,7 +503,7 @@ export default function MessageCenter({ newTicketSignal = 0, initialSection }: {
               placeholder="请描述你的问题或需求…"
               minHeight={140}
               maxImageMB={5}
-              toolbar="imageOnly"
+              toolbar="simple"
             />
             <div className="mt-3 flex justify-end gap-2">
               <button

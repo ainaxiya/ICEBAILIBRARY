@@ -42,7 +42,7 @@
 - 作品主类型取节点类型多数（video > image > audio > text），分类映射 `sp(视频) / tp(图片) / yp(音频) / qt(其他)`（分类 slug 为 2 字母短码，见 category-meta.ts）。
 - 媒体：封面 + 图片节点（最终成品优先，其余均匀抽取，图片上限 12 张/作品、视频截帧上限 6 段/作品），全部 sharp webp 化到 `public/uploads/liblib/<promptId>/`（图片 `image-<hash>.webp`，视频帧 `frame-<hash>.webp`）。
 - **视频截帧（上线当日补装 ffmpeg 8.0.1 后启用）**：ffmpeg 直读远端 mp4，带 `-referer`/`-user_agent` 防盗链，1s/3s/0.5s 三个时间点取最亮帧，webp 化后以 `type:"image"` + `nodeKind:"video"` 入库。路径 `FFMPEG_PATH || "ffmpeg"`。
-- Prompt 字段：`sourceSite="liblib.tv"`、`sourceUrl="https://www.liblib.tv/canvas?sourceProjectUuid=<uuid>"`、`sourceAuthor`、tags、likeCount、language=zh、status=published、adminAuthorId=操作管理员、userId=专用 importer 账号 `libtv`（role=importer，自动 upsert）。
+- Prompt 字段：`sourceSite="liblib.tv"`、`sourceUrl="https://www.liblib.tv/canvas?sourceProjectUuid=<uuid>"`、`sourceAuthor`、tags、likeCount、language=zh、status=published、adminAuthorId=操作管理员、userId=专用 importer 账号 `libtv`（membershipLevel=importer，自动 upsert）。
 - 入库后双写 Meilisearch（`syncPromptToMeili`），立即可搜。
 
 ### 3b. 即梦AI（src/lib/crawl-jimeng.ts）
@@ -59,11 +59,12 @@
   - 图片作品：封面 + 大图，sharp webp 化到 `public/uploads/liblib/<promptId>/`。
   - 视频作品：封面（首帧图）+ ffmpeg 截帧（多时间点取最亮帧，与 LIBTV 同策略）。
 - **图片 URL 带签名过期**（x-expires），采集入库后存本地路径不受影响。
+- **封面在 fetch 阶段即本地化**：远端封面下载为 webp 落 `public/uploads`，`CrawlItem.coverUrl` 存本地路径，远端地址留在 `tags[0].c`，列表与入库都不再依赖短时效签名。
 - **视频 URL 短时效签名**（约 1 小时），入库任务中若已过期则跳过截帧，仅用封面。
-- **tags 约定（v0.5 起）**：`[0]="__meta__"+JSON（p=提示词 m=模型名 w=形态 v=视频地址 i=大图地址）`，后续为真实标签（模型名、文生图/文生视频）；入库时 `__meta__` 标签剥离，真实标签写入 `prompt.tags`。旧格式（`[0]=提示词 [1]=模型名 [2]=形态 [3]=视频地址`）入库代码保留兼容。
+- **tags 约定（v0.5 起）**：`[0]="__meta__"+JSON（p=提示词 m=模型名 w=形态 v=视频地址 i=大图地址 c=远端封面地址）`，后续为真实标签（模型名、文生图/文生视频）；入库时 `__meta__` 标签剥离，真实标签写入 `prompt.tags`。旧格式（`[0]=提示词 [1]=模型名 [2]=形态 [3]=视频地址`）入库代码保留兼容。
 - **标题兜底**：即梦 API 大部分作品 `common_attr.title` 为空，空标题自动取提示词前 30 字（加省略号），再兜底「即梦AI视频/即梦AI绘画」。
 - **大图取值**：`image.large_images` 是数组，取 `[0].image_url`（v0.4 误按对象取值导致大图丢失）。
-- Prompt 字段：`sourceSite="jimeng.jianying.com"`、`sourceUrl="https://jimeng.jianying.com/ai-tool/work/<itemId>"`、`sourceAuthor`、tags（真实标签：模型名、文生图/文生视频）、likeCount、language=zh、status=published、adminAuthorId=操作管理员、userId=专用 importer 账号 `jimeng`（role=importer，自动 upsert）。
+- Prompt 字段：`sourceSite="jimeng.jianying.com"`、`sourceUrl="https://jimeng.jianying.com/ai-tool/work/<itemId>"`、`sourceAuthor`、tags（真实标签：模型名、文生图/文生视频）、likeCount、language=zh、status=published、adminAuthorId=操作管理员、userId=专用 importer 账号 `jimeng`（membershipLevel=importer，自动 upsert）。
 - 入库后双写 Meilisearch（`syncPromptToMeili`），立即可搜。
 
 ### 3c. PromptHub 技能库（src/lib/crawl-prompthub.ts · `fetchPrompthubSkills` / `fetchPrompthubSkillDetail`）
@@ -120,7 +121,7 @@ export type CrawlSourceId = "libtv" | "jimeng" | "prompthub-skills" | "prompthub
 - 入库任务在 Next 进程内异步执行，依赖 PM2 常驻；极端情况（进程在任务中被杀）由 45 分钟超时回收。
 - LIBTV 远端接口无鉴权但有频控：feed 页间隔 250ms、429 退避；单图下载间隔 80ms。
 - 即梦远端接口通过 JSONP 公开访问：feed 页间隔 300ms、429 退避；单图下载间隔 80ms。
-- 即梦图片 URL 带签名过期（x-expires），采集后存本地不受影响；但 CrawlItem.coverUrl 中的远端 URL 过期后封面将无法在列表中显示（TODO: 后续可考虑 fetch 时同步下载封面到本地缓存）。
+- 即梦图片 URL 带签名过期（x-expires），采集后存本地不受影响；封面在 fetch 阶段已下载到本地（`CrawlItem.coverUrl` 为 `/uploads/...`），列表不再因签名过期裂图；入库优先复用该本地封面，远端地址（`tags[0].c`）仅在本地缓存缺失时兜底下载。
 - 即梦视频 URL 短时效签名（约 1 小时），入库时若已过期则跳过截帧仅用封面；后续如需完整视频截帧，需在 fetch 阶段同步下载视频或缩短 fetch→import 间隔。
 - **PromptHub 技能库**：GitHub 来源路径只在部分技能的 RSC payload 里带 `blob/<branch>/.../SKILL.md` 形态，路径不带 slug 或 SKILL.md 不在常规位置的条目会拉取失败（首批 18 条中 6 条成功，其余为边缘 case，不会入库脏数据）。
 - **PromptHub 提示词库**：列表页 SSR 只渲染少量推荐条目（实测 2 条），分页疑似前端动态加载，因此当前可采量很少；后续可尝试直接请求其分页接口或 RSC 路由。

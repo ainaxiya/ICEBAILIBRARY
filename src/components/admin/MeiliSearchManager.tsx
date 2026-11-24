@@ -124,17 +124,17 @@ function IndexOverview() {
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="rounded-lg bg-zinc-800/50 p-2.5">
-                <div className="text-[11px] text-zinc-500">文档数</div>
+                <div className="text-xs text-zinc-500">文档数</div>
                 <div className="text-lg font-semibold text-zinc-100">{(s.numberOfDocuments ?? 0).toLocaleString()}</div>
               </div>
               <div className="rounded-lg bg-zinc-800/50 p-2.5">
-                <div className="text-[11px] text-zinc-500">存储</div>
+                <div className="text-xs text-zinc-500">存储</div>
                 <div className="text-lg font-semibold text-zinc-100">
                   {s.databaseSize ? `${(s.databaseSize / 1024 / 1024).toFixed(1)} MB` : "-"}
                 </div>
               </div>
             </div>
-            <div className="mt-3 space-y-1.5 text-[11px] text-zinc-500">
+            <div className="mt-3 space-y-1.5 text-xs text-zinc-500">
               <div>可搜索字段：{(s.fieldDistribution ? Object.keys(s.fieldDistribution).length : 0)} 个</div>
               {s.lastUpdate && (
                 <div className="truncate">更新：{new Date(s.lastUpdate).toLocaleString("zh-CN")}</div>

@@ -10,7 +10,7 @@ try {
   const rows = await db.operationalAlert.createMany({
     data: [
       { alertType: "credit_pool", level: "warn", message: "本地测试告警1（积分池）", payload: "{\"test\":true}" },
-      { alertType: "user_burst", level: "critical", message: "本地测试告警2（异常消耗）", payload: "{\"test\":true}" },
+      { alertType: "register_burst", level: "critical", message: "本地测试告警2（注册异常）", payload: "{\"test\":true}" },
     ],
   });
   console.log("inserted:", rows.count);

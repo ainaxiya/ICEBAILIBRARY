@@ -11,7 +11,7 @@ type Row = {
   likeCount: number;
   targetType: string;
   targetId: number;
-  userId: number;
+  userId: number | null;
   createdAt: string;
   user: { id: number; username: string; nickname: string | null; commentBanned: boolean } | null;
   prompt: { id: number; title: string | null } | null;
@@ -315,15 +315,21 @@ export default function CommentManager() {
                   </p>
                 </td>
                 <td className="whitespace-nowrap px-3 py-3 text-xs text-zinc-400">
-                  <div>{r.user?.nickname || r.user?.username || `#${r.userId}`}</div>
+                  <div>
+                    {r.user
+                      ? r.user.nickname || r.user.username
+                      : r.userId
+                        ? `该会员号已注销（#${r.userId}）`
+                        : "该会员号已注销"}
+                  </div>
                   {r.user?.commentBanned && (
-                    <span className="mt-0.5 inline-block rounded bg-rose-500/15 px-1 py-0.5 text-[10px] text-rose-300">
+                    <span className="mt-0.5 inline-block rounded bg-rose-500/15 px-1 py-0.5 text-xs text-rose-300">
                       已禁言
                     </span>
                   )}
                 </td>
                 <td className="max-w-[180px] px-3 py-3 text-xs">
-                  <span className="mr-1 rounded bg-zinc-700/40 px-1 py-0.5 text-[10px] text-zinc-400">
+                  <span className="mr-1 rounded bg-zinc-700/40 px-1 py-0.5 text-xs text-zinc-400">
                     {TARGET_TYPE_TEXT[r.targetType] || r.targetType}
                   </span>
                   {r.targetType === "prompt" && r.prompt?.title ? (
@@ -335,7 +341,7 @@ export default function CommentManager() {
                   )}
                 </td>
                 <td className="px-3 py-3">
-                  <span className={`rounded px-1.5 py-0.5 text-[11px] ${STATUS_BADGE[r.status] || ""}`}>
+                  <span className={`rounded px-1.5 py-0.5 text-xs ${STATUS_BADGE[r.status] || ""}`}>
                     {STATUS_TEXT[r.status] || r.status}
                   </span>
                 </td>

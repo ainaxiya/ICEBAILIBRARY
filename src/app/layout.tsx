@@ -1,8 +1,19 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
+// 富文本编辑器本地样式（随应用打包，不依赖 CDN）
+import "reactjs-tiptap-editor/style.css";
 import { getPublicSite } from "@/lib/settings";
+import RouteProgress from "@/components/RouteProgress";
 
 export const dynamic = "force-dynamic";
+
+// 禁止手机浏览器在输入框聚焦时自动放大页面（iOS焦点缩放）
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+};
 
 export async function generateMetadata(): Promise<Metadata> {
   const site = await getPublicSite();
@@ -46,7 +57,10 @@ export default async function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="zh-CN">
-      <body className="min-h-screen">{children}</body>
+      <body className="min-h-screen">
+        <RouteProgress />
+        {children}
+      </body>
     </html>
   );
 }

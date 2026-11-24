@@ -7,7 +7,7 @@ export const metadata = { title: "分类管理" };
 export default async function AdminCategoriesPage() {
   const categories = await db.category.findMany({
     orderBy: { sort: "asc" },
-    select: { id: true, name: true, nameEn: true, slug: true, sort: true },
+    select: { id: true, name: true, nameEn: true, slug: true, sort: true, metaDescription: true, metaKeywords: true },
   });
   return (
     <div>

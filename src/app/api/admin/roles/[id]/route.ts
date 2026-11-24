@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { PERMISSIONS, requirePerm, logAdminAction, getClientIp, ALL_PERMISSIONS } from "@/lib/rbac";
+import { PERMISSIONS, requireSensitivePerm, reauthRequired, logAdminAction, getClientIp, ALL_PERMISSIONS } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -17,8 +17,9 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
-  const { user, ok } = await requirePerm(PERMISSIONS.ROLE_WRITE);
+  const { user, ok, needReauth } = await requireSensitivePerm(PERMISSIONS.ROLE_WRITE);
   if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
+  if (needReauth) return reauthRequired();
 
   const { id } = await ctx.params;
   const rid = parseInt(id);
@@ -68,18 +69,19 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
-  const { user, ok } = await requirePerm(PERMISSIONS.ROLE_DELETE);
+  const { user, ok, needReauth } = await requireSensitivePerm(PERMISSIONS.ROLE_DELETE);
   if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
+  if (needReauth) return reauthRequired();
 
   const { id } = await ctx.params;
   const rid = parseInt(id);
   const existing = await db.adminRole.findUnique({
     where: { id: rid },
-    include: { _count: { select: { users: true } } },
+    include: { _count: { select: { admins: true } } },
   });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-  if (existing._count.users > 0) {
-    return NextResponse.json({ error: `该角色下还有 ${existing._count.users} 个用户，无法删除` }, { status: 400 });
+  if (existing._count.admins > 0) {
+    return NextResponse.json({ error: `该角色下还有 ${existing._count.admins} 个管理员，无法删除` }, { status: 400 });
   }
 
   await db.adminRole.delete({ where: { id: rid } });

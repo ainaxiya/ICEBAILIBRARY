@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import Image from "next/image";
 import { SITE_HOST } from "@/lib/site-config";
-
+import { nanoid } from "nanoid";
+import Image from "next/image";
+import { useEffect, useRef, useState } from "react";
 // ─── 神器·全能提示词优化器（首页工具区，替换原 banner）───
 // 排版：统计条（单行一块）→ 大标题（一行）→ 英文名 → 介绍 → 输入框（按钮内嵌）→ 图标行 → 输出框（SKILL.md 样式，顶栏带复制/下载）
 
@@ -77,7 +77,7 @@ export default function PromptOptimizer({ siteName, promptCount, skillCount, sou
   const optimize = async () => {
     const text = input.trim();
     if (!text) {
-      setError("请先输入你想做的事，哪怕只是一句大白话");
+      setError("请先输入你想做的事，或者想要的东西");
       return;
     }
     setError("");
@@ -143,12 +143,14 @@ export default function PromptOptimizer({ siteName, promptCount, skillCount, sou
 
   const download = () => {
     if (!output) return;
-    const content = `【此提示词由 冰山AI资料库 ${SITE_HOST} 用提示词优化神器生成】\n\n${output}`;
+    const content = `【本文件由冰山AI资料库 ${SITE_HOST} 用提示词优化神器生成,此行非正文请忽略】\n\n${output}`;
     const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
+    const noid = nanoid(18);
+
     a.href = url;
-    a.download = `优化提示词-${new Date().toISOString().slice(0, 10)}.txt`;
+    a.download = `PromptOptimizer-${noid}.md`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -161,19 +163,19 @@ export default function PromptOptimizer({ siteName, promptCount, skillCount, sou
       <div className="relative px-4 py-8 text-center sm:px-8 sm:py-12">
         {/* 第一行：统计条（单块单行，手机端不换行） */}
         <div className="flex justify-center">
-          <span className="inline-flex max-w-full items-center gap-1 whitespace-nowrap rounded-full border border-cyan-400/30 bg-cyan-400/10 px-2.5 py-1.5 text-[10px] font-medium text-cyan-100 backdrop-blur sm:gap-1.5 sm:px-4 sm:text-sm">
+          <span className="inline-flex max-w-full items-center gap-1 whitespace-nowrap rounded-full border border-cyan-400/30 bg-cyan-400/10 px-2.5 py-1.5 text-xs font-medium text-cyan-100 backdrop-blur sm:gap-1.5 sm:px-4 sm:text-sm">
             <b className="font-bold text-white">{siteName}</b>
             <span className="text-cyan-300/50">·</span>
             <svg viewBox="0 0 24 24" className="h-3 w-3 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <path d="M4 5a2 2 0 012-2h9l5 5v11a2 2 0 01-2 2H6a2 2 0 01-2-2z" />
               <path d="M14 3v5h5" />
             </svg>
-            已存 <b className="font-bold text-white">{promptCount.toLocaleString()}</b> 条提示词
+            已存 <b className="font-bold text-white">{promptCount.toLocaleString()}</b> 提示词
             <span className="text-cyan-300/50">·</span>
             <svg viewBox="0 0 24 24" className="h-3 w-3 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <path d="M12 2l8 4.5v9L12 20l-8-4.5v-9zM12 11l8-4.5M12 11L4 6.5M12 11v9" />
             </svg>
-            已存 <b className="font-bold text-white">{skillCount.toLocaleString()}</b> 个技能
+            已存 <b className="font-bold text-white">{skillCount.toLocaleString()}</b> 技能
           </span>
         </div>
 
@@ -192,7 +194,7 @@ export default function PromptOptimizer({ siteName, promptCount, skillCount, sou
         </p>
 
         {/* 补充介绍：宣传语逐条播放（一条快速滚入 → 停留 8 秒 → 下一条；后台可配，默认六条） */}
-        <div className="mx-auto mt-3 h-7 max-w-4xl overflow-hidden px-2 text-[11px] leading-relaxed text-cyan-100/75 sm:h-8 sm:text-sm">
+        <div className="mx-auto mt-3 h-7 max-w-4xl overflow-hidden px-2 text-xs leading-relaxed text-cyan-100/75 sm:h-8 sm:text-sm">
           <p key={lineIdx} className="marquee-enter truncate sm:whitespace-nowrap" title={lines[lineIdx]}>
             {lines[lineIdx]}
           </p>
@@ -205,8 +207,8 @@ export default function PromptOptimizer({ siteName, promptCount, skillCount, sou
               value={input}
               onChange={(e) => setInput(e.target.value)}
               rows={2}
-              placeholder="输入你的提示词..."
-              aria-label="输入你的提示词"
+              placeholder="请先输入你想做的事，或者想要的东西"
+              aria-label="请先输入你想做的事,再来..."
               className="min-h-[76px] w-full resize-y bg-transparent py-4 text-left text-base leading-relaxed text-white outline-none placeholder:text-slate-300/75 focus:placeholder:text-slate-300/60 sm:min-h-[88px] sm:py-5 sm:text-lg"
             />
             <button
@@ -244,7 +246,7 @@ export default function PromptOptimizer({ siteName, promptCount, skillCount, sou
             {TOOLS.map((t) => (
             <span
               key={t.name}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-cyan-50/85 backdrop-blur transition hover:border-cyan-300/40 hover:bg-white/10 sm:text-xs"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-cyan-50/85 backdrop-blur transition hover:border-cyan-300/40 hover:bg-white/10 sm:text-xs"
             >
               <Glyph kind={t.glyph} color={t.color} />
               {t.name}
@@ -263,7 +265,7 @@ export default function PromptOptimizer({ siteName, promptCount, skillCount, sou
         {/* 输出框：SKILL.md 样式（顶栏 + 只读等宽正文 + 内部滚动） */}
         <div className="mx-auto mt-6 max-w-3xl rounded-xl border border-zinc-800 bg-zinc-950/80 text-left shadow-[0_18px_50px_-12px_rgba(2,8,30,0.75)]">
           <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3.5">
-            <span className="inline-flex min-w-0 items-center gap-2 whitespace-nowrap">
+            <span className="inline-flex min-w-0 items-center gap-px whitespace-nowrap">
               <Image
                 src="/site-assets/shu.webp"
                 alt=""
@@ -272,8 +274,17 @@ export default function PromptOptimizer({ siteName, promptCount, skillCount, sou
                 height={36}
                 className="h-8 w-8 shrink-0 object-contain drop-shadow-[0_0_8px_rgba(251,146,60,0.35)] sm:h-9 sm:w-9"
               />
-              <span className="bg-gradient-to-r from-amber-200 via-orange-400 to-red-500 bg-clip-text text-lg font-semibold tracking-tight text-transparent drop-shadow-[0_0_10px_rgba(249,115,22,0.3)]">
-                神器输出：              </span>
+              {/* 神器输出 GIF：占位只占顶栏一行高（布局不乱），76/82px 画布垂直居中——
+                  画布四周透明留白作缓冲，字底不压线，动画帧火星偶尔微出顶线 */}
+              <span className="relative inline-flex h-9 w-[76px] shrink-0 items-center justify-center sm:w-[86px]">
+                <Image
+                  src="/site-assets/shenqi.gif"
+                  alt="神器输出"
+                  width={418}
+                  height={418}
+                  className="pointer-events-none absolute left-1/2 top-1/2 z-20 h-[76px] w-[76px] max-w-none -translate-x-1/2 -translate-y-[calc(50%+3px)] select-none sm:h-[82px] sm:w-[82px]"
+                />
+              </span>
             </span>
             <div className="flex shrink-0 items-center gap-2">
               <button
@@ -308,7 +319,7 @@ export default function PromptOptimizer({ siteName, promptCount, skillCount, sou
           <pre ref={outputRef} className="min-h-[150px] max-h-[240px] overflow-auto whitespace-pre-wrap break-words p-4 font-sans text-xs font-normal leading-relaxed text-white">
             {output || (
               <span className="text-zinc-600">
-                神器优化后的专业级提示词将显示在这里（不可编辑，击右上角「复制」或「下载txt」推荐直接下载文档保证完整性）
+                神器优化后的专业级提示词将显示在这里（击右上角「复制」或「下载txt」推荐直接下载文档保证完整性）
               </span>
             )}
           </pre>

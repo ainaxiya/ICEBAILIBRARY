@@ -25,9 +25,16 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
     };
   }
   const meta = getCategoryMeta(s);
+  // 后台自定义栏目描述/关键字优先（分类管理中可编辑），留空回退默认文案
+  const row = await db.category.findUnique({
+    where: { slug: s },
+    select: { name: true, metaDescription: true, metaKeywords: true },
+  });
+  const name = row?.name || meta.name.zh;
   return {
-    title: `${meta.name.zh} 提示词`,
-    description: `${meta.name.zh}提示词合集：${meta.desc.zh}`,
+    title: `${name} 提示词`,
+    description: row?.metaDescription?.trim() || `${name}提示词合集：${meta.desc.zh}`,
+    keywords: row?.metaKeywords?.trim() || undefined,
   };
 }
 
@@ -193,8 +200,9 @@ export default async function CategoryDetail({
           </span>
           <div>
             <h1 className="text-xl font-bold text-zinc-50">{name}</h1>
-            <p className="mt-1 text-sm text-zinc-400">{desc}</p>
-            <p className="mt-1 text-xs text-zinc-600">{t(locale, "cat.count", { n: total })}</p>
+            {/* 手机端两行说明统一 12px 纯白；桌面端保留原样式 */}
+            <p className="mt-1 text-xs leading-relaxed text-white sm:text-sm sm:leading-normal sm:text-zinc-400">{desc}</p>
+            <p className="mt-1 text-xs leading-relaxed text-white sm:leading-normal sm:text-zinc-600">{t(locale, "cat.count", { n: total })}</p>
           </div>
         </div>
 

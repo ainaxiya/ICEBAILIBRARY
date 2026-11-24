@@ -45,6 +45,12 @@ const GROUPS: { key: string; label: string; icon: string; hrefs: string[] }[] = 
     ],
   },
   {
+    key: "playground",
+    label: "实验场",
+    icon: "🎮",
+    hrefs: [`${ADMIN_BASE}/playground`],
+  },
+  {
     key: "model",
     label: "模型与网关",
     icon: "🤖",
@@ -71,7 +77,7 @@ const GROUPS: { key: string; label: string; icon: string; hrefs: string[] }[] = 
     key: "system",
     label: "系统管理",
     icon: "🛡️",
-    hrefs: [`${ADMIN_BASE}/admins`, `${ADMIN_BASE}/roles`, `${ADMIN_BASE}/logs`],
+    hrefs: [`${ADMIN_BASE}/admins`, `${ADMIN_BASE}/roles`, `${ADMIN_BASE}/logs`, `${ADMIN_BASE}/settings/queue`],
   },
 ];
 
@@ -151,7 +157,7 @@ export default function AdminNav({ items }: { items: NavItem[] }) {
               <span>{g.icon}</span>
               <span className="flex-1 text-left">{g.label}</span>
               <span
-                className={`text-[9px] text-zinc-600 transition-transform ${expanded ? "rotate-90" : ""}`}
+                className={`text-xs text-zinc-600 transition-transform ${expanded ? "rotate-90" : ""}`}
               >
                 ▶
               </span>

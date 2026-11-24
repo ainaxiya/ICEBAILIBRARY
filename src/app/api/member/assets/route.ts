@@ -1,18 +1,12 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { assetTypeLabel } from "@/lib/asset-types";
 
 export const dynamic = "force-dynamic";
 
 // ─── P4 用户中心：我的资产（生成物，P5 生成链路写入，本期列表页） ───
 // GET /api/member/assets —— 我的资产列表（temp 状态，按创建时间倒序）
-
-const TYPE_LABEL: Record<string, string> = {
-  image: "图片",
-  video: "视频",
-  audio: "音频",
-  file: "文件",
-};
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -31,7 +25,7 @@ export async function GET() {
       return {
         id: String(a.id),
         assetType: a.assetType,
-        typeLabel: TYPE_LABEL[a.assetType] || a.assetType,
+        typeLabel: assetTypeLabel(a.assetType),
         storageKey: a.storageKey,
         fileName: a.storageKey.split("/").pop() || a.storageKey,
         sizeBytes: Number(a.sizeBytes),

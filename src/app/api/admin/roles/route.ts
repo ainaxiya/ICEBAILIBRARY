@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { PERMISSIONS, requirePerm, logAdminAction, getClientIp, ALL_PERMISSIONS } from "@/lib/rbac";
+import { PERMISSIONS, requirePerm, requireSensitivePerm, reauthRequired, logAdminAction, getClientIp, ALL_PERMISSIONS } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +16,7 @@ export async function GET() {
 
   const roles = await db.adminRole.findMany({
     orderBy: { id: "asc" },
-    include: { _count: { select: { users: true, admins: true } } },
+    include: { _count: { select: { admins: true } } },
   });
 
   return NextResponse.json(
@@ -27,7 +27,6 @@ export async function GET() {
       description: r.description,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
-      userCount: r._count.users,
       adminCount: r._count.admins,
     })),
   );
@@ -44,8 +43,10 @@ export async function POST(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
-  const { user, ok } = await requirePerm(PERMISSIONS.ROLE_WRITE);
+  // 角色权限变更属敏感操作：除 role:write 外还要求 10 分钟内二次密码验证
+  const { user, ok, needReauth } = await requireSensitivePerm(PERMISSIONS.ROLE_WRITE);
   if (!user || !ok) return NextResponse.json({ error: "no permission" }, { status: 403 });
+  if (needReauth) return reauthRequired();
 
   const parsed = createSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
@@ -85,6 +86,6 @@ export async function POST(req: NextRequest) {
     description: role.description,
     createdAt: role.createdAt,
     updatedAt: role.updatedAt,
-    userCount: 0,
+    adminCount: 0,
   });
 }

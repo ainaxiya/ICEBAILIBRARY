@@ -28,6 +28,9 @@ export async function POST(req: NextRequest) {
   const nameEn = (body?.nameEn || "").trim();
   const slug = (body?.slug || "").trim().toLowerCase();
   const icon = (body?.icon || "").trim();
+  // 自定义栏目描述与关键字（SEO）
+  const metaDescription = typeof body?.metaDescription === "string" ? body.metaDescription.trim().slice(0, 500) : null;
+  const metaKeywords = typeof body?.metaKeywords === "string" ? body.metaKeywords.trim().slice(0, 300) : null;
   if (!name) return NextResponse.json({ error: "名称不能为空" }, { status: 400 });
   if (!SLUG_RE.test(slug)) return NextResponse.json({ error: "短码必须为 2 个小写字母" }, { status: 400 });
 
@@ -36,7 +39,7 @@ export async function POST(req: NextRequest) {
 
   const maxSort = await db.softwareCategory.aggregate({ _max: { sort: true } });
   const cat = await db.softwareCategory.create({
-    data: { name, nameEn: nameEn || name, slug, icon, sort: (maxSort._max.sort ?? -1) + 1 },
+    data: { name, nameEn: nameEn || name, slug, icon, sort: (maxSort._max.sort ?? -1) + 1, metaDescription, metaKeywords },
   });
   return NextResponse.json(cat);
 }

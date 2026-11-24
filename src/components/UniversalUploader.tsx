@@ -297,7 +297,7 @@ export default function UniversalUploader({
               {task.file.type.startsWith("image/") ? (
                 <img src={task.thumb} alt="" className="h-9 w-9 shrink-0 rounded object-cover" />
               ) : (
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-zinc-800 text-[10px] text-zinc-400">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-zinc-800 text-xs text-zinc-400">
                   视频
                 </span>
               )}

@@ -6,6 +6,7 @@ import { getPublicSite } from "@/lib/settings";
 import { APP_VERSION } from "@/lib/version";
 import LogoutButton from "@/components/LogoutButton";
 import AdminNav from "@/components/admin/AdminNav";
+import ReauthHost from "@/components/admin/ReauthHost";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const nav: { href: string; label: string; icon: string; superOnly?: boolean; perm?: string }[] = [
     { href: ADMIN_BASE, label: "仪表盘", icon: "📊" },
     { href: `${ADMIN_BASE}/settings/site`, label: "网站设置", icon: "🌐" },
+    { href: `${ADMIN_BASE}/settings/email`, label: "邮箱服务", icon: "📮" },
+    { href: `${ADMIN_BASE}/email-templates`, label: "邮件模板", icon: "✉️" },
     { href: `${ADMIN_BASE}/settings/pages`, label: "单页内容管理", icon: "📄" },
     { href: `${ADMIN_BASE}/settings/pay-channels`, label: "支付接口管理", icon: "💳" },
     { href: `${ADMIN_BASE}/settings/credit-packs`, label: "积分包管理", icon: "🎁" },
@@ -40,9 +43,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     { href: `${ADMIN_BASE}/models/api-docs`, label: "API 文档", icon: "📘", perm: PERMISSIONS.MODELS_READ },
     { href: `${ADMIN_BASE}/reports/usage`, label: "消费报表", icon: "💹", perm: PERMISSIONS.REPORT_READ },
     { href: `${ADMIN_BASE}/pay/orders`, label: "订单管理", icon: "🧾" },
-    { href: `${ADMIN_BASE}/pay/ledger`, label: "积分流水", icon: "📒" },
+    { href: `${ADMIN_BASE}/pay/ledger`, label: "积分明细", icon: "📒" },
     { href: `${ADMIN_BASE}/pay/usage-records`, label: "使用记录管理", icon: "📝" },
     { href: `${ADMIN_BASE}/alerts`, label: "运营告警", icon: "🚨", perm: PERMISSIONS.REPORT_READ },
+    { href: `${ADMIN_BASE}/settings/queue`, label: "队列与并发", icon: "⚙️", perm: PERMISSIONS.SETTING_READ },
+    { href: `${ADMIN_BASE}/playground`, label: "实验场", icon: "🎮", perm: PERMISSIONS.SETTING_READ },
     { href: `${ADMIN_BASE}/settings/publish`, label: "发布设置", icon: "📤" },
     { href: `${ADMIN_BASE}/users`, label: "用户管理", icon: "👥" },
     { href: `${ADMIN_BASE}/settings/membership`, label: "注册设置", icon: "🧾" },
@@ -78,14 +83,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             href="/"
             target="_blank"
             rel="noopener"
-            className="inline-block rounded border border-emerald-700/60 px-2 py-1 text-[10px] tracking-widest text-emerald-400 transition hover:bg-emerald-900/40 hover:text-emerald-300"
+            className="inline-block rounded border border-emerald-700/60 px-2 py-1 text-xs tracking-widest text-emerald-400 transition hover:bg-emerald-900/40 hover:text-emerald-300"
           >
             前台查看
           </a>
           <p className="mt-3 px-2 leading-relaxed">
             管理员：{admin.nickname || admin.username}
             {admin.isSuper && (
-              <span className="ml-1.5 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-400">
+              <span className="ml-1.5 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs text-amber-400">
                 超管
               </span>
             )}
@@ -100,11 +105,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               alt={site.siteName}
               className="h-5 w-5 rounded object-cover opacity-80"
             />
-            <span className="text-[10px] tracking-widest text-zinc-600">{APP_VERSION}</span>
+            <span className="text-xs tracking-widest text-zinc-600">{APP_VERSION}</span>
           </div>
         </div>
       </aside>
       <div className="min-w-0 p-4 lg:p-7">{children}</div>
+      {/* b13 敏感操作二次验证弹窗（全局唯一实例） */}
+      <ReauthHost />
     </div>
   );
 }

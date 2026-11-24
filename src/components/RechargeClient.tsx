@@ -140,7 +140,7 @@ export default function RechargeClient({ packs, channels }: { packs: Pack[]; cha
               }`}
             >
               {p.packCode === bestCode && (
-                <span className="absolute right-0 top-0 rounded-bl-xl bg-amber-500/90 px-2.5 py-1 text-[11px] font-semibold text-zinc-950">
+                <span className="absolute right-0 top-0 rounded-bl-xl bg-amber-500/90 px-2.5 py-1 text-xs font-semibold text-zinc-950">
                   {t(locale, "recharge.recommended")}
                 </span>
               )}
@@ -161,7 +161,7 @@ export default function RechargeClient({ packs, channels }: { packs: Pack[]; cha
                 {t(locale, "recharge.totalCredits", { n: p.credits + p.bonusCredits })}
               </div>
               <span
-                className={`absolute bottom-4 right-4 flex h-5 w-5 items-center justify-center rounded-full border text-[11px] ${
+                className={`absolute bottom-4 right-4 flex h-5 w-5 items-center justify-center rounded-full border text-xs ${
                   active ? "border-emerald-400 bg-emerald-500 text-zinc-950" : "border-zinc-700 text-transparent"
                 }`}
               >

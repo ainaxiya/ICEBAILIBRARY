@@ -321,12 +321,12 @@ export default function PromptManager({
                       <span className="text-indigo-300">
                         {p.adminAuthor.nickname || p.adminAuthor.username}
                       </span>
-                      <span className="rounded bg-indigo-500/15 px-1 py-0.5 text-[10px] text-indigo-300 w-fit">
+                      <span className="rounded bg-indigo-500/15 px-1 py-0.5 text-xs text-indigo-300 w-fit">
                         管理员发布
                       </span>
                     </span>
                   ) : (
-                    p.user.nickname || p.user.username
+                    p.user ? p.user.nickname || p.user.username : "该会员号已注销"
                   )}
                 </td>
                 <td className="px-3 py-2.5 text-xs text-zinc-500">

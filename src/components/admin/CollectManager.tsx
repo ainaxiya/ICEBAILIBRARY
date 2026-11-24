@@ -470,17 +470,17 @@ export default function CollectManager() {
                       </a>
                       {r.promptId && (
                         <Link href={`/p/${r.promptId}`} target="_blank" className="shrink-0 text-xs text-emerald-400 hover:underline">
-                          查看 ↗
+                          查看
                         </Link>
                       )}
                     </div>
                     <div className="mt-1 flex flex-wrap gap-1">
                       {r.tags.filter((tg) => !tg.startsWith("__meta__")).slice(0, 3).map((tg) => (
-                        <span key={tg} className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">
+                        <span key={tg} className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-400">
                           {tg}
                         </span>
                       ))}
-                      {r.error && <span className="text-[10px] text-rose-400" title={r.error}>⚠ {r.error.slice(0, 40)}</span>}
+                      {r.error && <span className="text-xs text-rose-400" title={r.error}>⚠ {r.error.slice(0, 40)}</span>}
                     </div>
                   </td>
                   <td className="truncate px-3 py-2.5 text-zinc-400">{r.author || "—"}</td>

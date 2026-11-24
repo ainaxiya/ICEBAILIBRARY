@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 // 与上传接口 ALLOWED_FILES 的 key 一致（固定白名单，防任意文件读取）
-const ALLOWED_NAMES = new Set(["logo-icon-120.png", "favicon.ico", "app-icon.png"]);
+const ALLOWED_NAMES = new Set(["logo-icon-120.png", "favicon.ico", "app-icon.png", "video-watermark-logo.png"]);
 const MIME_BY_EXT: Record<string, string> = {
   ".png": "image/png",
   ".ico": "image/x-icon",

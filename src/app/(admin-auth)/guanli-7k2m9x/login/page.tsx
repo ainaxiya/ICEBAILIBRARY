@@ -74,7 +74,7 @@ function AdminLoginInner() {
           <img src={logoIcon} alt="logo" className="h-12 w-12 rounded-xl object-cover" />
           <h1 className="mt-3 text-lg font-bold tracking-wide text-gold-gradient">{siteName || "管理后台"}</h1>
           <div className="mt-1 flex items-center gap-2">
-            <span className="rounded border border-emerald-700/60 px-1.5 py-0.5 text-[10px] tracking-[0.3em] text-emerald-400">
+            <span className="rounded border border-emerald-700/60 px-1.5 py-0.5 text-xs tracking-[0.3em] text-emerald-400">
               ADMIN
             </span>
             <span className="text-xs text-zinc-500">管理员登录</span>
@@ -113,7 +113,7 @@ function AdminLoginInner() {
         >
           {busy ? "登录中…" : "登 录"}
         </button>
-        <p className="mt-4 text-center text-[11px] text-zinc-600">
+        <p className="mt-4 text-center text-xs text-zinc-600">
           此为管理员专用入口，会员请从前台登录
         </p>
       </form>

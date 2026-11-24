@@ -1,0 +1,114 @@
+/* 全站统一视频播放器（Vidstack）外壳与小窗样式 */
+
+.svp-holder {
+  position: relative;
+  width: 100%;
+}
+
+/* 小窗时占位，避免播放器脱离文档流后页面塌陷 */
+.svp-holder.is-floating::before {
+  content: "";
+  display: block;
+  width: 100%;
+  aspect-ratio: var(--svp-ratio, 16 / 9);
+}
+
+.svp-inner {
+  position: relative;
+  width: 100%;
+}
+
+.svp-player {
+  width: 100%;
+  background: #000;
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+/* 原生画中画按钮隐藏：品牌角标只在站内小窗显示 */
+.svp-player .vds-pip-button,
+.svp-player [data-media-pip-button] {
+  display: none !important;
+}
+
+/* 站内小窗 */
+.svp-float {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 60;
+  width: min(92vw, 380px);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.svp-toggle {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  z-index: 31;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.svp-toggle:hover {
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+}
+
+/* 小窗右上角：单色 LOGO + 域名 */
+.svp-watermark {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px 3px 5px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
+.svp-watermark img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+}
+
+.svp-watermark span {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+/* 富文本里被替换出来的播放器 */
+.rich-video-unified {
+  width: 100%;
+  margin: 0.5em 0;
+}
+
+@media (max-width: 640px) {
+  .svp-float {
+    right: 10px;
+    bottom: 10px;
+    width: min(94vw, 340px);
+  }
+}

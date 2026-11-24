@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { PERMISSIONS, requirePerm } from "@/lib/rbac";
 import { num } from "@/lib/model-json";
+import { dateRangeFilter } from "@/lib/date-range";
 
 export const dynamic = "force-dynamic";
 
@@ -33,8 +34,10 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  const range = dateRangeFilter(sp.get("dateFrom"), sp.get("dateTo"));
   const where: Prisma.UsageRecordWhereInput = {
     ...(userId ? { userId } : {}),
+    ...(range ? { createdAt: range } : {}),
     ...(CHANNELS.includes(channel) ? { channel } : {}),
     ...(STATUSES.includes(status) ? { status } : {}),
     ...(q
@@ -77,7 +80,7 @@ export async function GET(req: NextRequest) {
     items: list.map((r) => ({
       id: r.id,
       userId: r.userId,
-      username: r.user.username,
+      username: r.user?.username ?? "该会员号已注销",
       channel: r.channel,
       keyPrefix: r.apiKeyId != null ? keyMap.get(Number(r.apiKeyId)) ?? null : null,
       modelSnapshot: r.modelSnapshot,

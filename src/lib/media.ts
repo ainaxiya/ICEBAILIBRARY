@@ -16,6 +16,8 @@ export interface MediaItem {
   /** 原始资源地址（溯源用） */
   sourceUrl?: string;
   alt?: string;
+  /** 视频未能本地化时的降级原因（此时仅保留截帧图） */
+  note?: string;
 }
 
 const IMG_RE = /\.(jpe?g|png|webp|gif|avif)(\?.*)?$/i;

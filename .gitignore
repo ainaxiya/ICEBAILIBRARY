@@ -9,6 +9,9 @@ next-env.d.ts
 .env
 .env.local
 .env.*.local
+.env.production
+.env.development
+.env.staging
 AGENTS.md
 
 # 本地数据与媒体（大文件另行传输，见 README）
@@ -20,6 +23,8 @@ meili_data/
 meili_dumps/
 .pgdata/
 bin/
+# 项目内运行时临时目录（采集下载/截帧、转码中转；运维清理，不入库）
+tmp/
 
 # 日志与临时
 *.log

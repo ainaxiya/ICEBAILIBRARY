@@ -78,7 +78,7 @@
 51. Nginx 要配 client_max_body_size，否则视频/大图标上传 413（应用代码再大也没用）。
 52. 构建命令 `NEXT_TELEMETRY_DISABLED=1 npm run build`；8G 机不用加内存参数；`NODE_OPTIONS=` 等号后不能有空格。
 53. Trae 聊天复制的 URL/密钥可能带 Markdown 反引号，写 .env/终端前检查。
-54. 本地与服务器 DATABASE_URL 端口不同（本地 5432 embedded / 服务器 127.0.0.1:35432 Docker），排连接问题先看连的是哪套库。
+54. 本地与服务器 DATABASE_URL 完全不同（本地 Windows PG 服务 5433/icebaidata / 服务器 127.0.0.1:35432/prompthub Docker），排连接问题先看连的是哪套库；仓库已不再自建本地库。
 55. sharp 在本项目未显式列依赖（Next 附带）：独立脚本（如 LOGO 切图）需借用其他项目 node_modules 或自行安装，不要在应用代码里假设它永远可用——头像上传依赖它，换部署环境要验证。
 
 ## 静态资源 / 上传服务
@@ -97,8 +97,8 @@
 
 ## 九大改造第 1 期：独立管理员体系（2026-06）
 
-67. **`requireAdmin()` 现在返回 `AdminAccount`，不是 User**（src/lib/auth.ts）；`requirePerm()` 返回 `{admin, user(=admin 别名), ok}`。后台代码里的 `admin.id` 是管理员表 PK，**绝不能写进 `Prompt.userId`**（外键指向 User 表，类型上能过、运行时外键炸）。后台发提示词：`const sys = await getSystemUser()`（lib/system-user.ts，role=importer 的 `system` 账号），`userId: sys.id, adminAuthorId: admin.id`。
-68. 双 Cookie 互不通用：会员 `token`（JWT `{uid,t:"u"}`，30d）、管理员 `admin_token`（`{aid,t:"a"}`，7d）；前台页面判断"当前会员是不是管理员"要用 `getCurrentAdmin()`，**不存在 user.role==="admin" 了**（旧管理员行已改 role=admin_legacy）。
+67. **`requireAdmin()` 现在返回 `AdminAccount`，不是 User**（src/lib/auth.ts）；`requirePerm()` 返回 `{admin, user(=admin 别名), ok}`。后台代码里的 `admin.id` 是管理员表 PK，**绝不能写进 `Prompt.userId`**（外键指向 User 表，类型上能过、运行时外键炸）。后台发提示词：`const sys = await getSystemUser()`（lib/system-user.ts，membershipLevel=importer 的 `system` 账号），`userId: sys.id, adminAuthorId: admin.id`。
+68. 双 Cookie 互不通用：会员 `token`（JWT `{uid,t:"u"}`，30d）、管理员 `admin_token`（`{aid,t:"a"}`，7d）；前台页面判断"当前会员是不是管理员"要用 `getCurrentAdmin()`，**不存在 user.role 了**（账号类别改由 `User.membershipLevel` → `membership_level` 表达）。
 69. AdminLog 新日志一律 `logAdminAction({ adminId })`（参数从 userId 改名）；日志展示/查询 include `admin`，兼容历史 `user`；日志页是服务端直查 DB（`?q=账号名` 模糊，OR 匹配 admin/user 的 username contains insensitive），不经过 /api/admin/logs（该 API 同步保留）。
 70. 账号唯一性是**双表查重**：注册/后台建会员/建管理员都要同时查 User.username 与 AdminAccount.username；email/phone 在 User 表唯一，后台改会员资料时排除自身 ID。
 71. 注册字段配置链：SiteSetting 键 `register`（allowRegister + fields.email/nickname/phone = off/optional/required）→ getPublicSite().registerFields → `/api/settings` 公开 → AuthForm 注册模式动态渲染；注册接口用动态 zod shape。allowRegister 优先级 register.allowRegister > site.allowRegister > basic.allowRegister。改设置后 saveSetting 清缓存（30s TTL）。

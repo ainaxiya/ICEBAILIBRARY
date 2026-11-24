@@ -196,37 +196,37 @@ export default async function SkillsPage({ searchParams }: { searchParams: Searc
                       </h3>
                       <div className="flex shrink-0 items-center gap-1.5">
                         {s.featured && (
-                          <span className="rounded-md bg-[#bf360c] px-1.5 py-1 text-[10px] font-bold text-white shadow-[0_2px_10px_rgba(191,54,12,0.45)]">★ 精选</span>
+                          <span className="rounded-md bg-[#bf360c] px-1.5 py-1 text-xs font-bold text-white shadow-[0_2px_10px_rgba(191,54,12,0.45)]">★ 精选</span>
                         )}
-                        <span className={`rounded-md px-2 py-1 text-[11px] font-medium ${th.badge}`}>
+                        <span className={`rounded-md px-2 py-1 text-xs font-medium ${th.badge}`}>
                           {(s.category as any).icon && <span className="mr-0.5">{(s.category as any).icon}</span>}
                           {locale === "zh" ? s.category.name : s.category.nameEn}
                         </span>
                       </div>
                     </div>
-                    <div className="mb-3 text-[11px] text-zinc-500">
+                    <div className="mb-3 text-xs text-zinc-500">
                       <span className="truncate">{s.slug}</span>
                     </div>
 
                     {/* 说明 */}
                     <div className="mb-3 rounded-xl bg-zinc-800/40 p-3">
-                      <p className="mb-1 text-[11px] font-medium text-zinc-400">📄 {locale === "zh" ? "说明" : "About"}</p>
+                      <p className="mb-1 text-xs font-medium text-zinc-400">📄 {locale === "zh" ? "说明" : "About"}</p>
                       <p className="line-clamp-2 text-xs leading-relaxed text-zinc-300">{s.summary}</p>
                     </div>
 
                     {/* 关联标签 */}
                     {s.tags.length > 0 && (
                       <div className="mb-3 flex flex-wrap items-center gap-1.5">
-                        <span className="mr-0.5 text-[11px] font-medium text-zinc-400">🏷 {locale === "zh" ? "关联标签" : "Tags"}</span>
+                        <span className="mr-0.5 text-xs font-medium text-zinc-400">🏷 {locale === "zh" ? "关联标签" : "Tags"}</span>
                         {s.tags.slice(0, 4).map((tag) => (
-                          <span key={tag} className={`rounded-md px-2 py-0.5 text-[10px] ${th.badge}`}>{tag}</span>
+                          <span key={tag} className={`rounded-md px-2 py-0.5 text-xs ${th.badge}`}>{tag}</span>
                         ))}
                       </div>
                     )}
 
                     {/* 底部：使用量 + 大按钮 */}
                     <div className="mt-auto flex items-center justify-between gap-3 pt-1">
-                      <div className="flex items-center gap-3 text-[11px] text-zinc-500">
+                      <div className="flex items-center gap-3 text-xs text-zinc-500">
                         <span>{locale === "zh" ? `复制使用 ≈ ${s.copyCount} 次` : `Used ≈ ${s.copyCount}x`}</span>
                         <span className="inline-flex items-center gap-1">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>

@@ -1,14 +1,12 @@
 import "server-only";
 
-import { writeFile, mkdir } from "fs/promises";
-import path from "path";
-import crypto from "crypto";
 import { sniffKind } from "./upload-core.server";
+import { saveUpload } from "./upload-store.server";
 
-// 软件图标自动本地化：外链图标抓取 → 魔数校验 → 落盘 public/uploads/icons/
+// 软件图标自动本地化：外链图标抓取 → 魔数校验 → 统一落 public/uploads/<YYYY-MM>/image-...
 // 全站禁止站外资源链接，保存软件时对外链图标调用本函数转换为站内路径。
 
-const EXT: Record<string, string> = { jpg: ".jpg", png: ".png", webp: ".webp", gif: ".gif" };
+const EXT: Record<string, string> = { jpg: "jpg", png: "png", webp: "webp", gif: "gif" };
 const MAX_BYTES = 5 * 1024 * 1024;
 const FETCH_TIMEOUT = 10_000;
 
@@ -36,11 +34,8 @@ export async function localizeIcon(icon: string | null | undefined): Promise<str
     const kind = sniffKind(buf);
     if (!kind || !EXT[kind]) return null; // 仅收图片（拒绝 svg/ico，防止脚本注入）
 
-    const dir = path.join(process.cwd(), "public", "uploads", "icons");
-    await mkdir(dir, { recursive: true });
-    const name = `icon-${crypto.createHash("md5").update(v).digest("hex").slice(0, 12)}${EXT[kind]}`;
-    await writeFile(path.join(dir, name), buf);
-    return `/uploads/icons/${name}`;
+    const saved = await saveUpload("image", EXT[kind], buf);
+    return saved.url;
   } catch {
     return null;
   }

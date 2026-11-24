@@ -3,7 +3,17 @@
 import { useState } from "react";
 import IconPicker from "./IconPicker";
 
-type Cat = { id: number; name: string; nameEn: string; slug: string; icon: string; sort: number; skillCount?: number };
+type Cat = {
+  id: number;
+  name: string;
+  nameEn: string;
+  slug: string;
+  icon: string;
+  sort: number;
+  skillCount?: number;
+  metaDescription?: string | null;
+  metaKeywords?: string | null;
+};
 
 export default function SkillCategoryManager({ initial }: { initial: Cat[] }) {
   const [cats, setCats] = useState<Cat[]>(initial);
@@ -13,6 +23,8 @@ export default function SkillCategoryManager({ initial }: { initial: Cat[] }) {
   const [nameEn, setNameEn] = useState("");
   const [slug, setSlug] = useState("");
   const [icon, setIcon] = useState("");
+  const [metaDescription, setMetaDescription] = useState("");
+  const [metaKeywords, setMetaKeywords] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -29,26 +41,27 @@ export default function SkillCategoryManager({ initial }: { initial: Cat[] }) {
     return "";
   };
 
-  const openCreate = () => { setEditing(null); setName(""); setNameEn(""); setSlug(""); setIcon(""); setShowForm(true); };
-  const openEdit = (c: Cat) => { setEditing(c); setName(c.name); setNameEn(c.nameEn); setSlug(c.slug); setIcon(c.icon || ""); setShowForm(true); };
+  const openCreate = () => { setEditing(null); setName(""); setNameEn(""); setSlug(""); setIcon(""); setMetaDescription(""); setMetaKeywords(""); setShowForm(true); };
+  const openEdit = (c: Cat) => { setEditing(c); setName(c.name); setNameEn(c.nameEn); setSlug(c.slug); setIcon(c.icon || ""); setMetaDescription(c.metaDescription || ""); setMetaKeywords(c.metaKeywords || ""); setShowForm(true); };
 
   const submit = async () => {
     if (!name.trim() || !slug.trim()) { flash("err", "名称与短码均为必填"); return; }
     setBusy(true);
     try {
+      const metaPayload = { metaDescription: metaDescription.trim(), metaKeywords: metaKeywords.trim() };
       if (editing) {
         const r = await fetch(`/api/admin/skill-categories/${editing.id}`, {
           method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: name.trim(), nameEn: nameEn.trim(), slug: slug.trim(), icon: icon.trim() }),
+          body: JSON.stringify({ name: name.trim(), nameEn: nameEn.trim(), slug: slug.trim(), icon: icon.trim(), ...metaPayload }),
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "保存失败");
-        setCats((prev) => prev.map((c) => c.id === editing.id ? { ...c, name: name.trim(), nameEn: nameEn.trim() || name.trim(), slug: slug.trim(), icon: icon.trim() } : c));
+        setCats((prev) => prev.map((c) => c.id === editing.id ? { ...c, name: name.trim(), nameEn: nameEn.trim() || name.trim(), slug: slug.trim(), icon: icon.trim(), ...metaPayload } : c));
         flash("ok", "已更新");
       } else {
         const r = await fetch("/api/admin/skill-categories", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: name.trim(), nameEn: nameEn.trim(), slug: slug.trim(), icon: icon.trim() }),
+          body: JSON.stringify({ name: name.trim(), nameEn: nameEn.trim(), slug: slug.trim(), icon: icon.trim(), ...metaPayload }),
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "创建失败");
@@ -138,6 +151,28 @@ export default function SkillCategoryManager({ initial }: { initial: Cat[] }) {
             <div>
               <label className="mb-1 block text-xs text-zinc-400">短码（2 小写字母）*</label>
               <input value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase())} maxLength={2} className={inputCls} placeholder="zn" />
+            </div>
+          </div>
+          <div className="mt-3 grid grid-cols-1 gap-3">
+            <div>
+              <label className="mb-1 block text-xs text-zinc-400">栏目描述（SEO description，留空用默认文案）</label>
+              <textarea
+                value={metaDescription}
+                onChange={(e) => setMetaDescription(e.target.value.slice(0, 500))}
+                rows={2}
+                maxLength={500}
+                className={inputCls}
+                placeholder="如：智能体搭建技能合集：让 AI 自动执行任务、编排工作流的完整 SKILL 模板"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-zinc-400">栏目关键字（SEO keywords，逗号分隔，留空用默认）</label>
+              <input
+                value={metaKeywords}
+                onChange={(e) => setMetaKeywords(e.target.value.slice(0, 300))}
+                className={inputCls}
+                placeholder="如：智能体技能,AI agent,工作流自动化,SKILL 模板"
+              />
             </div>
           </div>
           <div className="mt-3 flex gap-2">

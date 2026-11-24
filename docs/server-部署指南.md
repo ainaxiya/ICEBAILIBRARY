@@ -70,11 +70,11 @@ docker exec -i prompthub-pg psql -U postgres -d prompthub < schema.sql
 ### 方式 A：pg_dump 导入
 
 ```bash
-# 本地导出（embedded PG）
-pg_dump -h 127.0.0.1 -U postgres prompthub > prompthub-dump.sql
+# 本地导出（Windows PG 服务：localhost:5433 / icebaidata）
+pg_dump -h localhost -p 5433 -U postgres icebaidata > icebaidata-dump.sql
 
 # 上传到服务器后导入
-docker exec -i prompthub-pg psql -U postgres -d prompthub < prompthub-dump.sql
+docker exec -i prompthub-pg psql -U postgres -d prompthub < icebaidata-dump.sql
 ```
 
 ### 方式 B：只导结构，数据通过 API 重新采集

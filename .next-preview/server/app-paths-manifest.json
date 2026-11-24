@@ -1,0 +1,10 @@
+{
+  "/api/gateway-meta/route": "app/api/gateway-meta/route.js",
+  "/site-assets/[...path]/route": "app/site-assets/[...path]/route.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/playground/guest/route": "app/api/playground/guest/route.js",
+  "/api/me/route": "app/api/me/route.js",
+  "/(site)/playground/page": "app/(site)/playground/page.js",
+  "/(site)/member/page": "app/(site)/member/page.js",
+  "/(site)/login/page": "app/(site)/login/page.js"
+}

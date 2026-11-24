@@ -268,7 +268,7 @@ export default function SiteSettingsForm({ initial, sitemapUrl, lastSitemapSubmi
         </p>
         <div className="flex items-end gap-3">
           <div className="w-40">
-            <label className={labelCls}>自动同步间隔（秒）</label>
+            <label className={labelCls}>自动同步间隔（秒，0 表示不启用自动同步）</label>
             <input
               type="number"
               min={0}

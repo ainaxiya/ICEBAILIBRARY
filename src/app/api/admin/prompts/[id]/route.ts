@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
-import { requirePerm, PERMISSIONS } from "@/lib/rbac";
+import { requirePerm, PERMISSIONS, logAdminAction, getClientIp } from "@/lib/rbac";
+import { diffFields, withChanges, type AuditChange } from "@/lib/audit-diff";
 import { db } from "@/lib/db";
 import { syncPromptToMeili, removePromptFromMeili } from "@/lib/meili";
 import { detectLang } from "@/lib/langdetect";
@@ -89,6 +90,38 @@ const patchSchema = z.object({
     .optional(),
 });
 
+// 审计日志「变更前后」字段（正文/媒体体积大，只记是否更新）
+const PROMPT_AUDIT_FIELDS = [
+  "title",
+  "category",
+  "status",
+  "featured",
+  "hot",
+  "commentsClosed",
+  "coverUrl",
+  "sourceUrl",
+  "publishedAt",
+  "tags",
+  "description",
+  "language",
+  "rejectReason",
+] as const;
+const PROMPT_FIELD_LABELS: Record<string, string> = {
+  title: "标题",
+  category: "分类",
+  status: "状态",
+  featured: "精选",
+  hot: "热门",
+  commentsClosed: "关闭评论",
+  coverUrl: "封面",
+  sourceUrl: "原作品链接",
+  publishedAt: "发布时间",
+  tags: "标签",
+  description: "简介",
+  language: "语言",
+  rejectReason: "驳回原因",
+};
+
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
@@ -144,6 +177,19 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   }
 
   const updated = await db.prompt.update({ where: { id: pid }, data: d });
+
+  // 审计日志：记录字段级变更前后（此前该接口未写审计日志）
+  const changes: AuditChange[] = diffFields(existing, updated, PROMPT_AUDIT_FIELDS, PROMPT_FIELD_LABELS);
+  if (typeof d.content === "string") changes.push({ field: "content", label: "正文", before: null, after: "已更新" });
+  if (Array.isArray(d.media)) changes.push({ field: "media", label: "媒体", before: null, after: `${d.media.length} 项` });
+  await logAdminAction({
+    adminId: admin.id,
+    action: "update",
+    targetType: "prompt",
+    targetId: pid,
+    detail: withChanges({ title: updated.title, fields: Object.keys(d) }, changes),
+    ip: (await getClientIp()) || undefined,
+  });
 
   // 搜索索引同步
   try {

@@ -278,7 +278,7 @@ export default function PromptForm({ promptId }: { promptId?: number }) {
         <h1 className="text-xl font-bold">{isEdit ? `编辑提示词 #${promptId}` : "新增提示词"}</h1>
         {isEdit && (
           <a href={`/p/${promptId}`} target="_blank" className="text-sm text-emerald-400 hover:underline">
-            查看前台 ↗
+            查看前台
           </a>
         )}
       </div>
@@ -595,7 +595,7 @@ export default function PromptForm({ promptId }: { promptId?: number }) {
           </button>
         )}
         <Link href={`${ADMIN_BASE}/prompts`} className="ml-auto self-center text-sm text-zinc-500 hover:text-zinc-300">
-          ← 返回列表
+          返回列表
         </Link>
       </div>
     </div>

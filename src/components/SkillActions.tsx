@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 // 技能详情页操作按钮：Copy SKILL.md（复制成功后才计一次复制数，每技能每会话只计一次）
+// v0.117：收藏按钮移至面包屑栏目行（FavoriteButton 在页面内单独渲染）
 export default function SkillActions({
   skillId,
   skillMd,

@@ -3,19 +3,19 @@
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import UserAvatar from "@/components/UserAvatar";
+import RegionCascade from "@/components/RegionCascade";
+import { LOCALES, TIMEZONES, type RegionValue } from "@/lib/regions";
 
-// 头像编辑插件（React Photo Editor）：缩放 / 旋转 / 翻转，保存后自动中心方裁
-const ReactPhotoEditor = dynamic(
-  () => import("react-photo-editor").then((m) => m.ReactPhotoEditor),
-  { ssr: false }
-);
+// 头像裁剪（自研 AvatarCropper）：正方形取景 / 缩放 / 双指捏合，打开期间屏蔽抽屉手势
+const AvatarCropper = dynamic(() => import("@/components/AvatarCropper"), { ssr: false });
 
-// ─── v0.92 #9 资料修改：头像上传（前端裁剪）/ 昵称 / 手机 / 邮箱 / 微信 / QQ / TG / 生日 / 性别 / 国籍 ───
+// ─── v0.92 #9 资料修改：头像上传（前端裁剪）/ 昵称 / 手机 / 邮箱（锁定+已验证）/ 微信 / QQ / TG / 生日 / 性别 / 国籍-省-市-区 ───
 
 type Profile = {
   id: number;
   username: string;
   email: string | null;
+  emailVerified: boolean;
   phone: string | null;
   nickname: string | null;
   avatar: string | null;
@@ -26,6 +26,15 @@ type Profile = {
   birthday: string | null;
   gender: string | null;
   nationality: string | null;
+  countryCode: string | null;
+  province: string | null;
+  city: string | null;
+  district: string | null;
+  address: string | null;
+  postalCode: string | null;
+  website: string | null;
+  locale: string | null;
+  timezone: string | null;
 };
 
 const GENDER_OPTIONS: { value: string; label: string }[] = [
@@ -38,8 +47,8 @@ const GENDER_OPTIONS: { value: string; label: string }[] = [
 
 const inputCls =
   "w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-emerald-500";
-
-const OUT = 512; // 头像输出尺寸（编辑器保存后中心方裁为 512×512）
+// 原生日期控件：统一深色渲染 + 最小高度（修复手机版样式错乱）
+const dateCls = `${inputCls} min-h-[42px] [color-scheme:dark]`;
 
 export default function ProfileSettings() {
   const [loading, setLoading] = useState(true);
@@ -53,19 +62,29 @@ export default function ProfileSettings() {
   const [nickname, setNickname] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [emailVerified, setEmailVerified] = useState(false);
   const [wechat, setWechat] = useState("");
   const [qq, setQq] = useState("");
   const [telegram, setTelegram] = useState("");
   const [birthday, setBirthday] = useState("");
   const [gender, setGender] = useState("");
-  const [nationality, setNationality] = useState("");
+  const [region, setRegion] = useState<RegionValue>({
+    countryCode: "",
+    province: "",
+    city: "",
+    district: "",
+  });
+  const [address, setAddress] = useState("");
+  const [postalCode, setPostalCode] = useState("");
+  const [website, setWebsite] = useState("");
+  const [locale, setLocale] = useState("");
+  const [timezone, setTimezone] = useState("");
   const [bio, setBio] = useState("");
   const [avatar, setAvatar] = useState("");
 
-  // 头像编辑（React Photo Editor 插件）：点头像选图 → 缩放/旋转/翻转 → 保存
+  // 头像编辑（自研裁剪）：点头像选图 → 缩放调整 → 保存上传
   const fileRef = useRef<HTMLInputElement>(null);
   const [editFile, setEditFile] = useState<File | null>(null);
-  const [editOpen, setEditOpen] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -80,12 +99,23 @@ export default function ProfileSettings() {
         setNickname(d.nickname || "");
         setPhone(d.phone || "");
         setEmail(d.email || "");
+        setEmailVerified(!!d.emailVerified);
         setWechat(d.wechat || "");
         setQq(d.qq || "");
         setTelegram(d.telegram || "");
         setBirthday(d.birthday ? String(d.birthday).slice(0, 10) : "");
         setGender(d.gender || "");
-        setNationality(d.nationality || "");
+        setRegion({
+          countryCode: d.countryCode || "",
+          province: d.province || "",
+          city: d.city || "",
+          district: d.district || "",
+        });
+        setAddress(d.address || "");
+        setPostalCode(d.postalCode || "");
+        setWebsite(d.website || "");
+        setLocale(d.locale || "");
+        setTimezone(d.timezone || "");
         setBio(d.bio || "");
         setAvatar(d.avatar || "");
       } catch {
@@ -104,41 +134,20 @@ export default function ProfileSettings() {
       setErr("请选择图片文件");
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      setErr("头像仅支持图片且不能超过 5MB");
+    if (file.size > 20 * 1024 * 1024) {
+      setErr("头像仅支持图片且不能超过 20MB");
       return;
     }
-    // 进入 Photo Editor 弹层（缩放 / 旋转 / 翻转）
+    // 进入裁剪弹层（正方形取景 / 缩放）
     setEditFile(file);
-    setEditOpen(true);
   };
 
-  // 编辑器保存：输出图中心方裁为 512×512 webp 后上传
-  const onSaveEdited = async (file: File) => {
-    setEditOpen(false);
+  // 裁剪保存：输出 512×512 webp 直接上传（大图由裁剪器自动 cover 适配）
+  const onSaveBlob = async (blob: Blob) => {
     setEditFile(null);
     setUploading(true);
     setErr("");
     try {
-      const url = URL.createObjectURL(file);
-      const img = await new Promise<HTMLImageElement>((res, rej) => {
-        const el = new Image();
-        el.onload = () => res(el);
-        el.onerror = () => rej(new Error("img"));
-        el.src = url;
-      });
-      const canvas = document.createElement("canvas");
-      canvas.width = OUT;
-      canvas.height = OUT;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("canvas");
-      const side = Math.min(img.naturalWidth, img.naturalHeight);
-      const sx = (img.naturalWidth - side) / 2;
-      const sy = (img.naturalHeight - side) / 2;
-      ctx.drawImage(img, sx, sy, side, side, 0, 0, OUT, OUT);
-      URL.revokeObjectURL(url);
-      const blob: Blob | null = await new Promise((res) => canvas.toBlob(res, "image/webp", 0.9));
-      if (!blob) throw new Error("blob");
       const form = new FormData();
       form.append("file", blob, "avatar.webp");
       const r = await fetch("/api/user/avatar/upload", { method: "POST", body: form });
@@ -151,7 +160,7 @@ export default function ProfileSettings() {
       setMsg("头像已更新 ✓");
       setTimeout(() => setMsg(""), 2000);
     } catch {
-      setErr("头像处理失败，请重试");
+      setErr("头像上传失败，请重试");
     } finally {
       setUploading(false);
     }
@@ -168,13 +177,20 @@ export default function ProfileSettings() {
         body: JSON.stringify({
           nickname: nickname.trim() || null,
           phone: phone.trim() || null,
-          email: email.trim() || null,
           wechat: wechat.trim() || null,
           qq: qq.trim() || null,
           telegram: telegram.trim() || null,
           birthday: birthday || null,
           gender: gender || null,
-          nationality: nationality.trim() || null,
+          countryCode: region.countryCode || null,
+          province: region.province || null,
+          city: region.city || null,
+          district: region.district || null,
+          address: address.trim() || null,
+          postalCode: postalCode.trim() || null,
+          website: website.trim() || null,
+          locale: locale || null,
+          timezone: timezone || null,
           bio: bio.trim() || null,
           avatar: avatar || null,
         }),
@@ -199,7 +215,7 @@ export default function ProfileSettings() {
     <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
       <h2 className="mb-4 text-base font-semibold text-zinc-100">资料修改</h2>
 
-      {/* 头像：点击即改（悬停显示「修改头像」），编辑走 Photo Editor 插件，无移除 */}
+      {/* 头像：点击即可更换 */}
       <div className="mb-5 flex flex-wrap items-center gap-4">
         <button
           type="button"
@@ -213,7 +229,7 @@ export default function ProfileSettings() {
           </span>
         </button>
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickFile} />
-        <p className="text-xs text-zinc-500">点击头像更换，支持缩放 / 旋转 / 翻转编辑</p>
+        <p className="text-xs text-zinc-500">点击头像更换就可以了</p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -226,8 +242,21 @@ export default function ProfileSettings() {
           <input value={phone} onChange={(e) => setPhone(e.target.value.slice(0, 20))} placeholder="选填" className={inputCls} />
         </label>
         <label className="block">
-          <span className="mb-1 block text-sm text-zinc-400">邮箱</span>
-          <input value={email} onChange={(e) => setEmail(e.target.value.slice(0, 100))} placeholder="选填" className={inputCls} />
+          <span className="mb-1 flex items-center gap-2 text-sm text-zinc-400">
+            邮箱
+            {email && emailVerified && (
+              <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs font-medium text-emerald-300">已验证</span>
+            )}
+          </span>
+          {/* 邮箱注册后锁定不可修改 */}
+          <input
+            value={email}
+            readOnly
+            placeholder="选填"
+            title="邮箱注册后不可修改"
+            className={`${inputCls} cursor-not-allowed opacity-70`}
+          />
+          {email && !emailVerified && <span className="mt-1 block text-xs text-zinc-500">邮箱注册后不可修改</span>}
         </label>
         <label className="block">
           <span className="mb-1 block text-sm text-zinc-400">微信</span>
@@ -243,7 +272,7 @@ export default function ProfileSettings() {
         </label>
         <label className="block">
           <span className="mb-1 block text-sm text-zinc-400">生日</span>
-          <input type="date" value={birthday} onChange={(e) => setBirthday(e.target.value)} max={new Date().toISOString().slice(0, 10)} className={inputCls} />
+          <input type="date" value={birthday} onChange={(e) => setBirthday(e.target.value)} max={new Date().toISOString().slice(0, 10)} className={dateCls} />
         </label>
         <label className="block">
           <span className="mb-1 block text-sm text-zinc-400">性别</span>
@@ -253,9 +282,61 @@ export default function ProfileSettings() {
             ))}
           </select>
         </label>
+        <label className="block sm:col-span-2">
+          <span className="mb-1 block text-sm text-zinc-400">国家 / 省州 / 城市 / 区</span>
+          <RegionCascade value={region} onChange={setRegion} />
+        </label>
+        <label className="block sm:col-span-2">
+          <span className="mb-1 block text-sm text-zinc-400">详细地址</span>
+          <input
+            value={address}
+            onChange={(e) => setAddress(e.target.value.slice(0, 200))}
+            maxLength={200}
+            placeholder="街道、门牌号等（选填）"
+            className={inputCls}
+          />
+        </label>
         <label className="block">
-          <span className="mb-1 block text-sm text-zinc-400">国籍</span>
-          <input value={nationality} onChange={(e) => setNationality(e.target.value.slice(0, 50))} placeholder="选填" className={inputCls} />
+          <span className="mb-1 block text-sm text-zinc-400">邮编</span>
+          <input
+            value={postalCode}
+            onChange={(e) => setPostalCode(e.target.value.slice(0, 20))}
+            maxLength={20}
+            placeholder="选填"
+            className={inputCls}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-sm text-zinc-400">个人网站</span>
+          <input
+            value={website}
+            onChange={(e) => setWebsite(e.target.value.slice(0, 200))}
+            maxLength={200}
+            placeholder="https://（选填）"
+            className={inputCls}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-sm text-zinc-400">语言偏好</span>
+          <select value={locale} onChange={(e) => setLocale(e.target.value)} className={inputCls}>
+            <option value="">未设置</option>
+            {LOCALES.map((l) => (
+              <option key={l.value} value={l.value}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-sm text-zinc-400">时区</span>
+          <select value={timezone} onChange={(e) => setTimezone(e.target.value)} className={inputCls}>
+            <option value="">未设置</option>
+            {TIMEZONES.map((tz) => (
+              <option key={tz} value={tz}>
+                {tz}
+              </option>
+            ))}
+          </select>
         </label>
       </div>
 
@@ -281,43 +362,15 @@ export default function ProfileSettings() {
         {saving ? "保存中…" : "保存资料"}
       </button>
 
-      {/* 头像编辑弹层（React Photo Editor 插件） */}
+      {/* 头像裁剪弹层（自研：正方形取景 / 拖动 / 缩放 / 双指捏合） */}
       {editFile && (
-        <ReactPhotoEditor
+        <AvatarCropper
           file={editFile}
-          open={editOpen}
-          onClose={() => {
-            setEditOpen(false);
-            setEditFile(null);
-          }}
-          onSaveImage={onSaveEdited}
-          allowColorEditing={false}
-          allowDrawing={false}
-          allowRotate
-          allowFlip
-          allowZoom
-          downloadOnSave={false}
-          modalHeight="34rem"
-          modalWidth="34rem"
-          labels={{
-            close: "关闭",
-            save: "保存头像",
-            rotate: "旋转",
-            brightness: "亮度",
-            contrast: "对比度",
-            saturate: "饱和度",
-            grayscale: "灰度",
-            reset: "重置",
-            flipHorizontal: "水平翻转",
-            flipVertical: "垂直翻转",
-            zoomIn: "放大",
-            zoomOut: "缩小",
-            draw: "画笔",
-            brushColor: "画笔颜色",
-            brushWidth: "画笔粗细",
-          }}
+          onCancel={() => setEditFile(null)}
+          onSaved={onSaveBlob}
         />
       )}
+      {uploading && <div className="mt-2 text-xs text-zinc-500">头像上传中…</div>}
     </div>
   );
 }

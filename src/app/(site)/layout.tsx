@@ -2,10 +2,12 @@ import Link from "next/link";
 import Script from "next/script";
 import SiteHeader from "@/components/SiteHeader";
 import MobileTabBar from "@/components/MobileTabBar";
+import HideOnRoutes from "@/components/HideOnRoutes";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { getPublicSite } from "@/lib/settings";
 import { getServerLocale, translate as t } from "@/lib/i18n";
+import { getPlaygroundEnabled } from "@/lib/playground/settings";
 import { APP_VERSION } from "@/lib/version";
 import { safeJsonScript } from "@/lib/rich";
 import { siteUrl } from "@/lib/seo";
@@ -14,10 +16,14 @@ export const dynamic = "force-dynamic";
 
 // 前台布局：导航 + 主内容 + 页脚（后台不走此布局）
 export default async function SiteLayout({ children }: { children: React.ReactNode }) {
-  const site = await getPublicSite();
-  const locale = await getServerLocale();
+  // pa1 实验场总开关：关闭时隐藏导航/页脚/底栏入口
+  const [site, locale, currentUser, playgroundEnabled] = await Promise.all([
+    getPublicSite(),
+    getServerLocale(),
+    getCurrentUser(),
+    getPlaygroundEnabled(),
+  ]);
   // P4 导航消息入口：登录用户查未读数（管理员发来的消息），未登录不显示
-  const currentUser = await getCurrentUser();
   const messageUnread = currentUser
     ? await db.userMessage.count({
         where: { userId: currentUser.id, direction: "admin_to_user", readAt: null },
@@ -25,11 +31,18 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
     : null;
   return (
     <div className="site-theme flex min-h-screen flex-col">
-      <SiteHeader siteName={site.siteName} logoIcon={site.logoIcon || undefined} messageUnread={messageUnread} />
+      <SiteHeader
+        siteName={site.siteName}
+        logoIcon={site.logoIcon || undefined}
+        messageUnread={messageUnread}
+        playgroundEnabled={playgroundEnabled}
+      />
       {/* pb-24：为手机端底部 Tab 栏（52px + 安全区）预留空间，md 起 Tab 隐藏恢复常规 */}
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-24 pt-8 md:pb-8">{children}</main>
 
-      <footer className="site-footer mt-8 border-t border-zinc-800/80 bg-zinc-950 pb-16 md:pb-0">
+      {/* 积分规则单页按要求不渲染站点页脚 */}
+      <HideOnRoutes paths={["/credit-rules"]}>
+      <footer className="site-footer border-t border-zinc-800/70 bg-zinc-950 pb-16 md:pb-0">
         <div className="mx-auto w-full max-w-6xl px-4">
           {/* 上部：品牌 + 导航 */}
           <div className="flex flex-col gap-8 py-10 md:flex-row md:items-start md:justify-between">
@@ -73,11 +86,13 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
                       {t(locale, "footer.lnkSkills")}
                     </Link>
                   </li>
-                  <li>
-                    <Link href="/software" className="text-zinc-400 transition hover:text-emerald-300">
-                      {t(locale, "footer.lnkSoftware")}
-                    </Link>
-                  </li>
+                  {playgroundEnabled && (
+                    <li>
+                      <Link href="/playground" className="text-zinc-400 transition hover:text-emerald-300">
+                        {t(locale, "footer.lnkSoftware")}
+                      </Link>
+                    </li>
+                  )}
                 </ul>
               </div>
 
@@ -169,6 +184,7 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
           </div>
         </div>
       </footer>
+      </HideOnRoutes>
 
           <Script id="aizhantj" strategy="afterInteractive">
         {`var _mtj = _mtj || [];
@@ -209,7 +225,7 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
       />
 
       {/* 手机端底部标签栏（md 起自动隐藏） */}
-      <MobileTabBar />
+      <MobileTabBar playgroundEnabled={playgroundEnabled} />
     </div>
   );
 }

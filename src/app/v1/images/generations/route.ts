@@ -1,13 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import type { ModelPricing } from "@prisma/client";
-import { saveGeneratedAsset, type AssetType } from "@/lib/assets";
+import { saveGeneratedAsset } from "@/lib/assets";
+import type { AssetType } from "@/lib/asset-types";
 import { authenticateV1 } from "@/lib/gateway/auth";
+import { isModelAllowedForAuth } from "@/lib/gateway/model-access";
 import { billing } from "@/lib/gateway/billing";
+import { apiError, gatewayError } from "@/lib/gateway/errors";
 import { resolveRequestId } from "@/lib/gateway/idempotency";
+import {
+  beginIdempotentRequest,
+  hasClientIdempotencyKey,
+  releaseIdempotentRequest,
+  saveIdempotentResponse,
+} from "@/lib/gateway/response-cache";
 import { callMediaGenerations } from "@/lib/gateway/adapters/media";
-import { costMilli, displayMemberCredits } from "@/lib/gateway/pricing";
-import { markKeyUsed, resolveRoute, type KeyCandidate } from "@/lib/gateway/router";
+import { costMilli, displayMemberCredits, pricingSnapshot } from "@/lib/gateway/pricing";
+import { markKeyUsed, recordKeyOutcome, releaseKeyProbe, resolveRoute, tryAcquireKeyCall, type KeyCandidate } from "@/lib/gateway/router";
 import { recordUsage, type UsageInput } from "@/lib/gateway/usage";
 import { acquireSlot, checkKeyRpm, checkQuota, getQuotaConfig } from "@/lib/quota";
 
@@ -31,10 +40,7 @@ const genSchema = z
   })
   .passthrough();
 
-// OpenAI 风格错误体
-function apiError(status: number, message: string, type: string, code: string) {
-  return NextResponse.json({ error: { message, type, code } }, { status });
-}
+// 统一错误体（P1 契约）：由 gateway/errors.ts 提供
 
 // 计量值：per_image=张数、per_video_second=秒×条数、per_request=1
 function unitsFor(pricing: ModelPricing, count: number, durationSec: number): number {
@@ -59,45 +65,77 @@ export async function POST(req: NextRequest) {
   const raw = await req.json().catch(() => null);
   const parsed = genSchema.safeParse(raw);
   if (!parsed.success) {
-    return apiError(400, "Invalid request body: " + parsed.error.issues[0]?.message, "invalid_request_error", "invalid_body");
+    return gatewayError("invalid_body", { message: "Invalid request body: " + parsed.error.issues[0]?.message });
   }
   const body = parsed.data;
 
+  // b1：Key 模型白名单（空白名单 = 不限制）
+  if (!isModelAllowedForAuth(auth, body.model)) {
+    return gatewayError("model_not_allowed", {
+      message: `Model "${body.model}" is not allowed for this API key`,
+    });
+  }
+
   // ── 3. 配额（apikey 通道只做 Key 层 RPM；onsite 通道会员层日次数/RPM） ──
   if (channel === "apikey") {
-    const keyQuota = checkKeyRpm(apiKeyId!);
+    const keyQuota = await checkKeyRpm(apiKeyId!);
     if (!keyQuota.ok) {
-      return apiError(429, keyQuota.error || "Rate limit exceeded. Please slow down and retry later", "rate_limit_error", "quota_exceeded");
+      return gatewayError("quota_exceeded", { message: keyQuota.error || undefined });
     }
   } else {
     const quota = await checkQuota(user.id);
     if (!quota.ok) {
-      return apiError(429, quota.error || "Rate limit exceeded. Please slow down and retry later", "rate_limit_error", "quota_exceeded");
+      return gatewayError("quota_exceeded", { message: quota.error || undefined });
     }
   }
 
   // ── 4. 预检：模型 / 端点 / 定价（endpointType 分发 image|video） ──
   const route = await resolveRoute(body.model);
   if (!route) {
-    return apiError(404, "Model not found or offline", "invalid_request_error", "model_not_found");
+    return gatewayError("model_not_found");
   }
   const modelKind = route.model.endpointType;
   if (modelKind !== "image" && modelKind !== "video") {
-    return apiError(404, "This model does not support generation endpoints", "invalid_request_error", "endpoint_disabled");
+    return gatewayError("endpoint_disabled", { message: "This model does not support generation endpoints" });
   }
   const endpointPath = modelKind === "video" ? "video_generations" : "image_generations";
   const endpoint = route.endpoints.find((e) => e.path === endpointPath && e.enabled);
   if (!endpoint) {
-    return apiError(404, `This model does not support the ${endpointPath} endpoint`, "invalid_request_error", "endpoint_disabled");
+    return gatewayError("endpoint_disabled", { message: `This model does not support the ${endpointPath} endpoint` });
   }
   const pricing = route.pricing;
   if (!pricing) {
-    return apiError(404, "Model pricing is not configured", "invalid_request_error", "pricing_not_configured");
+    return gatewayError("pricing_not_configured");
   }
 
   // S0-4：客户端 Idempotency-Key → 计费幂等 requestId（重试不重复扣费）
-  const requestId = resolveRequestId(user.id, req);
+  // L1：绑定端点（图/视频分开）+ 模型 + 请求体指纹，防止廉价 chat 的 Key 复用到生图
+  const requestId = resolveRequestId(user.id, req, { endpoint: endpointPath, model: body.model, body });
   const started = Date.now();
+
+  // ── 4.5 响应级幂等：同一 Idempotency-Key 的已完成请求直接回放 ──
+  // 只回放成功响应；首个请求仍在执行 → 409 + Retry-After（不并排再打一次上游）。
+  const keyed = hasClientIdempotencyKey(req);
+  const idem = await beginIdempotentRequest({ requestId, userId: user.id, endpoint: endpointPath, keyed });
+  if (idem.kind === "replay") {
+    return NextResponse.json(idem.body as Record<string, unknown>, {
+      status: idem.status,
+      headers: { "Cache-Control": "no-store", "Idempotent-Replayed": "true" },
+    });
+  }
+  if (idem.kind === "in_progress") {
+    return gatewayError("request_in_progress", {
+      message: "A request with this Idempotency-Key is still in progress. Retry after the interval.",
+      requestId,
+      headers: { "Retry-After": String(idem.retryAfterSec) },
+    });
+  }
+  // 失败/中断必须释放幂等记录，否则一次失败会把后续重试永久堵死
+  const fail = async (status: number, message: string, type: string, code: string) => {
+    if (keyed) await releaseIdempotentRequest(requestId);
+    return gatewayError(code, { status, message, type, requestId });
+  };
+
   const estUnits = unitsFor(pricing, body.n ?? 1, body.duration ?? 5);
   // v0.96 直观定价：图片/视频按「单位」计量走输入侧会员价（未填回退 成本×加价系数）
   const estCredits = displayMemberCredits(pricing, estUnits, 0);
@@ -114,24 +152,22 @@ export async function POST(req: NextRequest) {
     outputTokens: 0,
   };
 
-  // 余额类拒绝 402（含 <200 分禁生图/生视频门槛）
-  const pre = await billing.preCheck(user.id, estCredits, modelKind);
+  // 余额类拒绝 402（含 <200 分禁生图/生视频门槛）；g19：Key 额度只读预检
+  const pre = await billing.preCheck(user.id, estCredits, modelKind, 0, apiKeyId);
   if (!pre.ok) {
-    return apiError(402, pre.error || "Insufficient credits", "insufficient_quota", "insufficient_credits");
+    return pre.code === "key_quota_exceeded"
+      ? fail(402, pre.error || "API key quota exceeded", "insufficient_quota", "key_quota_exceeded")
+      : fail(402, pre.error || "Insufficient credits", "insufficient_quota", "insufficient_credits");
   }
 
-  // ── 5. 预扣（request_id 幂等） ──
-  const deduct = await billing.preDeduct(user.id, estCredits, requestId);
-  if (!deduct.ok) {
-    return apiError(402, deduct.error || "Insufficient credits", "insufficient_quota", "insufficient_credits");
-  }
+  // g19：图片不再预扣，成功后按实际消费结算（settle 内累加 Key 已用额度）
 
   // ── 6. 并发槽（超限退回预扣并 429；出口路径必须 release） ──
   const quotaCfg = await getQuotaConfig();
-  const slot = acquireSlot(user.id, quotaCfg.concurrency);
+  const slot = await acquireSlot(user.id, quotaCfg.concurrency);
   if (!slot.ok) {
     await billing.refund(user.id, requestId);
-    return apiError(429, "Too many concurrent requests. Please retry later", "rate_limit_error", "concurrency_exceeded");
+    return fail(429, "Too many concurrent requests. Please retry later", "rate_limit_error", "concurrency_exceeded");
   }
 
   // ── 7. 路由选 Key + adapter 调用（失败换下一个，最多 3 个） ──
@@ -140,21 +176,35 @@ export async function POST(req: NextRequest) {
     slot.release();
     await billing.refund(user.id, requestId);
     await recordUsage({ ...baseUsage, vendorKeyId: null, status: "failed", costMilli: 0, paidCredits: 0, latencyMs: Date.now() - started });
-    return apiError(502, "No upstream channel available for this model", "api_error", "no_upstream_key");
+    return fail(502, "No upstream channel available for this model", "api_error", "no_upstream_key");
   }
 
   let urls: string[] | null = null;
   let used: KeyCandidate | null = null;
   let lastError = "";
+  // 客户端断连语义（与视频 worker 统一）：不中断生成。
+  // 不监听 req.signal、不把 signal 传给 adapter —— 断连后服务器照常跑完，
+  // 照常结算并把产物转存进「我的资产」；上游已发生的成本不会因为我们放弃而退回。
   for (const cand of attempts) {
+    // U2：真正调用前才占用半开探测名额；名额已被占用则跳过该 Key
+    if (!tryAcquireKeyCall(cand.vendorKeyId)) continue;
     markKeyUsed(cand.vendorKeyId);
-    const r = await callMediaGenerations({
-      endpointType: modelKind,
-      apiBase: cand.apiBase,
-      apiKey: cand.apiKey,
-      body: body as Record<string, unknown>,
-    });
-    if (r.ok && r.urls.length > 0) {
+    let r: Awaited<ReturnType<typeof callMediaGenerations>>;
+    try {
+      r = await callMediaGenerations({
+        endpointType: modelKind,
+        apiBase: cand.apiBase,
+        apiKey: cand.apiKey,
+        body: body as Record<string, unknown>,
+      });
+    } catch (e) {
+      releaseKeyProbe(cand.vendorKeyId); // 异常退出也要归还探测名额
+      throw e;
+    }
+    // P2 渠道健康：记录每次尝试结果
+    const okOut = r.ok && r.urls.length > 0;
+    recordKeyOutcome(cand.vendorKeyId, okOut, okOut ? 200 : r.status || 502);
+    if (okOut) {
       urls = r.urls;
       used = cand;
       break;
@@ -162,19 +212,26 @@ export async function POST(req: NextRequest) {
     lastError = r.errorMessage || `HTTP ${r.status}`;
   }
 
-  // 全部 Key 失败：全额退回 + 502
+  // 全部 Key 失败：全额退回 + 502（只有真实上游失败会走到这里）
   if (!urls || !used) {
     slot.release();
     await billing.refund(user.id, requestId);
-    await recordUsage({ ...baseUsage, vendorKeyId: null, status: "failed", costMilli: 0, paidCredits: 0, latencyMs: Date.now() - started });
-    return apiError(502, `Upstream generation service error: ${lastError}`, "api_error", "upstream_error");
+    await recordUsage({
+      ...baseUsage,
+      vendorKeyId: null,
+      status: "failed",
+      costMilli: 0,
+      paidCredits: 0,
+      latencyMs: Date.now() - started,
+    });
+    return fail(502, `Upstream generation service error: ${lastError}`, "api_error", "upstream_error");
   }
 
   // ── 8. 结算：按实际产物数量 ceil 整数积分（生成已发生，转存失败不退扣分） ──
   const units = unitsFor(pricing, urls.length, body.duration ?? 5);
   const costM = costMilli(units, pricing, "input");
   const paid = displayMemberCredits(pricing, units, 0);
-  await billing.settle(user.id, requestId, paid);
+  await billing.settle(user.id, requestId, paid, apiKeyId);
   const usageRecordId = await recordUsage({
     ...baseUsage,
     vendorKeyId: used.vendorKeyId,
@@ -183,6 +240,8 @@ export async function POST(req: NextRequest) {
     paidCredits: paid,
     latencyMs: Date.now() - started,
     status: "success",
+    // P3 价格版本快照（调价不回写历史）
+    ...pricingSnapshot(pricing),
   });
 
   // ── 9. 生成成功即转存默认存储桶（30 天生命周期），返回我们自己的 URL ──
@@ -209,8 +268,11 @@ export async function POST(req: NextRequest) {
   }
   slot.release();
 
-  return NextResponse.json({
+  const responseBody = {
     created: Math.floor(Date.now() / 1000),
     data,
-  });
+  };
+  // 只缓存成功响应（含产物已转存后的资产地址），供同 Key 重试直接回放
+  if (keyed) await saveIdempotentResponse(requestId, 200, responseBody);
+  return NextResponse.json(responseBody, { headers: { "Cache-Control": "no-store" } });
 }

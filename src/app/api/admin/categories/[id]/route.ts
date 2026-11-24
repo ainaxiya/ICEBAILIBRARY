@@ -20,6 +20,9 @@ export async function PATCH(
   const body = await req.json().catch(() => null);
   const name = (body?.name || "").trim();
   const nameEn = (body?.nameEn || "").trim();
+  // 自定义栏目描述与关键字（SEO；空则前台用默认文案）
+  const metaDescription = typeof body?.metaDescription === "string" ? body.metaDescription.trim().slice(0, 500) : null;
+  const metaKeywords = typeof body?.metaKeywords === "string" ? body.metaKeywords.trim().slice(0, 300) : null;
   if (!name) return NextResponse.json({ error: "名称不能为空" }, { status: 400 });
 
   const cat = await db.category.findUnique({ where: { id: Number(id) } });
@@ -37,7 +40,7 @@ export async function PATCH(
   await db.$transaction(async (tx) => {
     await tx.category.update({
       where: { id: cat.id },
-      data: { name, nameEn: nameEn || name, slug: newSlug },
+      data: { name, nameEn: nameEn || name, slug: newSlug, metaDescription, metaKeywords },
     });
     if (oldSlug !== newSlug) {
       await tx.prompt.updateMany({

@@ -98,13 +98,16 @@ export async function POST(req: NextRequest) {
     }
     if (!skillMd.trim()) return NextResponse.json({ error: "SKILL.md 为空" }, { status: 400 });
 
-    // 原始 zip 存默认桶
+    // 原始 zip 存默认桶（白名单：技能压缩包允许进桶；桶须为公开桶并配公开访问域名）
     const bucket = await db.storageBucket.findFirst({
       where: { isDefault: true, enabled: true },
       orderBy: { id: "asc" },
     });
     if (!bucket) {
       return NextResponse.json({ error: "未配置默认存储桶，请先在存储管理中设置" }, { status: 400 });
+    }
+    if (!bucket.publicBaseUrl) {
+      return NextResponse.json({ error: "默认存储桶未配置公开访问域名，请先在存储管理中设置" }, { status: 400 });
     }
     const now = new Date();
     const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;

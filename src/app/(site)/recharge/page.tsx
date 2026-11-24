@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
@@ -10,10 +11,18 @@ export const dynamic = "force-dynamic";
 
 export const metadata = { title: "积分充值", robots: { index: false, follow: true } };
 
-export default async function RechargePage() {
+export default async function RechargePage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const locale = await getServerLocale();
   const user = await getCurrentUser();
   if (!user) redirect("/login?next=/recharge");
+  const sp = (await searchParams) ?? {};
+  const rawNext = Array.isArray(sp.next) ? sp.next[0] : sp.next;
+  // 只接受站内路径，防开放重定向
+  const next = rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : null;
 
   await ensureCreditPacks();
   const [packs, balance, channels] = await Promise.all([
@@ -29,9 +38,16 @@ export default async function RechargePage() {
     <div className="mx-auto max-w-4xl">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-bold text-zinc-50">{t(locale, "recharge.title")}</h1>
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-2">
-          <span className="text-xs text-zinc-500">{t(locale, "recharge.balance")}</span>
-          <span className="ml-2 text-lg font-bold text-emerald-400">{Number(balance)}</span>
+        <div className="flex items-center gap-3">
+          {next ? (
+            <Link href={next} className="text-sm text-zinc-400 underline-offset-4 hover:text-zinc-200 hover:underline">
+              返回原页面
+            </Link>
+          ) : null}
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-2">
+            <span className="text-xs text-zinc-500">{t(locale, "recharge.balance")}</span>
+            <span className="ml-2 text-lg font-bold text-emerald-400">{Number(balance)}</span>
+          </div>
         </div>
       </div>
       <RechargeClient

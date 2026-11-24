@@ -34,8 +34,16 @@ export function isApiHostAllowed(req: NextRequest, allow: string[]): boolean {
 type AuthUser = NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>;
 
 export type V1Auth =
-  | { ok: true; user: AuthUser; channel: "onsite" | "apikey"; apiKeyId: number | null }
+  | {
+      ok: true;
+      user: AuthUser;
+      channel: "onsite" | "apikey";
+      apiKeyId: number | null;
+      // b1：Key 模型白名单（空 = 不限制；站内登录态恒为空）
+      allowedModels?: string[];
+    }
   | { ok: false; status: number; message: string; code: string };
+
 
 export async function authenticateV1(req: NextRequest): Promise<V1Auth> {
   // ── 0. 网关域名白名单（多线路 Base URL 域名）：非配置域名 404 静默隐藏 ──
@@ -57,9 +65,19 @@ export async function authenticateV1(req: NextRequest): Promise<V1Auth> {
     }
     const r = await verifyApiKey(m[1]);
     if (!r.ok) {
+      // b2 硬额度：超额按 402 key_quota_exceeded 返回，便于客户端自助处理
+      if (r.quotaExceeded) {
+        return { ok: false, status: 402, message: r.error, code: "key_quota_exceeded" };
+      }
       return { ok: false, status: 401, message: r.error, code: "invalid_api_key" };
     }
-    return { ok: true, user: r.user, channel: "apikey", apiKeyId: r.key.id };
+    return {
+      ok: true,
+      user: r.user,
+      channel: "apikey",
+      apiKeyId: r.key.id,
+      allowedModels: r.key.allowedModels,
+    };
   }
 
   const user = await getCurrentUser();

@@ -26,6 +26,7 @@ export default async function MemberPage({
     userFavCount,
     assetCount,
     apiCalls,
+    spentAgg,
     recentAssets,
     pwdRow,
     postRows,
@@ -36,13 +37,14 @@ export default async function MemberPage({
     db.userFavorite.count({ where: { userId: user.id } }),
     db.generatedAsset.count({ where: { userId: user.id, status: "temp" } }),
     db.usageRecord.count({ where: { userId: user.id } }),
+    db.usageRecord.aggregate({ where: { userId: user.id }, _sum: { paidCredits: true } }),
     db.generatedAsset.findMany({
       where: { userId: user.id, status: "temp" },
       orderBy: { createdAt: "desc" },
       take: 5,
       select: { id: true, assetType: true, storageKey: true, sizeBytes: true, createdAt: true },
     }),
-    db.user.findUnique({ where: { id: user.id }, select: { passwordHash: true } }),
+    db.user.findUnique({ where: { id: user.id }, select: { passwordHash: true, emailVerified: true } }),
     db.prompt.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: "desc" },
@@ -80,10 +82,16 @@ export default async function MemberPage({
       membershipLevel: user.membershipLevel ?? "free",
       membershipUntil: user.membershipUntil ? user.membershipUntil.toISOString() : null,
       email: user.email,
+      emailVerified: !!pwdRow?.emailVerified,
       phone: user.phone,
       hasPassword: !!pwdRow?.passwordHash,
     },
     balance,
+    // b4：钱包三指标同屏 —— 当前积分 / 累计消耗 / 累计请求
+    wallet: {
+      spentCredits: Number(spentAgg._sum.paidCredits ?? 0),
+      requests: apiCalls,
+    },
     stats: {
       favCount: favCount + userFavCount,
       assetCount,

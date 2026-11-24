@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { existsSync } from "node:fs";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { PERMISSIONS, requirePerm, logAdminAction, getClientIp } from "@/lib/rbac";
 import { getCrawlSource } from "@/lib/crawl-sources";
 import { fetchLibtvFeed, filterCollectableItems, parseCnDate, type LibtvFeedItem } from "@/lib/crawl-libtv";
 import { fetchJimengFeed, filterCollectableJimengItems, type JimengFeedItem } from "@/lib/crawl-jimeng";
+import { cacheRemoteCovers } from "@/lib/crawl-cover";
+import { uploadUrlToPath } from "@/lib/upload-store.server";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +25,7 @@ function libtvTags(it: LibtvFeedItem): string[] {
 }
 
 // 即梦 tags 约定：
-//   [0] __meta__ 前缀的 JSON（提示词/模型名/形态/视频地址/大图地址，入库时剥离，不展示）
+//   [0] __meta__ 前缀的 JSON（提示词/模型名/形态/视频地址/大图地址/远端封面地址，入库时剥离，不展示）
 //   其余为真实标签：模型名、作品形态（文生图/文生视频）
 const JIMENG_META_PREFIX = "__meta__";
 function jimengTags(it: JimengFeedItem): string[] {
@@ -32,11 +35,25 @@ function jimengTags(it: JimengFeedItem): string[] {
     w: it.workType,
     v: (it.videoUrl || "").slice(0, 2000),
     i: (it.imageUrl || "").slice(0, 2000),
+    // 远端封面带签名会过期：CrawlItem.coverUrl 存本地缓存后，原地址留在这里供入库复用
+    c: (it.coverUrl || "").slice(0, 2000),
   });
   const tags: string[] = [JIMENG_META_PREFIX + meta];
   if (it.modelName) tags.push(it.modelName.slice(0, 30));
   tags.push(it.workType === "video" ? "文生视频" : "文生图");
   return tags;
+}
+
+// 读取旧条目的 meta.c（fetch 阶段缓存的远端封面地址）
+function metaCoverOf(tags: string[]): string | null {
+  const meta = tags.find((t) => t.startsWith(JIMENG_META_PREFIX));
+  if (!meta) return null;
+  try {
+    const c = JSON.parse(meta.slice(JIMENG_META_PREFIX.length))?.c;
+    return typeof c === "string" && c ? c : null;
+  } catch {
+    return null;
+  }
 }
 
 // POST /api/admin/collect/fetch  一键获取远端最新作品
@@ -174,9 +191,25 @@ async function handleJimengFetch(adminId: number, source: string, pages: number)
   const remoteIds = items.map((it) => it.itemId);
   const existing = await db.crawlItem.findMany({
     where: { source, remoteId: { in: remoteIds } },
-    select: { id: true, remoteId: true, status: true, collectedAt: true },
+    select: { id: true, remoteId: true, status: true, collectedAt: true, coverUrl: true, tags: true },
   });
   const exMap = new Map(existing.map((x) => [x.remoteId, x]));
+
+  // 封面本地缓存：远端签名 URL 会过期，fetch 阶段就落盘；CrawlItem.coverUrl 存本地路径。
+  // 已有条目若本地文件仍在且远端封面未变，直接复用不再下载。
+  const localByRemote = new Map<string, string>();
+  const toCache: string[] = [];
+  for (const it of items) {
+    if (!it.coverUrl || !/^https?:\/\//i.test(it.coverUrl)) continue;
+    const ex = exMap.get(it.itemId);
+    if (ex?.status === "skipped") continue;
+    const cachedLocal =
+      ex && ex.coverUrl?.startsWith("/uploads/") && metaCoverOf(ex.tags) === it.coverUrl ? ex.coverUrl : null;
+    const abs = cachedLocal ? uploadUrlToPath(cachedLocal) : null;
+    if (cachedLocal && abs && existsSync(abs)) localByRemote.set(it.coverUrl, cachedLocal);
+    else toCache.push(it.coverUrl);
+  }
+  for (const [remote, local] of await cacheRemoteCovers(toCache, "jimeng")) localByRemote.set(remote, local);
 
   let newCount = 0;
   let updatedCount = 0;
@@ -186,6 +219,8 @@ async function handleJimengFetch(adminId: number, source: string, pages: number)
     const remoteCreatedAt = it.createTime;
     const remoteUpdatedAt = it.updateTime;
     const title = it.title || (it.workType === "video" ? "即梦AI视频作品" : "即梦AI作品");
+    // 本地缓存成功 → 存本地路径；失败 → 保留远端 URL 兜底
+    const coverUrl = it.coverUrl ? localByRemote.get(it.coverUrl) ?? it.coverUrl : null;
     const ex = exMap.get(it.itemId);
     if (ex?.status === "skipped") continue; // 已标记"不采集"，不再更新也不计数
     if (!ex) {
@@ -196,7 +231,7 @@ async function handleJimengFetch(adminId: number, source: string, pages: number)
           templateUuid: null, // 即梦无 templateUuid
           title: title.slice(0, 200),
           author: it.authorName.slice(0, 80),
-          coverUrl: it.coverUrl || null,
+          coverUrl,
           tags,
           likeCount: 0,
           remoteCreatedAt,
@@ -210,7 +245,7 @@ async function handleJimengFetch(adminId: number, source: string, pages: number)
         data: {
           title: title.slice(0, 200),
           author: it.authorName.slice(0, 80),
-          coverUrl: it.coverUrl || null,
+          coverUrl,
           tags,
           likeCount: 0,
           remoteCreatedAt: remoteCreatedAt ?? undefined,

@@ -23,6 +23,9 @@ export async function GET(req: NextRequest) {
 
   const where: Prisma.CreditLedgerWhereInput = {
     userId: user.id,
+    // 只展示真实积分变动：changeAmount=0 的记录是结算/退款决策的内部标记（billing_decision），
+    // 以及历史 0 分消费遗留行，前台不显示（历史数据保留在库里，不删）。
+    changeAmount: { not: 0n },
     ...(REASONS.includes(reason) ? { reason } : {}),
   };
 

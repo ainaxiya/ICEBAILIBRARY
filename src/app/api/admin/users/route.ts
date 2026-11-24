@@ -7,7 +7,8 @@ import { PERMISSIONS, requirePerm, logAdminAction, getClientIp } from "@/lib/rba
 
 export const dynamic = "force-dynamic";
 
-// GET /api/admin/users?page=&q=  仅前台会员（role=user；管理员/采集账号不出现）
+// GET /api/admin/users?page=&q=&scope=all|regular|system
+// 默认 all：后台必须能看到全部会员行（含系统等级账号），不允许有任何行不可见
 export async function GET(req: NextRequest) {
   const { ok } = await requirePerm(PERMISSIONS.USER_READ);
   if (!ok) return NextResponse.json({ error: "forbidden" }, { status: 403 });
@@ -16,9 +17,15 @@ export async function GET(req: NextRequest) {
   const page = Math.max(1, parseInt(searchParams.get("page") || "1") || 1);
   const q = (searchParams.get("q") || "").trim();
   const pageSize = 30;
+  const scopeRaw = searchParams.get("scope") || "all";
+  const scope = scopeRaw === "regular" || scopeRaw === "system" ? scopeRaw : "all";
 
   const where: any = {
-    role: "user",
+    ...(scope === "regular"
+      ? { membership: { isSystem: false } }
+      : scope === "system"
+        ? { membership: { isSystem: true } }
+        : {}),
     ...(q
       ? {
           OR: [
@@ -31,22 +38,40 @@ export async function GET(req: NextRequest) {
       : {}),
   };
 
-  const [list, total] = await Promise.all([
+  const [list, total, grouped, totalAll, totalRegular, totalSystem] = await Promise.all([
     db.user.findMany({
       where,
       orderBy: { id: "desc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
-      include: { _count: { select: { prompts: true, apiKeys: true } } },
+      include: {
+        membership: { select: { code: true, name: true, isSystem: true } },
+        _count: { select: { prompts: true, apiKeys: true } },
+      },
     }),
     db.user.count({ where }),
+    db.user.groupBy({ by: ["membershipLevel"], _count: { _all: true } }),
+    db.user.count(),
+    db.user.count({ where: { membership: { isSystem: false } } }),
+    db.user.count({ where: { membership: { isSystem: true } } }),
   ]);
+
+  // 各等级行数（含 0 行的等级），与 User 总行数应能对上
+  const levelMeta = await db.membershipLevel.findMany({
+    select: { code: true, name: true, isSystem: true, isActive: true },
+    orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
+  });
+  const countMap = new Map(grouped.map((g) => [g.membershipLevel, g._count._all]));
+  const levelCounts = levelMeta.map((l) => ({ ...l, count: countMap.get(l.code) ?? 0 }));
 
   return NextResponse.json({
     list: list.map(({ passwordHash, ...rest }) => rest),
     total,
     page,
     pageSize,
+    scope,
+    levelCounts,
+    scopeCounts: { all: totalAll, regular: totalRegular, system: totalSystem },
   });
 }
 
@@ -104,7 +129,6 @@ export async function POST(req: NextRequest) {
       phone,
       status: d.status,
       allowPublish: d.allowPublish,
-      role: "user",
       registerIp: ip,
     },
   });

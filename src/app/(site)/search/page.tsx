@@ -30,19 +30,15 @@ const HL_CFG = {
     hl: ["name", "summary"],
     crop: ["summary"],
   },
-  software: {
-    hl: ["name", "tagline", "description"],
-    crop: ["tagline", "description"],
-  },
 } as const;
 
-const TYPES = ["prompt", "skill", "software"] as const;
+// v0.117 AI 软件下线：搜索范围只保留 提示词 / 技能
+const TYPES = ["prompt", "skill"] as const;
 type TypeKey = (typeof TYPES)[number];
 
 const TYPE_CFG: Record<TypeKey, { index: string; facet: string }> = {
   prompt: { index: "prompts", facet: "category" },
   skill: { index: "skills", facet: "categorySlug" },
-  software: { index: "software", facet: "categorySlug" },
 };
 
 const TYPE_STYLE: Record<
@@ -60,12 +56,6 @@ const TYPE_STYLE: Record<
     badge: "bg-violet-500/15 text-violet-300 ring-violet-400/25",
     accent: "from-violet-400 via-violet-500/60 to-transparent",
     label: { zh: "AI技能", en: "Skills" },
-  },
-  software: {
-    tile: "from-amber-400/25 to-amber-600/10 text-amber-300 ring-amber-400/30",
-    badge: "bg-amber-500/15 text-amber-300 ring-amber-400/25",
-    accent: "from-amber-400 via-amber-500/60 to-transparent",
-    label: { zh: "AI软件", en: "Software" },
   },
 };
 
@@ -194,15 +184,13 @@ export default async function SearchPage({
   const pageSize = 20;
   const zh = locale === "zh";
 
-  const [promptCats, skillCats, softwareCats] = await Promise.all([
+  const [promptCats, skillCats] = await Promise.all([
     db.category.findMany({ orderBy: { sort: "asc" }, select: { slug: true, name: true, nameEn: true } }),
     db.skillCategory.findMany({ orderBy: { sort: "asc" }, select: { slug: true, name: true, nameEn: true } }),
-    db.softwareCategory.findMany({ orderBy: { sort: "asc" }, select: { slug: true, name: true, nameEn: true } }),
   ]);
   const catList: Record<TypeKey, { slug: string; name: string; nameEn: string }[]> = {
     prompt: promptCats,
     skill: skillCats,
-    software: softwareCats,
   };
   const catNameOf = (tp: TypeKey, slug: string) => {
     const c = catList[tp].find((x) => x.slug === slug);
@@ -322,18 +310,16 @@ export default async function SearchPage({
   }
   const facetTotal = TYPES.reduce((n, tp) => n + (facetCounts[tp]?.total || 0), 0);
 
-  // 技能/软件的详情链接需要 slug，索引缺失时回查数据库
+  // 技能的详情链接需要 slug，索引缺失时回查数据库
   const skillIds = rows.filter((r) => r.tp === "skill" && !r.slug).map((r) => r.id);
-  const softIds = rows.filter((r) => r.tp === "software" && !r.slug).map((r) => r.id);
-  const [skSlugs, swSlugs] = await Promise.all([
-    skillIds.length ? db.skill.findMany({ where: { id: { in: skillIds } }, select: { id: true, slug: true } }) : Promise.resolve([]),
-    softIds.length ? db.software.findMany({ where: { id: { in: softIds } }, select: { id: true, slug: true } }) : Promise.resolve([]),
-  ]);
+  const skSlugs = skillIds.length
+    ? await db.skill.findMany({ where: { id: { in: skillIds } }, select: { id: true, slug: true } })
+    : [];
   const slugMap = new Map<number, string>();
-  for (const s of [...skSlugs, ...swSlugs]) slugMap.set(s.id, s.slug);
+  for (const s of skSlugs) slugMap.set(s.id, s.slug);
   const hrefOf = (r: Row) => {
     const slug = r.slug || slugMap.get(r.id) || String(r.id);
-    return r.tp === "skill" ? skillHref(slug, r.id) : r.tp === "software" ? `/software/${encodeURIComponent(slug)}` : `/p/${r.id}`;
+    return r.tp === "skill" ? skillHref(slug, r.id) : `/p/${r.id}`;
   };
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -447,7 +433,7 @@ export default async function SearchPage({
                   <span className="lg:hidden">{zh ? "全部" : "All"}</span>
                   <span className="hidden lg:inline">{zh ? "全部内容" : "All"}</span>
                 </span>
-                <span className="shrink-0 rounded-full bg-zinc-800 px-1 py-0.5 text-[10px] tabular-nums text-zinc-400 lg:px-2 lg:text-[11px]">{facetTotal}</span>
+                <span className="shrink-0 rounded-full bg-zinc-800 px-1 py-0.5 text-xs tabular-nums text-zinc-400 lg:px-2 lg:text-xs">{facetTotal}</span>
               </Link>
 
               {/* 三个类型节点（details 展开下级分类） */}
@@ -464,7 +450,7 @@ export default async function SearchPage({
                         <TypeIcon type={tp} className="h-4 w-4" />
                       </span>
                       <span className="flex-1 truncate">{st.label[zh ? "zh" : "en"]}</span>
-                      <span className="shrink-0 rounded-full bg-zinc-800 px-1 py-0.5 text-[10px] tabular-nums text-zinc-400 lg:px-2 lg:text-[11px]">
+                      <span className="shrink-0 rounded-full bg-zinc-800 px-1 py-0.5 text-xs tabular-nums text-zinc-400 lg:px-2 lg:text-xs">
                         {facetCounts[tp]?.total ?? 0}
                       </span>
                       <svg
@@ -496,7 +482,7 @@ export default async function SearchPage({
                             className={`cat-menu-btn rounded-full px-2.5 py-1 text-xs ${sel ? "active" : ""}`}
                           >
                             {zh ? c.name : c.nameEn}
-                            {n > 0 && <span className="ml-1 text-[10px] tabular-nums opacity-70">{n}</span>}
+                            {n > 0 && <span className="ml-1 text-xs tabular-nums opacity-70">{n}</span>}
                           </Link>
                         );
                       })}
@@ -531,7 +517,7 @@ export default async function SearchPage({
               <p className="text-zinc-200">{t(locale, "search.noresult")}</p>
               {activeCount > 0 && (
                 <Link href={qs({ type: "", category: "" })} className="mt-3 inline-flex items-center gap-1 text-sm text-emerald-300 transition hover:text-emerald-200">
-                  {zh ? "在全部类型中再找找" : "Search in all types"} →
+                  {zh ? "在全部类型中再找找" : "Search in all types"}
                 </Link>
               )}
             </div>

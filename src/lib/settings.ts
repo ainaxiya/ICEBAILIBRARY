@@ -37,6 +37,29 @@ export const DEFAULT_SETTINGS = {
       nickname: "off" as "off" | "optional" | "required", // 默认不收集：留空注册自动取随机名
       phone: "off" as "off" | "optional" | "required",
     },
+    // P7 注册需邮箱验证码：开启后注册必须填邮箱并完成验证码校验
+    // （前置条件：站点管理→邮箱服务 已配置并开启；后端会强制邮箱必填）
+    emailVerify: false,
+  },
+  // P7 邮箱服务（后台「邮箱服务」页）：SMTP 配置 + 邮件验证码策略
+  email: {
+    // 邮件服务总开关：关闭时所有发信接口直接拒绝（提示服务未开启）
+    enabled: false,
+    smtpHost: "",
+    smtpPort: 587,
+    // 465=true(隐式 SSL) / 587=false(STARTTLS)
+    smtpSecure: false,
+    smtpUser: "",
+    // AES-256-GCM 密文存储（encryptSecret）；接口不回显
+    smtpPassEnc: "",
+    fromName: "",
+    fromAddress: "",
+    // 找回密码需邮箱验证码（默认开；前提是邮箱服务已启用）
+    resetPasswordVerify: true,
+    codeTtlMinutes: 10,
+    resendCooldownSeconds: 60,
+    // 同一邮箱同一用途每小时最多发送次数
+    hourlySendLimit: 5,
   },
   basic: {
     siteName: "冰山AI资料库",
@@ -101,7 +124,7 @@ export async function getSettings(): Promise<SiteSettings> {
   const rows = await db.siteSetting.findMany();
   const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
   const merged = structuredClone(DEFAULT_SETTINGS) as any;
-  for (const key of ["site", "basic", "publish", "membership", "register", "comment"]) {
+  for (const key of ["site", "basic", "publish", "membership", "register", "comment", "email"]) {
     if (map[key]) {
       try {
         merged[key] = { ...merged[key], ...JSON.parse(map[key]) };
@@ -113,7 +136,7 @@ export async function getSettings(): Promise<SiteSettings> {
 }
 
 export async function saveSetting(
-  key: "site" | "basic" | "publish" | "membership" | "register" | "comment",
+  key: "site" | "basic" | "publish" | "membership" | "register" | "comment" | "email",
   value: unknown
 ) {
   const json = JSON.stringify(value);
@@ -130,7 +153,7 @@ export const defaultSettings = DEFAULT_SETTINGS;
 
 const DEFAULT_KEYWORDS = [
   "AI提示词", "prompt", "Midjourney", "即梦", "可灵",
-  "AI绘画", "AI视频", "AI技能", "AI软件", "冰山AI资料库",
+  "AI绘画", "AI视频", "AI技能", "实验场", "冰山AI资料库",
 ];
 
 // 神器滚动文字默认六条（后台未配置时使用）
@@ -194,6 +217,8 @@ export async function getPublicSite() {
     allowRegister: reg.allowRegister ?? site.allowRegister ?? s.basic.allowRegister,
     // 注册扩展字段配置（off/optional/required），前台注册页据此渲染
     registerFields: reg.fields,
+    // P7 注册需邮箱验证码（前台注册页据此渲染邮箱+验证码输入）
+    emailVerifyRequired: !!reg.emailVerify,
     // 图标：后台上传后走 /site-assets/ 动态服务；未配置则回退内置品牌资源
     logoIcon,
     favicon: site.favicon || "/favicon.ico",
@@ -207,6 +232,18 @@ export async function getPublicSite() {
       ? site.rotatingLines.map((l: string) => l.trim()).filter(Boolean)
       : DEFAULT_ROTATING_LINES,
   };
+}
+
+/**
+ * 注册邮箱验证的生效口径：开关只认注册设置本身；
+ * 邮件服务未启用属于配置错误，必须显式拒绝注册，而不是静默降级成「不验证」。
+ */
+export function resolveEmailVerify(
+  register: { emailVerify?: boolean | null },
+  email: { enabled?: boolean | null }
+): "off" | "on" | "misconfigured" {
+  if (!register.emailVerify) return "off";
+  return email.enabled ? "on" : "misconfigured";
 }
 
 /**

@@ -13,7 +13,7 @@ export default async function AdminRolesPage() {
 
   const roles = await db.adminRole.findMany({
     orderBy: { id: "asc" },
-    include: { _count: { select: { users: true } } },
+    include: { _count: { select: { admins: true } } },
   });
 
   const initial = roles.map((r) => ({
@@ -23,7 +23,7 @@ export default async function AdminRolesPage() {
     description: r.description,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
-    userCount: r._count.users,
+    adminCount: r._count.admins,
   }));
 
   return (

@@ -303,7 +303,7 @@ export default function SoftwareForm({
                   <option value="bucket">对象存储</option>
                 </select>
                 {dl.storageType === "local" ? (
-                  <input value={dl.fileUrl} onChange={(e) => setDl(i, "fileUrl", e.target.value)} className={`${inputCls} md:col-span-4`} placeholder="/uploads/soft/xxx.zip" />
+                  <input value={dl.fileUrl} onChange={(e) => setDl(i, "fileUrl", e.target.value)} className={`${inputCls} md:col-span-4`} placeholder="/uploads/2026-11/zip-xxxxxxxxxxxx.zip" />
                 ) : (
                   <>
                     <select value={dl.bucketId || ""} onChange={(e) => setDl(i, "bucketId", Number(e.target.value))} className={`${inputCls} md:col-span-2`}>
@@ -329,7 +329,7 @@ export default function SoftwareForm({
                       <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
                         <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${upProg[i]}%` }} />
                       </div>
-                      <div className="mt-0.5 text-center text-[10px] text-emerald-300">{upProg[i]}%</div>
+                      <div className="mt-0.5 text-center text-xs text-emerald-300">{upProg[i]}%</div>
                     </div>
                   ) : (
                     <button
@@ -341,7 +341,7 @@ export default function SoftwareForm({
                     </button>
                   )}
                   {dl.sizeBytes ? (
-                    <span className="shrink-0 text-[10px] text-zinc-600">
+                    <span className="shrink-0 text-xs text-zinc-600">
                       {dl.sizeBytes >= 1048576 ? `${(dl.sizeBytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(dl.sizeBytes / 1024))} KB`}
                     </span>
                   ) : null}

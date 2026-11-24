@@ -139,26 +139,27 @@ export default async function CategoriesPage() {
         }}
       />
 
-      {/* ── Hero：大字 CanvasText 动态纹理字效（无背景特效）── */}
+      {/* ── Hero：大字 CanvasText 动态纹理字效（超宽自动等比缩放，手机端不再裁切）；副标题为纯文本（无动画）── */}
       <div className="px-4 py-16 text-center">
-        <h1 className="font-spotlight text-4xl font-bold tracking-tight md:text-7xl">
+        <h1 className="font-spotlight text-3xl font-bold tracking-tight sm:text-4xl md:text-7xl">
           <CanvasText text="按提示词分类浏览" {...WAVE} />
         </h1>
-        <p className="mt-6 font-spotlight text-base font-semibold max-w-3xl text-center mx-auto sm:text-2xl">
-          <CanvasText text="超多免费 AI 提示词库覆盖图像、视频、开发、安全。" {...WAVE} />
+        {/* 手机端：两行统一 12px 纯白；桌面端保留原 Inter 大字副标题 */}
+        <p className="mt-6 max-w-3xl text-center mx-auto text-xs font-normal leading-relaxed text-white sm:font-spotlight sm:text-2xl sm:font-semibold sm:text-zinc-50">
+          超多免费 AI 提示词库覆盖图像、视频、开发、安全
         </p>
-        <p className="mt-2 font-spotlight text-base font-semibold max-w-3xl text-center mx-auto sm:text-2xl">
-          <CanvasText text="整合全球优质AI提示词行业解决方案" {...WAVE} />
+        <p className="mt-2 max-w-3xl text-center mx-auto text-xs font-normal leading-relaxed text-white sm:font-spotlight sm:text-2xl sm:font-semibold sm:text-zinc-50">
+          整合全球优质AI提示词行业解决方案
         </p>
         <p className="mt-7 text-center">
-          <span className="inline-block rounded-full border border-zinc-600/70 bg-zinc-800/40 px-5 py-1.5 font-spotlight text-sm text-zinc-300">
+          <span className="inline-block rounded-full border border-zinc-600/70 bg-zinc-800/40 px-5 py-1.5 text-xs text-zinc-400 sm:font-spotlight sm:text-sm sm:text-zinc-300">
             已存{total.toLocaleString("en-US")}条提示词
           </span>
         </p>
       </div>
 
-      {/* ── 15 分类卡片：渐变流动边框（v0.93）── */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      {/* ── 15 分类卡片：渐变流动边框（v0.93；手机一排 2 个，PC 不变）── */}
+      <div className="grid grid-cols-2 gap-3 sm:gap-5 sm:grid-cols-2 lg:grid-cols-4">
         {cats.map((c) => {
           const meta = getCategoryMeta(c.slug);
           const n = counts.get(c.slug) || 0;
@@ -168,19 +169,19 @@ export default async function CategoriesPage() {
             <BackgroundGradient key={c.id}>
               <Link
                 href={`/category/${encodeURIComponent(c.slug)}`}
-                className="flex min-h-[240px] flex-col p-6"
+                className="flex min-h-[190px] flex-col p-3 sm:min-h-[240px] sm:p-6"
               >
                 {/* 大图标居中（带投影） */}
-                <span className="mb-5 flex h-40 w-40 items-center justify-center self-center">
-                  <CatIcon name={c.name} slug={c.slug} className="h-40 w-40 object-contain drop-shadow-[0_8px_22px_rgba(0,0,0,0.55)]" />
+                <span className="mb-5 flex h-24 w-24 items-center justify-center self-center sm:h-40 sm:w-40">
+                  <CatIcon name={c.name} slug={c.slug} className="h-24 w-24 object-contain drop-shadow-[0_8px_22px_rgba(0,0,0,0.55)] sm:h-40 sm:w-40" />
                 </span>
-                <h2 className="mb-1.5 text-center text-2xl font-semibold text-zinc-100 drop-shadow-[0_2px_10px_rgba(0,0,0,0.65)] transition group-hover:text-orange-400 group-hover:drop-shadow-[0_0_16px_rgba(251,146,60,0.7)]">
+                <h2 className="mb-1.5 text-center text-base font-semibold text-zinc-100 drop-shadow-[0_2px_10px_rgba(0,0,0,0.65)] transition group-hover:text-orange-400 group-hover:drop-shadow-[0_0_16px_rgba(251,146,60,0.7)] sm:text-2xl">
                   {name}
                 </h2>
-                <p className="mb-4 line-clamp-2 flex-1 text-xs leading-relaxed text-zinc-400">{desc}</p>
+                <p className="mb-4 line-clamp-2 flex-1 text-xs leading-relaxed text-zinc-400 sm:text-xs">{desc}</p>
                 <div className="flex items-end justify-between">
-                  <span className="text-xs text-zinc-500">{n.toLocaleString("en-US")} 条提示词</span>
-                  <span className="rounded-full border border-zinc-700 bg-zinc-800/70 px-3.5 py-1.5 text-xs text-zinc-300 transition group-hover:border-orange-400/70 group-hover:bg-orange-500/15 group-hover:text-orange-400">
+                  <span className="text-xs text-zinc-500 sm:text-xs">{n.toLocaleString("en-US")} 条提示词</span>
+                  <span className="rounded-full border border-zinc-700 bg-zinc-800/70 px-2.5 py-1 text-xs text-zinc-300 transition group-hover:border-orange-400/70 group-hover:bg-orange-500/15 group-hover:text-orange-400 sm:px-3.5 sm:py-1.5 sm:text-xs">
                     查看全部
                   </span>
                 </div>
@@ -190,15 +191,15 @@ export default async function CategoriesPage() {
         })}
       </div>
 
-      {/* ── 按创作类型浏览：大字 CanvasText 字效 + 小字说明（无背景特效）── */}
+      {/* ── 按创作类型浏览：大字 CanvasText 字效 + 纯文本说明（无动画）── */}
       <div className="mt-16">
-        <h2 className="text-center font-spotlight text-4xl font-bold tracking-tight md:text-7xl">
+        <h2 className="text-center font-spotlight text-3xl font-bold tracking-tight sm:text-4xl md:text-7xl">
           <CanvasText text="按创作类型浏览" {...WAVE} />
         </h2>
         <p className="mb-6 mt-6 text-center text-base">
-          <CanvasText text="4 种创作类型，快速找到你想要的提示词形式" {...WAVE} />
+          4 种创作类型，快速找到你想要的提示词形式
         </p>
-        <div className="relative grid grid-cols-1 gap-5 px-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="relative grid grid-cols-2 gap-3 px-4 sm:gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {TYPE_ORDER.map((type) => {
             const meta = TYPE_META[type];
             const n = typeCounts.get(type) || 0;
@@ -206,22 +207,22 @@ export default async function CategoriesPage() {
             const desc = meta.desc[locale];
             return (
               <BackgroundGradient key={type}>
-                <Link href={`/type/${type}`} className="flex min-h-[240px] flex-col p-6">
+                <Link href={`/type/${type}`} className="flex min-h-[190px] flex-col p-3 sm:min-h-[240px] sm:p-6">
                   {/* 大图标居中（带投影，与分类卡一致） */}
-                  <span className="mb-5 flex h-40 w-40 items-center justify-center self-center">
+                  <span className="mb-5 flex h-24 w-24 items-center justify-center self-center sm:h-40 sm:w-40">
                     <img
                       src={`/icons/cat/${TYPE_ICON_FILE[type]}.webp`}
                       alt=""
-                      className="h-40 w-40 object-contain drop-shadow-[0_8px_22px_rgba(0,0,0,0.55)]"
+                      className="h-24 w-24 object-contain drop-shadow-[0_8px_22px_rgba(0,0,0,0.55)] sm:h-40 sm:w-40"
                     />
                   </span>
-                  <h3 className="mb-1.5 text-center text-2xl font-semibold text-zinc-100 drop-shadow-[0_2px_10px_rgba(0,0,0,0.65)] transition group-hover:text-orange-400 group-hover:drop-shadow-[0_0_16px_rgba(251,146,60,0.7)]">
+                  <h3 className="mb-1.5 text-center text-base font-semibold text-zinc-100 drop-shadow-[0_2px_10px_rgba(0,0,0,0.65)] transition group-hover:text-orange-400 group-hover:drop-shadow-[0_0_16px_rgba(251,146,60,0.7)] sm:text-2xl">
                     {name}
                   </h3>
-                  <p className="mb-4 line-clamp-2 flex-1 text-xs leading-relaxed text-zinc-400">{desc}</p>
+                  <p className="mb-4 line-clamp-2 flex-1 text-xs leading-relaxed text-zinc-400 sm:text-xs">{desc}</p>
                   <div className="flex items-end justify-between">
-                    <span className="text-xs text-zinc-500">{n.toLocaleString("en-US")} 条提示词</span>
-                    <span className="rounded-full border border-zinc-700 bg-zinc-800/70 px-3.5 py-1.5 text-xs text-zinc-300 transition group-hover:border-orange-400/70 group-hover:bg-orange-500/15 group-hover:text-orange-400">
+                    <span className="text-xs text-zinc-500 sm:text-xs">{n.toLocaleString("en-US")} 条提示词</span>
+                    <span className="rounded-full border border-zinc-700 bg-zinc-800/70 px-2.5 py-1 text-xs text-zinc-300 transition group-hover:border-orange-400/70 group-hover:bg-orange-500/15 group-hover:text-orange-400 sm:px-3.5 sm:py-1.5 sm:text-xs">
                       查看全部
                     </span>
                   </div>

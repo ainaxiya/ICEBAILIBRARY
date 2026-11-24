@@ -116,6 +116,7 @@ export function RegisterSettingsForm() {
     if (all) {
       setF({
         allowRegister: all.register?.allowRegister ?? true,
+        emailVerify: all.register?.emailVerify ?? false,
         fields: {
           email: all.register?.fields?.email ?? "off",
           nickname: all.register?.fields?.nickname ?? "optional",
@@ -148,6 +149,19 @@ export function RegisterSettingsForm() {
         <p className="mt-1.5 text-xs text-zinc-500">
           关闭后注册接口与前台注册页均不可用，已有会员登录不受影响。
         </p>
+        <div className="mt-4 border-t border-zinc-800 pt-4">
+          <label className="flex items-center gap-2 text-sm text-zinc-200">
+            <input
+              type="checkbox"
+              checked={!!f.emailVerify}
+              onChange={(e) => setF({ ...f, emailVerify: e.target.checked })}
+            />
+            注册需邮箱验证码
+          </label>
+          <p className="mt-1.5 text-xs text-zinc-500">
+            开启后注册必须填邮箱并输入验证码（邮箱强制必填）。前置条件：已配置并启用「邮箱服务」，否则注册会被阻断。
+          </p>
+        </div>
       </div>
 
       <div className={cardCls}>
@@ -237,7 +251,7 @@ export function RegisterGiftForm() {
           开启注册赠送积分（默认关闭）
         </label>
         <div className="mt-3">
-          <label className={labelCls}>每个新用户赠送积分</label>
+          <label className={labelCls}>每个新用户赠送积分（0 = 不发放）</label>
           <input
             type="number"
             min={0}

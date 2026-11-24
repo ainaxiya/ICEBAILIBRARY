@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { PERMISSIONS, requirePerm, logAdminAction, getClientIp } from "@/lib/rbac";
-import { latestPricing } from "@/lib/gateway/pricing";
+import { genericPricing, latestPricing, videoPerSecondMemberCredits } from "@/lib/gateway/pricing";
 import { pricingJson } from "@/lib/model-json";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +35,14 @@ export async function GET(
   });
   if (!m) return NextResponse.json({ error: "模型不存在" }, { status: 404 });
 
-  const cur = latestPricing(m);
+  // 视频统一秒价：当前价只取通用行；通用行两项都留空 = 未定价（返回 null 让表单留空）
+  const videoGeneric = m.endpointType === "video" ? genericPricing(m) : null;
+  const cur =
+    m.endpointType === "video"
+      ? videoPerSecondMemberCredits(videoGeneric) != null
+        ? videoGeneric
+        : null
+      : latestPricing(m);
   return NextResponse.json({
     model: {
       id: m.id,

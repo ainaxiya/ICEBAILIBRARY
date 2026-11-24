@@ -61,6 +61,14 @@ async function writeLedger(
   }
 }
 
+// requestId 事务级串行锁：PostgreSQL advisory lock，随事务提交/回滚自动释放。
+// 同一 requestId 的并发结算/退款先在数据库层排队，再做幂等检查，
+// 避免两个事务都读到「流水不存在」而各自入账（唯一索引只能挡住流水，挡不住余额变动）。
+async function lockLedgerRequest(tx: Tx, requestId: string): Promise<void> {
+  // 用 $executeRaw 调用：$queryRaw 无法反序列化 void 返回列
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('credit_ledger'), hashtext(${requestId}))`;
+}
+
 // ─── 查询余额 ───
 export async function getBalance(userId: number): Promise<bigint> {
   return sumRemaining(db, userId);
@@ -110,30 +118,27 @@ export async function consume(
   userId: number,
   amount: bigint,
   refId: string,
-  requestId: string
+  requestId: string,
+  // g19：后付费路径传 apiKeyId，在同一事务内累加 Key 已用额度（hold 行作为幂等标记）
+  apiKeyIdForQuota?: number | null
 ): Promise<{ ok: boolean; already?: boolean; balanceAfter?: bigint; error?: string }> {
   if (amount < 0n) return { ok: false, error: "amount 必须为非负整数" };
   return db.$transaction(async (tx) => {
+    // 同一 requestId 串行化：并发重放只会有一次真正扣减
+    await lockLedgerRequest(tx, requestId);
     if (await tx.creditLedger.findUnique({ where: { requestId } })) {
       return { ok: true, already: true };
     }
     if (amount === 0n) {
+      // 0 分消费（免费模型）不落流水：没有真实积分变动，写 0 行只会污染「积分明细」。
+      // 幂等仍由上面的 requestId 锁保证；退款侧按 deductedOf=0 直接跳过。
       const bal = await sumRemaining(tx, userId);
-      await writeLedger(tx, {
-        userId,
-        changeAmount: 0n,
-        balanceAfter: bal,
-        reason: "consume",
-        refType: "request",
-        refId,
-        requestId,
-      });
       return { ok: true, balanceAfter: bal };
     }
-    // 行锁串行化并发扣减
+    // 行锁串行化并发扣减；id 作为同过期时间的稳定次序，保证与 refund 的加锁顺序一致（防死锁）
     const locked = await tx.$queryRaw<
       { id: number; remaining: bigint }[]
-    >`SELECT id, "remainingCredits" AS remaining FROM credit_grant WHERE "userId" = ${userId} AND "remainingCredits" > 0 AND ("expiresAt" IS NULL OR "expiresAt" > now()) ORDER BY "expiresAt" ASC NULLS LAST FOR UPDATE`;
+    >`SELECT id, "remainingCredits" AS remaining FROM credit_grant WHERE "userId" = ${userId} AND "remainingCredits" > 0 AND ("expiresAt" IS NULL OR "expiresAt" > now()) ORDER BY "expiresAt" ASC NULLS LAST, id ASC FOR UPDATE`;
     const balance = locked.reduce((s, r) => s + BigInt(r.remaining), 0n);
     if (balance < amount) {
       return { ok: false, error: "积分不足" };
@@ -159,11 +164,27 @@ export async function consume(
       refId,
       requestId,
     });
+    // g19：无预扣后付费时，Key 已用额度与实际扣分同事务累加；
+    // hold 行只作为「本次 requestId 已记账」的幂等标记，不会在退款时释放（无预扣可退）。
+    if (apiKeyIdForQuota != null) {
+      const marked = await tx.apiKeyQuotaHold.findUnique({ where: { requestId } });
+      if (!marked) {
+        await tx.$executeRaw`UPDATE user_api_key SET "usedCredits" = "usedCredits" + ${amount} WHERE id = ${apiKeyIdForQuota}`;
+        await tx.apiKeyQuotaHold.create({
+          data: { requestId, apiKeyId: apiKeyIdForQuota, amount: Number(amount) },
+        });
+      }
+    }
     return { ok: true, balanceAfter };
   });
 }
 
 // ─── 整数退回（优先回填曾扣减的有效 grant，剩余建 gift grant） ───
+// L5：回填必须走数据库行锁，不能在应用层「读旧值 + 写回」：
+//   ① 并发退款：两个事务都读到同一 remaining，各自 +add 写回 → 丢更新（少退）；
+//   ② 退款 × 消费：consume 已锁行扣减，退款用锁前旧值覆盖 → 把扣减抹掉（多退）。
+// 这里用 SELECT ... FOR UPDATE 锁住候选 grant，加锁顺序与 consume 完全一致
+// （expiresAt ASC NULLS LAST, id ASC），并发事务在数据库层排队，不会死锁也不会丢更新。
 export async function refund(
   userId: number,
   amount: bigint,
@@ -172,25 +193,25 @@ export async function refund(
 ): Promise<{ ok: boolean; already?: boolean }> {
   if (amount <= 0n) return { ok: true, already: true };
   return db.$transaction(async (tx) => {
+    // 同一 requestId 串行化：并发重放只会有一次真正入账
+    await lockLedgerRequest(tx, requestId);
     if (await tx.creditLedger.findUnique({ where: { requestId } })) {
       return { ok: true, already: true };
     }
     let left = amount;
-    // 回填：最近扣减过（remaining < total）且仍有效的 grant 优先
-    const candidates = await tx.creditGrant.findMany({
-      where: { userId },
-      orderBy: { updatedAt: "desc" },
-      take: 20,
-    });
+    // 回填：仍有效且曾被扣减（remaining < total）的 grant；锁定后按锁内最新值计算
+    const candidates = await tx.$queryRaw<
+      { id: number; remaining: bigint; total: bigint }[]
+    >`SELECT id, "remainingCredits" AS remaining, "totalCredits" AS total FROM credit_grant WHERE "userId" = ${userId} AND ("expiresAt" IS NULL OR "expiresAt" > now()) ORDER BY "expiresAt" ASC NULLS LAST, id ASC LIMIT 20 FOR UPDATE`;
     for (const g of candidates) {
       if (left <= 0n) break;
-      if (g.expiresAt && g.expiresAt.getTime() <= Date.now()) continue;
-      const gap = g.totalCredits - g.remainingCredits;
+      const remaining = BigInt(g.remaining);
+      const gap = BigInt(g.total) - remaining;
       if (gap <= 0n) continue;
       const add = gap < left ? gap : left;
       await tx.creditGrant.update({
         where: { id: g.id },
-        data: { remainingCredits: g.remainingCredits + add },
+        data: { remainingCredits: remaining + add },
       });
       left -= add;
     }
@@ -229,6 +250,7 @@ export async function adminAdjust(
 ): Promise<{ ok: boolean; already?: boolean; error?: string }> {
   if (amount === 0n) return { ok: true, already: true };
   return db.$transaction(async (tx) => {
+    await lockLedgerRequest(tx, requestId);
     if (await tx.creditLedger.findUnique({ where: { requestId } })) {
       return { ok: true, already: true };
     }
@@ -247,7 +269,7 @@ export async function adminAdjust(
       const need = -amount;
       const locked = await tx.$queryRaw<
         { id: number; remaining: bigint }[]
-      >`SELECT id, "remainingCredits" AS remaining FROM credit_grant WHERE "userId" = ${userId} AND "remainingCredits" > 0 AND ("expiresAt" IS NULL OR "expiresAt" > now()) ORDER BY "expiresAt" ASC NULLS LAST FOR UPDATE`;
+      >`SELECT id, "remainingCredits" AS remaining FROM credit_grant WHERE "userId" = ${userId} AND "remainingCredits" > 0 AND ("expiresAt" IS NULL OR "expiresAt" > now()) ORDER BY "expiresAt" ASC NULLS LAST, id ASC FOR UPDATE`;
       const balance = locked.reduce((s, r) => s + BigInt(r.remaining), 0n);
       if (balance < need) return { ok: false, error: "积分不足，无法扣减" };
       let left = need;
@@ -273,6 +295,84 @@ export async function adminAdjust(
       requestId,
     });
     return { ok: true };
+  });
+}
+
+// ─── 后台额度调整三模式（b12）：增加 / 扣减 / 覆盖 ───
+// 覆盖（set）用目标余额反算差额，仅超管可用；差额为 0 也写一条 0 变动流水，备注不丢。
+export type AdminAdjustMode = "increase" | "deduct" | "set";
+
+export interface AdjustPreview {
+  ok: boolean;
+  delta: bigint;
+  after: bigint;
+  error?: string;
+}
+
+// 纯函数：前后台共用的调整预览（increase / deduct 要求正数，set 允许 0 与任意非负整数）
+export function previewAdjustment(balance: bigint, mode: AdminAdjustMode, amount: bigint): AdjustPreview {
+  if (amount < 0n) return { ok: false, delta: 0n, after: balance, error: "调整数量必须为非负整数" };
+  if (mode !== "set" && amount === 0n) {
+    return { ok: false, delta: 0n, after: balance, error: "调整数量不能为 0" };
+  }
+  const delta = mode === "increase" ? amount : mode === "deduct" ? -amount : amount - balance;
+  const after = balance + delta;
+  if (after < 0n) return { ok: false, delta, after, error: "扣减后余额不能为负" };
+  return { ok: true, delta, after };
+}
+
+// 覆盖为目标余额：锁内重算余额 → 差额入账/扣减 → 写 admin_adjust 流水
+export async function adminSetBalance(
+  userId: number,
+  target: bigint,
+  note: string,
+  requestId: string
+): Promise<{ ok: boolean; already?: boolean; before?: bigint; after?: bigint; error?: string }> {
+  if (target < 0n) return { ok: false, error: "目标余额必须为非负整数" };
+  return db.$transaction(async (tx) => {
+    await lockLedgerRequest(tx, requestId);
+    if (await tx.creditLedger.findUnique({ where: { requestId } })) {
+      return { ok: true, already: true };
+    }
+    // 锁住有效 grant 后重算，避免与并发消费/退款交错
+    const locked = await tx.$queryRaw<
+      { id: number; remaining: bigint }[]
+    >`SELECT id, "remainingCredits" AS remaining FROM credit_grant WHERE "userId" = ${userId} AND "remainingCredits" > 0 AND ("expiresAt" IS NULL OR "expiresAt" > now()) ORDER BY "expiresAt" ASC NULLS LAST, id ASC FOR UPDATE`;
+    const before = locked.reduce((s, r) => s + BigInt(r.remaining), 0n);
+    const delta = target - before;
+
+    if (delta > 0n) {
+      await tx.creditGrant.create({
+        data: {
+          userId,
+          grantType: "gift",
+          totalCredits: delta,
+          remainingCredits: delta,
+          expiresAt: null,
+          sourceRef: `adjust:${requestId}`,
+        },
+      });
+    } else if (delta < 0n) {
+      let left = -delta;
+      for (const g of locked) {
+        if (left <= 0n) break;
+        const rem = BigInt(g.remaining);
+        const take = rem < left ? rem : left;
+        await tx.creditGrant.update({ where: { id: g.id }, data: { remainingCredits: rem - take } });
+        left -= take;
+      }
+    }
+
+    await writeLedger(tx, {
+      userId,
+      changeAmount: delta,
+      balanceAfter: target,
+      reason: "admin_adjust",
+      refType: "admin",
+      refId: note,
+      requestId,
+    });
+    return { ok: true, before, after: target };
   });
 }
 

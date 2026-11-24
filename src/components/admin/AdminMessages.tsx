@@ -340,10 +340,10 @@ export default function AdminMessages() {
                         </td>
                         <td className={td}>{tk.subject || "(无标题)"}</td>
                         <td className={`${td} text-xs`}>
-                          {tk.user.username}
-                          <span className="ml-1 text-zinc-600">#{tk.userId}</span>
+                          {tk.user?.username ?? "该会员号已注销"}
+                          {tk.userId != null && <span className="ml-1 text-zinc-600">#{tk.userId}</span>}
                         </td>
-                        <td className={`${td} text-xs`}>{tk.user.nickname || "—"}</td>
+                        <td className={`${td} text-xs`}>{tk.user?.nickname || "—"}</td>
                         <td className={td}>
                           {tk.ticketStatus && (
                             <span className={`rounded px-1.5 py-0.5 text-xs ${STATUS_BADGE[tk.ticketStatus] || ""}`}>
@@ -351,7 +351,7 @@ export default function AdminMessages() {
                             </span>
                           )}
                           {tk.newMsgCount > 0 && (
-                            <span className="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold text-white">
+                            <span className="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-xs font-semibold text-white">
                               {tk.newMsgCount > 99 ? "99+" : tk.newMsgCount}
                             </span>
                           )}

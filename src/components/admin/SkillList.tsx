@@ -260,7 +260,7 @@ export default function SkillList({ cats }: { cats: Cat[] }) {
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-1.5 font-medium text-zinc-100">
                     {s.featured && (
-                      <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-bold text-emerald-300" title="首页精选展示中">★ 精选</span>
+                      <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-xs font-bold text-emerald-300" title="首页精选展示中">★ 精选</span>
                     )}
                     {s.name}
                   </div>

@@ -1,52 +1,63 @@
 "use client";
 
-// 富文本编辑器（Tiptap v3）：API 文档级排版
-// - 标题 H1–H6、引用、列表、行内代码、代码块（带语言）、表格、分割线、高亮
-// - 图片/视频上传（UniversalUploader）
-// - 源码模式（直接编辑 HTML，可做精细排版）
-// - Markdown 粘贴自动转换（标题/列表/围栏代码/表格/粗斜体等）
+// 富文本编辑器（reactjs-tiptap-editor 1.x 可组合 API）
+// 约定：
+// - 工具栏置顶；后台 full=完整能力，前台 simple=基础文字 + emoji + 图片/视频
+// - 界面语言自动跟随站点语言（zh/en），无手动开关，缺省英文
+// - 不引入需外接服务的功能（AI/协作/云端），提供 HTML 源码视图（代码视图）
+// - 编辑器自身资源（样式/图标）全部本地打包，不依赖 CDN
+// - 图片/视频上传统一走既有 /api/upload（命名规则与默认桶分流不变）
+// - 粘贴与输出统一经 sanitizeRich 清洗，白名单见 src/lib/sanitize-rich.ts
 // value 为受控 HTML 字符串，onChange(html) 契约与旧版一致，所有使用点零改动。
-// sanitizeRich 白名单须与本编辑器能力对齐（src/lib/sanitize.server.ts）。
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import Underline from "@tiptap/extension-underline";
-import Link from "@tiptap/extension-link";
+import * as RadixTooltip from "@radix-ui/react-tooltip";
+import { Document } from "@tiptap/extension-document";
+import { Paragraph } from "@tiptap/extension-paragraph";
+import { Text } from "@tiptap/extension-text";
+import { ListItem } from "@tiptap/extension-list";
+import { TextStyle } from "@tiptap/extension-text-style";
 import Image from "@tiptap/extension-image";
 import Placeholder from "@tiptap/extension-placeholder";
-import { Table, TableRow, TableHeader, TableCell } from "@tiptap/extension-table";
-import { Mark, mergeAttributes } from "@tiptap/core";
+import { RichTextProvider } from "reactjs-tiptap-editor";
+import { History, RichTextUndo, RichTextRedo } from "reactjs-tiptap-editor/history";
+import { Heading, RichTextHeading } from "reactjs-tiptap-editor/heading";
+import { Bold, RichTextBold } from "reactjs-tiptap-editor/bold";
+import { Italic, RichTextItalic } from "reactjs-tiptap-editor/italic";
+import { TextUnderline, RichTextUnderline } from "reactjs-tiptap-editor/textunderline";
+import { Strike, RichTextStrike } from "reactjs-tiptap-editor/strike";
+import { Code, RichTextCode } from "reactjs-tiptap-editor/code";
+import { CodeBlock, RichTextCodeBlock } from "reactjs-tiptap-editor/codeblock";
+import { Blockquote, RichTextBlockquote } from "reactjs-tiptap-editor/blockquote";
+import { HorizontalRule, RichTextHorizontalRule } from "reactjs-tiptap-editor/horizontalrule";
+import { BulletList, RichTextBulletList } from "reactjs-tiptap-editor/bulletlist";
+import { OrderedList, RichTextOrderedList } from "reactjs-tiptap-editor/orderedlist";
+import { Link, RichTextLink } from "reactjs-tiptap-editor/link";
+import { Highlight, RichTextHighlight } from "reactjs-tiptap-editor/highlight";
+import { Table, RichTextTable } from "reactjs-tiptap-editor/table";
+import { Emoji, RichTextEmoji } from "reactjs-tiptap-editor/emoji";
+import { Clear, RichTextClear } from "reactjs-tiptap-editor/clear";
+import { Color, RichTextColor } from "reactjs-tiptap-editor/color";
+import { FontFamily, RichTextFontFamily } from "reactjs-tiptap-editor/fontfamily";
+import { FontSize, RichTextFontSize } from "reactjs-tiptap-editor/fontsize";
+import { CodeView, RichTextCodeView } from "reactjs-tiptap-editor/codeview";
 import { isHtmlContent } from "@/lib/rich";
 import { markdownToHtml, looksLikeMarkdown } from "@/lib/markdown";
-import UniversalUploader from "@/components/UniversalUploader";
+import { sanitizeRich } from "@/lib/sanitize-rich";
+import { initEditorLocale } from "@/lib/editor-locale";
 import { TiptapVideo } from "./editor/TiptapVideo";
-
-// ── 高亮 Mark（span.hl，蓝字加粗，样式见 globals.css）──
-const Highlight = Mark.create({
-  name: "highlight",
-  parseHTML: () => [{ tag: "span.hl" }],
-  renderHTML: ({ HTMLAttributes }) => [
-    "span",
-    mergeAttributes(HTMLAttributes, { class: "hl" }),
-    0,
-  ],
-});
-
-// 自动命令的类型声明（toggleHighlight 由 Mark 名生成）
-declare module "@tiptap/core" {
-  interface Commands<ReturnType> {
-    highlight: {
-      toggleHighlight: () => ReturnType;
-    };
-  }
-}
 
 const plainToHtml = (text: string) =>
   text
     .split(/\n{2,}/)
     .map((p) => `<p>${p.replace(/\n/g, "<br>").replace(/&/g, "&amp;").replace(/</g, "&lt;")}</p>`)
     .join("");
+
+const toEditorHtml = (value: string) => {
+  if (!value) return "";
+  return isHtmlContent(value) ? sanitizeRich(value) : plainToHtml(value);
+};
 
 type Props = {
   value: string;
@@ -56,7 +67,7 @@ type Props = {
   editorKey?: string | number;
   disabled?: boolean;
   minHeight?: number;
-  /** full=完整工具栏；simple=基础排版；imageOnly=仅图片（工单/消息） */
+  /** full=完整工具栏；simple=基础排版 + emoji + 图片/视频；imageOnly=仅图片/视频 */
   toolbar?: "full" | "simple" | "imageOnly";
   /** 图片上传大小上限（MB） */
   maxImageMB?: number;
@@ -64,267 +75,348 @@ type Props = {
   maxVideoMB?: number;
 };
 
-// 工具按钮：图标 + title + active 高亮
-function ToolBtn({
-  onClick,
-  active,
-  disabled,
+// ── 上传 ────────────────────────────────────────────────
+// 统一走现有单文件接口，服务端负责命名规则与「仅存在默认桶才进桶」的分流。
+async function uploadFile(file: File): Promise<string> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch("/api/upload", { method: "POST", body: fd });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data?.url) throw new Error(data?.error || `HTTP ${res.status}`);
+  return String(data.url);
+}
+
+// 图片/视频：原版线性图标 + 点击弹层（上传 / 链接），上传规则仍走 /api/upload
+const ImageIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+    <circle cx="9" cy="9" r="2" />
+    <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+  </svg>
+);
+
+const VideoIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5" />
+    <rect x="2" y="6" width="14" height="12" rx="2" />
+  </svg>
+);
+
+function MediaBtn({
   title,
+  disabled,
+  active,
+  onClick,
   children,
 }: {
-  onClick: () => void;
-  active?: boolean;
-  disabled?: boolean;
   title: string;
+  disabled?: boolean;
+  active?: boolean;
+  onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
   children: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      title={title}
-      disabled={disabled}
-      onMouseDown={(e) => e.preventDefault()} // 保持编辑器选区不丢失
-      onClick={onClick}
-      className={`min-w-[28px] rounded px-1.5 py-1 text-sm transition ${
-        active
-          ? "bg-emerald-500/20 text-emerald-300"
-          : "text-zinc-300 hover:bg-zinc-700/60 hover:text-white"
-      } disabled:opacity-40`}
-    >
-      {children}
-    </button>
+    <RadixTooltip.Root>
+      <RadixTooltip.Trigger asChild>
+        <button
+          type="button"
+          aria-label={title}
+          aria-expanded={active}
+          disabled={disabled}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={onClick}
+          className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded transition ${
+            active ? "bg-white/20 text-white" : "text-[#efefef] hover:bg-white/10"
+          } disabled:opacity-40`}
+        >
+          {children}
+        </button>
+      </RadixTooltip.Trigger>
+      <RadixTooltip.Portal>
+        <RadixTooltip.Content
+          side="top"
+          sideOffset={6}
+          className="richtext-tooltip z-[80] rounded-md px-3 py-1.5 text-xs font-medium shadow-md"
+        >
+          {title}
+        </RadixTooltip.Content>
+      </RadixTooltip.Portal>
+    </RadixTooltip.Root>
   );
 }
 
-const Divider = () => <span className="mx-1 h-5 w-px bg-zinc-700" />;
-
-// 代码块语言（写入 data-language，仅样式标注）
-const CODE_LANGS = [
-  ["", "代码语言"],
-  ["text", "纯文本"],
-  ["javascript", "JavaScript"],
-  ["typescript", "TypeScript"],
-  ["python", "Python"],
-  ["bash", "Bash"],
-  ["json", "JSON"],
-  ["html", "HTML"],
-  ["css", "CSS"],
-  ["sql", "SQL"],
-  ["go", "Go"],
-  ["rust", "Rust"],
-  ["java", "Java"],
-  ["yaml", "YAML"],
-  ["markdown", "Markdown"],
-  ["diff", "Diff"],
-];
-
-// 表格菜单（插入/行列操作/合并拆分）
-function TableMenu({ editor }: { editor: Editor }) {
-  const [open, setOpen] = useState(false);
-  const act = (fn: () => void) => {
-    fn();
-    setOpen(false);
-  };
-  return (
-    <span className="relative">
-      <ToolBtn
-        title="表格"
-        active={editor.isActive("table")}
-        onClick={() => setOpen((o) => !o)}
-      >
-        ▦
-      </ToolBtn>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-9 z-20 w-56 rounded-lg border border-zinc-700 bg-zinc-900 p-2 shadow-xl">
-            <p className="mb-1.5 px-1 text-[11px] text-zinc-500">插入</p>
-            <div className="mb-2 grid grid-cols-2 gap-1">
-              <ToolBtn title="3×3 表格（含表头）" onClick={() => act(() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run())}>
-                <span className="text-xs">3×3 表格</span>
-              </ToolBtn>
-              <ToolBtn title="删除表格" disabled={!editor.isActive("table")} onClick={() => act(() => editor.chain().focus().deleteTable().run())}>
-                <span className="text-xs">删除表格</span>
-              </ToolBtn>
-            </div>
-            <p className="mb-1.5 px-1 text-[11px] text-zinc-500">行列</p>
-            <div className="mb-2 grid grid-cols-2 gap-1">
-              <ToolBtn title="前插列" disabled={!editor.isActive("table")} onClick={() => act(() => editor.chain().focus().addColumnBefore().run())}><span className="text-xs">←插列</span></ToolBtn>
-              <ToolBtn title="后插列" disabled={!editor.isActive("table")} onClick={() => act(() => editor.chain().focus().addColumnAfter().run())}><span className="text-xs">插列→</span></ToolBtn>
-              <ToolBtn title="删除列" disabled={!editor.isActive("table")} onClick={() => act(() => editor.chain().focus().deleteColumn().run())}><span className="text-xs">删列</span></ToolBtn>
-              <ToolBtn title="前插行" disabled={!editor.isActive("table")} onClick={() => act(() => editor.chain().focus().addRowBefore().run())}><span className="text-xs">↑插行</span></ToolBtn>
-              <ToolBtn title="后插行" disabled={!editor.isActive("table")} onClick={() => act(() => editor.chain().focus().addRowAfter().run())}><span className="text-xs">插行↓</span></ToolBtn>
-              <ToolBtn title="删除行" disabled={!editor.isActive("table")} onClick={() => act(() => editor.chain().focus().deleteRow().run())}><span className="text-xs">删行</span></ToolBtn>
-            </div>
-            <p className="mb-1.5 px-1 text-[11px] text-zinc-500">单元格</p>
-            <div className="grid grid-cols-2 gap-1">
-              <ToolBtn title="合并单元格" disabled={!editor.isActive("table")} onClick={() => act(() => editor.chain().focus().mergeCells().run())}><span className="text-xs">合并</span></ToolBtn>
-              <ToolBtn title="拆分单元格" disabled={!editor.isActive("table")} onClick={() => act(() => editor.chain().focus().splitCell().run())}><span className="text-xs">拆分</span></ToolBtn>
-              <ToolBtn title="表头列（切换）" disabled={!editor.isActive("table")} onClick={() => act(() => editor.chain().focus().toggleHeaderColumn().run())}><span className="text-xs">表头列</span></ToolBtn>
-              <ToolBtn title="表头行（切换）" disabled={!editor.isActive("table")} onClick={() => act(() => editor.chain().focus().toggleHeaderRow().run())}><span className="text-xs">表头行</span></ToolBtn>
-            </div>
-          </div>
-        </>
-      )}
-    </span>
-  );
-}
-
-function Toolbar({
+function MediaTools({
   editor,
-  sourceMode,
-  onToggleSource,
-  variant = "full",
-  maxImageMB = 10,
-  maxVideoMB = 100,
+  maxImageMB,
+  maxVideoMB,
+  allowVideo = true,
+  disabled,
 }: {
   editor: Editor;
-  sourceMode: boolean;
-  onToggleSource: () => void;
-  variant?: "full" | "simple" | "imageOnly";
-  maxImageMB?: number;
-  maxVideoMB?: number;
+  maxImageMB: number;
+  maxVideoMB: number;
+  allowVideo?: boolean;
+  disabled?: boolean;
 }) {
-  const setLink = () => {
-    const prev = editor.getAttributes("link").href as string | undefined;
-    const url = window.prompt("链接地址（留空移除链接）", prev || "https://");
-    if (url === null) return;
-    if (!url.trim()) {
-      editor.chain().focus().extendMarkRange("link").unsetLink().run();
-      return;
-    }
-    editor.chain().focus().extendMarkRange("link").setLink({ href: url.trim() }).run();
+  const imageRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState<"image" | "video" | null>(null);
+  const [mode, setMode] = useState<"upload" | "link">("upload");
+  const [url, setUrl] = useState("");
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const [busy, setBusy] = useState<"image" | "video" | null>(null);
+
+  const close = () => {
+    setOpen(null);
+    setUrl("");
+    setMode("upload");
   };
 
-  const isSimple = variant === "simple";
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) close();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
-  // 图片插入 + 上传（各工具栏变体共用）
-  const imageBtns = (
+  const toggle = (kind: "image" | "video", e: React.MouseEvent<HTMLButtonElement>) => {
+    if (open === kind) {
+      close();
+      return;
+    }
+    const r = e.currentTarget.getBoundingClientRect();
+    setPos({
+      top: r.bottom + 8,
+      left: Math.max(8, Math.min(r.left, window.innerWidth - 292)),
+    });
+    setMode("upload");
+    setUrl("");
+    setOpen(kind);
+  };
+
+  const limit = open === "video" ? maxVideoMB : maxImageMB;
+
+  const insertImage = async (file: File) => {
+    if (file.size > maxImageMB * 1024 * 1024) {
+      window.alert(`图片超过 ${maxImageMB}MB 上限`);
+      return;
+    }
+    try {
+      setBusy("image");
+      const src = await uploadFile(file);
+      editor.chain().focus().setImage({ src }).run();
+      close();
+    } catch (e) {
+      window.alert(`图片上传失败：${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const insertVideo = async (file: File) => {
+    if (file.size > maxVideoMB * 1024 * 1024) {
+      window.alert(`视频超过 ${maxVideoMB}MB 上限`);
+      return;
+    }
+    try {
+      setBusy("video");
+      const src = await uploadFile(file);
+      editor.chain().focus().setVideo({ src }).run();
+      close();
+    } catch (e) {
+      window.alert(`视频上传失败：${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const insertUrl = () => {
+    const v = url.trim();
+    if (!v) return;
+    if (open === "image") editor.chain().focus().setImage({ src: v }).run();
+    else if (open === "video") editor.chain().focus().setVideo({ src: v }).run();
+    close();
+  };
+
+  return (
     <>
-      <ToolBtn title="图片（上传/URL）" active={editor.isActive("image")} onClick={() => {
-        const url = window.prompt("图片地址（或点 ⬆ 上传）", "https://");
-        if (url && url.trim()) editor.chain().focus().setImage({ src: url.trim() }).run();
-      }}>🖼</ToolBtn>
-      <label title={`上传图片（≤${maxImageMB}MB）`} className="min-w-[28px] cursor-pointer rounded px-1.5 py-1 text-sm text-zinc-300 transition hover:bg-zinc-700/60 hover:text-white">
-        ⬆
+      <MediaBtn title="插入图片" disabled={disabled || busy !== null} active={open === "image"} onClick={(e) => toggle("image", e)}>
+        <ImageIcon />
+      </MediaBtn>
+      {allowVideo && (
+        <MediaBtn
+          title="插入视频"
+          disabled={disabled || busy !== null}
+          active={open === "video"}
+          onClick={(e) => toggle("video", e)}
+        >
+          <VideoIcon />
+        </MediaBtn>
+      )}
+      {open && (
+        <div
+          ref={panelRef}
+          style={{ position: "fixed", top: pos.top, left: pos.left }}
+          className="z-[60] w-[284px] rounded-lg border border-zinc-600 bg-[#101a42] p-3 shadow-2xl"
+        >
+          <div className="mb-2 flex gap-1 rounded-md bg-zinc-900/70 p-1">
+            <button
+              type="button"
+              onClick={() => setMode("upload")}
+              className={`flex-1 rounded px-2 py-1 text-xs ${mode === "upload" ? "bg-indigo-600 text-white" : "text-zinc-400 hover:text-zinc-200"}`}
+            >
+              上传
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("link")}
+              className={`flex-1 rounded px-2 py-1 text-xs ${mode === "link" ? "bg-indigo-600 text-white" : "text-zinc-400 hover:text-zinc-200"}`}
+            >
+              {open === "image" ? "链接" : "外链视频"}
+            </button>
+          </div>
+          {mode === "upload" ? (
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={() => (open === "image" ? imageRef.current?.click() : videoRef.current?.click())}
+              className="w-full rounded-md border border-dashed border-zinc-600 px-3 py-4 text-center text-xs text-zinc-300 hover:border-indigo-500 hover:text-white disabled:opacity-50"
+            >
+              {busy ? "上传中…" : `选择${open === "image" ? "图片" : "视频"}文件`}
+              <span className="mt-1 block text-xs text-zinc-500">≤ {limit}MB</span>
+            </button>
+          ) : (
+            <div className="flex gap-2">
+              <input
+                autoFocus
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") insertUrl();
+                }}
+                placeholder="https://"
+                className="min-w-0 flex-1 rounded-md border border-zinc-600 bg-zinc-950/80 px-2 py-1.5 text-xs text-zinc-100 outline-none focus:border-indigo-500"
+              />
+              <button
+                type="button"
+                onClick={insertUrl}
+                className="shrink-0 rounded-md bg-indigo-600 px-3 py-1.5 text-xs text-white hover:bg-indigo-500"
+              >
+                插入
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      <input
+        ref={imageRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) void insertImage(f);
+        }}
+      />
+      {allowVideo && (
         <input
+          ref={videoRef}
           type="file"
-          accept="image/*"
+          accept="video/*"
           className="hidden"
-          onChange={async (e) => {
+          onChange={(e) => {
             const f = e.target.files?.[0];
             e.target.value = "";
-            if (!f) return;
-            if (f.size > maxImageMB * 1024 * 1024) {
-              window.alert(`图片超过 ${maxImageMB}MB 上限`);
-              return;
-            }
-            const fd = new FormData();
-            fd.append("file", f);
-            try {
-              const res = await fetch("/api/upload", { method: "POST", body: fd });
-              const d = await res.json();
-              if (d?.url) editor.chain().focus().setImage({ src: d.url }).run();
-            } catch {
-              /* 上传失败静默 */
-            }
+            if (f) void insertVideo(f);
           }}
         />
-      </label>
+      )}
     </>
   );
+}
 
+const ToolbarShell = ({ children }: { children: React.ReactNode }) => (
+  <div className="rte-toolbar flex flex-nowrap items-center gap-0.5 overflow-x-auto border-b border-zinc-700 px-1.5 py-1.5 [&>*]:shrink-0 md:flex-wrap md:overflow-visible">
+    {children}
+  </div>
+);
+
+const Sep = () => <span className="mx-1 h-5 w-px shrink-0 bg-white/20" />;
+
+function EditorToolbar({
+  editor,
+  variant,
+  maxImageMB,
+  maxVideoMB,
+  disabled,
+}: {
+  editor: Editor;
+  variant: "full" | "simple" | "imageOnly";
+  maxImageMB: number;
+  maxVideoMB: number;
+  disabled?: boolean;
+}) {
   if (variant === "imageOnly") {
     return (
-      <div className="flex flex-wrap items-center gap-0.5 border-t border-zinc-700 bg-zinc-800/40 px-1.5 py-1">
-        {imageBtns}
-      </div>
+      <ToolbarShell>
+        <MediaTools editor={editor} maxImageMB={maxImageMB} maxVideoMB={maxVideoMB} disabled={disabled} />
+      </ToolbarShell>
     );
   }
 
+  const simple = variant === "simple";
+
   return (
-    <div className="flex flex-wrap items-center gap-0.5 border-t border-zinc-700 bg-zinc-800/40 px-1.5 py-1">
-      {!isSimple && (
+    <ToolbarShell>
+      <RichTextUndo />
+      <RichTextRedo />
+      <Sep />
+      {!simple && (
         <>
-      {/* 标题 */}
-      {([1, 2, 3, 4] as const).map((lv) => (
-        <ToolBtn
-          key={lv}
-          title={`标题 ${lv}`}
-          active={editor.isActive("heading", { level: lv })}
-          onClick={() => editor.chain().focus().toggleHeading({ level: lv }).run()}
-        >
-          <b className="text-xs">H{lv}</b>
-        </ToolBtn>
-      ))}
-      <ToolBtn title="正文" active={!editor.isActive("heading") && !editor.isActive("codeBlock")} onClick={() => editor.chain().focus().setParagraph().run()}>
-        <b className="text-xs">¶</b>
-      </ToolBtn>
-      <Divider />
+          <RichTextHeading />
+          <RichTextFontFamily />
+          <RichTextFontSize />
+          <Sep />
         </>
       )}
-      {/* 字体样式 */}
-      <ToolBtn title="加粗" active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()}><b>B</b></ToolBtn>
-      <ToolBtn title="斜体" active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()}><i>I</i></ToolBtn>
-      <ToolBtn title="下划线" active={editor.isActive("underline")} onClick={() => editor.chain().focus().toggleUnderline().run()}><u>U</u></ToolBtn>
-      <ToolBtn title="删除线" active={editor.isActive("strike")} onClick={() => editor.chain().focus().toggleStrike().run()}><s>S</s></ToolBtn>
-      <ToolBtn title="高亮（蓝字强调）" active={editor.isActive("highlight")} onClick={() => editor.chain().focus().toggleHighlight().run()}>
-        <b className="text-[#5cc9f9]">Hl</b>
-      </ToolBtn>
-      <Divider />
-      {/* 块级排版 */}
-      <ToolBtn title="引用" active={editor.isActive("blockquote")} onClick={() => editor.chain().focus().toggleBlockquote().run()}>❝</ToolBtn>
-      <ToolBtn title="无序列表" active={editor.isActive("bulletList")} onClick={() => editor.chain().focus().toggleBulletList().run()}>•≡</ToolBtn>
-      <ToolBtn title="有序列表" active={editor.isActive("orderedList")} onClick={() => editor.chain().focus().toggleOrderedList().run()}>1≡</ToolBtn>
-      <ToolBtn title="分割线" active={editor.isActive("horizontalRule")} onClick={() => editor.chain().focus().setHorizontalRule().run()}>──</ToolBtn>
-      {!isSimple && (
+      <RichTextBold />
+      <RichTextItalic />
+      <RichTextUnderline />
+      <RichTextStrike />
+      {!simple && <RichTextCode />}
+      <Sep />
+      {!simple && <RichTextColor />}
+      <RichTextBulletList />
+      <RichTextOrderedList />
+      <RichTextBlockquote />
+      {!simple && <RichTextCodeBlock />}
+      <Sep />
+      {!simple && <RichTextHighlight />}
+      <RichTextLink />
+      {!simple && <RichTextTable />}
+      {!simple && <RichTextHorizontalRule />}
+      <RichTextEmoji />
+      {!simple && <RichTextClear />}
+      {!simple && (
         <>
-      <Divider />
-      {/* 代码 */}
-      <ToolBtn title="行内代码" active={editor.isActive("code")} onClick={() => editor.chain().focus().toggleCode().run()}>‹›</ToolBtn>
-      <ToolBtn title="代码块" active={editor.isActive("codeBlock")} onClick={() => editor.chain().focus().toggleCodeBlock().run()}><b className="font-mono text-xs">{"</>"}</b></ToolBtn>
-      <select
-        title="代码块语言"
-        className="h-7 rounded bg-transparent px-1 text-xs text-zinc-300 outline-none hover:bg-zinc-700/60"
-        value={(editor.getAttributes("codeBlock").language as string) || ""}
-        onChange={(e) => {
-          const lang = e.target.value;
-          if (editor.isActive("codeBlock")) {
-            editor.chain().focus().updateAttributes("codeBlock", { language: lang || null }).run();
-          } else if (lang) {
-            editor.chain().focus().setCodeBlock({ language: lang }).run();
-          }
-        }}
-      >
-        {CODE_LANGS.map(([v, label]) => (
-          <option key={v} value={v}>{label}</option>
-        ))}
-      </select>
-      <Divider />
+          <Sep />
+          <RichTextCodeView />
         </>
       )}
-      {/* 表格 / 链接 / 媒体 */}
-      {!isSimple && <TableMenu editor={editor} />}
-      <ToolBtn title="链接" active={editor.isActive("link")} onClick={setLink}>🔗</ToolBtn>
-      {imageBtns}
-      {!isSimple && (
-        <ToolBtn title="视频（URL）" active={editor.isActive("video")} onClick={() => {
-          const url = window.prompt(`视频地址（mp4/webm/mov，≤${maxVideoMB}MB）`, "https://");
-          if (url && url.trim()) editor.chain().focus().insertContent({ type: "video", attrs: { src: url.trim() } }).run();
-        }}>▶</ToolBtn>
-      )}
-      {!isSimple && (
-        <>
-      <Divider />
-      {/* 源码模式 / 撤销重做 */}
-      <ToolBtn title="源码模式（编辑 HTML 源码）" active={sourceMode} onClick={onToggleSource}>
-        <b className="font-mono text-xs">HTML</b>
-      </ToolBtn>
-        </>
-      )}
-      <ToolBtn title="撤销" disabled={!editor.can().undo()} onClick={() => editor.chain().focus().undo().run()}>↶</ToolBtn>
-      <ToolBtn title="重做" disabled={!editor.can().redo()} onClick={() => editor.chain().focus().redo().run()}>↷</ToolBtn>
-    </div>
+      <Sep />
+      <MediaTools editor={editor} maxImageMB={maxImageMB} maxVideoMB={maxVideoMB} disabled={disabled} />
+    </ToolbarShell>
   );
 }
 
@@ -339,137 +431,163 @@ export default function RichEditor({
   maxImageMB = 10,
   maxVideoMB = 100,
 }: Props) {
-  const [showUpload, setShowUpload] = useState(false);
-  const [sourceMode, setSourceMode] = useState(false);
-  const [sourceHtml, setSourceHtml] = useState("");
   const editorRef = useRef<Editor | null>(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
   const lastEmitted = useRef<string>(value);
 
-  const editor = useEditor({
-    immediatelyRender: false,
-    extensions: [
-      StarterKit.configure({
-        heading: { levels: [1, 2, 3, 4, 5, 6] },
-        link: false, // 用独立 Link 扩展（可编辑 href）
-      }),
-      Underline,
+  // 初始化语言（跟随站点语言，缺省英文）
+  useEffect(() => {
+    initEditorLocale();
+  }, []);
+
+  const extensions = useMemo(
+    () => [
+      Document,
+      Paragraph,
+      Text,
+      ListItem,
+      History,
+      Bold,
+      Italic,
+      TextUnderline,
+      Strike,
+      Code,
+      CodeBlock,
+      Blockquote,
+      HorizontalRule,
+      Heading.configure({ levels: [1, 2, 3, 4, 5, 6] }),
+      BulletList,
+      OrderedList,
       Link.configure({
         openOnClick: false,
         autolink: true,
         HTMLAttributes: { target: "_blank", rel: "noopener nofollow" },
       }),
-      Highlight,
+      Highlight.configure({ multicolor: true }),
       Table.configure({ resizable: false }),
-      TableRow,
-      TableHeader,
-      TableCell,
+      Emoji,
+      Clear,
+      // 字体 / 字号 / 文字颜色依赖 TextStyle mark
+      TextStyle,
+      FontFamily.configure({
+        fontFamilyList: [
+          { name: "默认", value: "Default" },
+          { name: "黑体", value: '"Heiti SC","Microsoft YaHei",sans-serif' },
+          { name: "宋体", value: '"Songti SC",SimSun,serif' },
+          { name: "楷体", value: '"Kaiti SC",KaiTi,serif' },
+          { name: "仿宋", value: '"FangSong",FangSong_GB2312,serif' },
+          { name: "Arial", value: "Arial,Helvetica,sans-serif" },
+          { name: "Georgia", value: "Georgia,serif" },
+          { name: "Courier New", value: '"Courier New",Courier,monospace' },
+        ],
+      }),
+      FontSize.configure({
+        fontSizes: [
+          { name: "默认", value: "Default" },
+          { name: "12px", value: "12px" },
+          { name: "14px", value: "14px" },
+          { name: "16px", value: "16px" },
+          { name: "18px", value: "18px" },
+          { name: "20px", value: "20px" },
+          { name: "24px", value: "24px" },
+          { name: "28px", value: "28px" },
+          { name: "32px", value: "32px" },
+          { name: "40px", value: "40px" },
+          { name: "48px", value: "48px" },
+        ],
+      }),
+      Color.configure({
+        colors: [
+          "#ffffff", "#efefef", "#bdc7e6", "#97a4cf",
+          "#38bdf8", "#2aa8ff", "#6366f1", "#8b5cf6",
+          "#22d3ee", "#10b981", "#f59e0b", "#ef4444",
+          "#f472b6", "#94a3b8", "#0b2476", "#000000",
+        ],
+      }),
+      CodeView,
       Image.configure({ HTMLAttributes: { class: "rich-media" } }),
       TiptapVideo,
       Placeholder.configure({ placeholder }),
     ],
-    editorProps: {
-      attributes: {
-        class: "tiptap-prose focus:outline-none",
+    [placeholder]
+  );
+
+  const editor = useEditor(
+    {
+      immediatelyRender: false,
+      editable: !disabled,
+      content: toEditorHtml(value),
+      extensions,
+      editorProps: {
+        attributes: { class: "tiptap-prose focus:outline-none" },
+        // 粘贴的 HTML 先清洗，再交给 Tiptap 解析
+        transformPastedHTML: (html) => sanitizeRich(html),
+        handlePaste: (view, event) => {
+          // 无 HTML 的剪贴板内容若是 Markdown，转换后同样清洗再插入
+          const htmlData = event.clipboardData?.getData("text/html");
+          const text = event.clipboardData?.getData("text/plain") || "";
+          if (htmlData || !text || !looksLikeMarkdown(text)) return false;
+          const html = sanitizeRich(markdownToHtml(text));
+          editorRef.current?.chain().focus().insertContent(html).run();
+          return true;
+        },
       },
-      handlePaste: (view, event) => {
-        // 无 HTML 的剪贴板内容若是 Markdown，自动转换后插入
-        const htmlData = event.clipboardData?.getData("text/html");
-        const text = event.clipboardData?.getData("text/plain") || "";
-        if (htmlData || !text || !looksLikeMarkdown(text)) return false;
-        const html = markdownToHtml(text);
-        editorRef.current?.chain().focus().insertContent(html).run();
-        return true;
+      onCreate: ({ editor: e }) => {
+        editorRef.current = e;
+      },
+      onUpdate: ({ editor: e }) => {
+        // 输出统一清洗：存储与渲染都只接受白名单内内容
+        const html = sanitizeRich(e.getHTML());
+        lastEmitted.current = html;
+        onChangeRef.current(html);
       },
     },
-    onUpdate: ({ editor: e }) => {
-      const html = e.getHTML();
-      lastEmitted.current = html;
-      onChange(html);
-    },
-    onCreate: ({ editor: e }) => {
-      editorRef.current = e;
-    },
-  });
+    [extensions]
+  );
+
+  useEffect(() => {
+    editorRef.current = editor;
+    if (editor) editor.setEditable(!disabled);
+  }, [editor, disabled]);
 
   // 外部 value 变化 → 同步（弹层重开/异步加载）。emitUpdate:false 避免回环。
   useEffect(() => {
-    if (!editor || !value) return;
+    if (!editor) return;
     if (value === lastEmitted.current) return;
-    const html = isHtmlContent(value) ? value : plainToHtml(value);
-    if (sourceMode) {
-      setSourceHtml(html);
-    } else {
-      editor.commands.setContent(html, { emitUpdate: false });
-    }
+    const html = toEditorHtml(value);
+    editor.commands.setContent(html, { emitUpdate: false });
     lastEmitted.current = value;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editor, value, editorKey, sourceMode]);
+  }, [editor, value, editorKey]);
 
-  const toggleSource = () => {
-    if (!editor) return;
-    if (!sourceMode) {
-      setSourceHtml(editor.getHTML());
-      setSourceMode(true);
-    } else {
-      editor.commands.setContent(sourceHtml, { emitUpdate: false });
-      lastEmitted.current = sourceHtml;
-      setSourceMode(false);
-    }
-  };
+  if (!editor) {
+    return (
+      <div
+        className="rte-shell rounded-lg border border-zinc-700"
+        style={{ minHeight }}
+      />
+    );
+  }
 
   return (
-    <div className={`overflow-hidden rounded-lg border border-zinc-700 bg-zinc-800/60 ${disabled ? "opacity-60" : ""}`}>
-      <div className="relative">
-        {showUpload && (
-          <div className="absolute inset-x-0 top-0 z-10 border-b border-zinc-700 bg-zinc-900 p-3">
-            <UniversalUploader
-              multiple={false}
-              accept="image"
-              compact
-              hint="选择图片上传后插入正文"
-              onUploaded={([f]) => {
-                editor?.chain().focus().setImage({ src: f.url }).run();
-                setShowUpload(false);
-              }}
-            />
-            <button type="button" className="ml-2 text-xs text-zinc-400 hover:text-zinc-200" onClick={() => setShowUpload(false)}>
-              取消
-            </button>
-          </div>
-        )}
-        {sourceMode ? (
-          <textarea
-            value={sourceHtml}
-            onChange={(e) => {
-              const v = e.target.value;
-              setSourceHtml(v);
-              lastEmitted.current = v;
-              onChange(v);
-            }}
-            disabled={disabled}
-            spellCheck={false}
-            placeholder="<p>HTML 源码…</p>"
-            className="tiptap-source block w-full resize-y bg-zinc-900/60 p-4 font-mono text-xs leading-relaxed text-emerald-100 outline-none"
-            style={{ minHeight, maxHeight: 600 }}
-          />
-        ) : (
-          <EditorContent
-            editor={editor}
-            style={{ minHeight, maxHeight: 600, overflowY: "auto" }}
-            className="bg-zinc-800/60 p-4 text-zinc-100"
-          />
-        )}
-      </div>
-      {editor && (
-        <Toolbar
+    <RichTextProvider editor={editor}>
+      <div
+        className={`rte-shell overflow-hidden rounded-lg border ${disabled ? "opacity-60" : ""}`}
+      >
+        <EditorToolbar
           editor={editor}
-          sourceMode={sourceMode}
-          onToggleSource={toggleSource}
           variant={toolbar}
           maxImageMB={maxImageMB}
           maxVideoMB={maxVideoMB}
+          disabled={disabled}
         />
-      )}
-    </div>
+        <EditorContent
+          editor={editor}
+          style={{ minHeight, maxHeight: 600, overflowY: "auto" }}
+          className="rte-content p-4"
+        />
+      </div>
+    </RichTextProvider>
   );
 }

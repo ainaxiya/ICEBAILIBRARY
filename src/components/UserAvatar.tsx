@@ -7,10 +7,12 @@ export default function UserAvatar({
   src,
   name,
   size = 36,
+  className = "",
 }: {
   src?: string | null;
   name: string;
   size?: number;
+  className?: string;
 }) {
   const [failed, setFailed] = useState(false);
   const initial = (name || "?").trim().charAt(0).toUpperCase() || "?";
@@ -18,8 +20,8 @@ export default function UserAvatar({
 
   return (
     <span
-      className="inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 font-medium text-white"
-      style={{ width: size, height: size, fontSize: Math.round(size * 0.42) }}
+      className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 font-medium text-white ${className}`}
+      style={{ width: size, height: size, fontSize: Math.max(12, Math.round(size * 0.42)) }}
     >
       {showImg ? (
         // eslint-disable-next-line @next/next/no-img-element

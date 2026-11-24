@@ -8,7 +8,6 @@ export const revalidate = 3600;
 const CHUNK = 5000;
 const PROMPT_CAP = 10000;
 const SKILL_CAP = 5000;
-const SOFTWARE_CAP = 1000;
 
 // 栏目页路由 slug（与 (site)/category/[slug]、(site)/type/[type] 一致）
 const TYPE_SLUGS = ["text", "image", "video", "audio"];
@@ -54,7 +53,7 @@ const contentOrderBy = [
   { id: "desc" as const },
 ];
 
-// 子 sitemap 分片：static / featured / prompts-N / skills-N / software（由 /sitemap.xml 索引）
+// 子 sitemap 分片：static / featured / prompts-N / skills-N（由 /sitemap.xml 索引；v0.117 software 已下线）
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ name: string }> }
@@ -77,7 +76,7 @@ export async function GET(
       })),
       ...TYPE_SLUGS.map((t) => ({ path: `/type/${t}`, priority: 0.9, changefreq: "daily" })),
       { path: "/skills", priority: 0.7, changefreq: "daily" },
-      { path: "/software", priority: 0.7, changefreq: "daily" },
+      { path: "/playground", priority: 0.6, changefreq: "weekly" },
       // 固定站务单页（帮助/关于/联系/条款/隐私）
       { path: "/help", priority: 0.3, changefreq: "monthly" },
       { path: "/about", priority: 0.3, changefreq: "monthly" },
@@ -124,24 +123,7 @@ export async function GET(
     );
   }
 
-  if (name === "software") {
-    const rows = await db.software.findMany({
-      where: { status: "published" },
-      select: { slug: true, updatedAt: true },
-      orderBy: { id: "asc" },
-      take: SOFTWARE_CAP,
-    });
-    return xmlResponse(
-      urlset(
-        rows.map((s) => ({
-          loc: `${base}/software/${encodeURIComponent(s.slug)}`,
-          lastmod: s.updatedAt,
-          priority: 0.7,
-          changefreq: "weekly",
-        }))
-      )
-    );
-  }
+  // v0.117 AI 软件下线：software sitemap 不再输出（旧 URL 已 301 到 /playground）
 
   const m = /^(prompts|skills)-(\d+)$/.exec(name);
   if (m) {

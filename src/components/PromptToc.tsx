@@ -53,12 +53,12 @@ export default function PromptToc({ segments }: { segments: TocSegment[] }) {
           : "text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200"
       }`}
     >
-      <span className={`font-mono text-[10px] ${active === seg.index ? "text-emerald-400" : "text-zinc-600"}`}>
+      <span className={`font-mono text-xs ${active === seg.index ? "text-emerald-400" : "text-zinc-600"}`}>
         {pad2(seg.index + 1)}
       </span>
       <span className="min-w-0 flex-1 truncate">{seg.label}</span>
       {active === seg.index && (
-        <span className="shrink-0 rounded bg-emerald-500/20 px-1 py-0.5 text-[9px] text-emerald-300">当前阅读</span>
+        <span className="shrink-0 rounded bg-emerald-500/20 px-1 py-0.5 text-xs text-emerald-300">当前阅读</span>
       )}
     </a>
   ));
@@ -73,7 +73,7 @@ export default function PromptToc({ segments }: { segments: TocSegment[] }) {
               <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
             </svg>
             本页结构
-            <span className="ml-auto font-mono text-[10px] text-zinc-600">{pad2(segments.length)} 段</span>
+            <span className="ml-auto font-mono text-xs text-zinc-600">{pad2(segments.length)} 段</span>
           </h4>
           <nav className="space-y-0.5">{items}</nav>
         </div>
@@ -100,7 +100,7 @@ export default function PromptToc({ segments }: { segments: TocSegment[] }) {
             <div className="mb-3 flex items-center justify-between">
               <h3 className="flex items-center gap-2 text-sm font-bold text-zinc-100">
                 本页结构
-                <span className="font-mono text-[10px] font-normal text-zinc-500">共 {pad2(segments.length)} 段</span>
+                <span className="font-mono text-xs font-normal text-zinc-500">共 {pad2(segments.length)} 段</span>
               </h3>
               <button
                 onClick={() => setOpen(false)}

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useLocale, translate as t } from "@/lib/i18n-client";
+import { isNavActive } from "@/lib/nav-active";
 
 // 手机端底部标签栏：仅 <md(768px) 显示；5 个标签 首页/提示词/AI技能/AI软件/我的
 // 未登录点「我的」由 /member 自身重定向到 /login?next=/member
@@ -55,6 +56,13 @@ function TabIcon({ name, className = "h-[22px] w-[22px]" }: { name: string; clas
           <circle cx="12" cy="15" r="2.5" />
         </svg>
       );
+    case "flask":
+      return (
+        <svg {...common}>
+          <path d="M10 3h4M10 3v6l-5.5 9.2A2 2 0 0 0 6.2 21h11.6a2 2 0 0 0 1.7-2.8L14 9V3" />
+          <path d="M7.5 15h9" />
+        </svg>
+      );
     case "user":
       return (
         <svg {...common}>
@@ -67,16 +75,19 @@ function TabIcon({ name, className = "h-[22px] w-[22px]" }: { name: string; clas
   }
 }
 
-export default function MobileTabBar() {
+export default function MobileTabBar({ playgroundEnabled = true }: { playgroundEnabled?: boolean }) {
   const locale = useLocale();
   const pathname = usePathname();
 
-  // v0.6 四大栏目 + 我的：首页 / 提示词 / AI技能 / AI软件 / 我的
+  // v0.117 四大栏目 + 我的：首页 / 提示词 / AI技能 / 实验场 / 我的（AI软件已下线）
+  // pa1：实验场总开关关闭时隐藏该 Tab
   const tabs = [
     { href: "/", icon: "home", label: t(locale, "nav.home"), exact: true },
     { href: "/categories", icon: "grid", label: t(locale, "nav.categories"), exact: false },
     { href: "/skills", icon: "puzzle", label: t(locale, "nav.skills"), exact: false },
-    { href: "/software", icon: "disk", label: t(locale, "nav.software"), exact: false },
+    ...(playgroundEnabled
+      ? [{ href: "/playground", icon: "flask", label: t(locale, "nav.software"), exact: false }]
+      : []),
     { href: "/member", icon: "user", label: t(locale, "nav.memberCenter"), exact: false },
   ];
 
@@ -87,18 +98,24 @@ export default function MobileTabBar() {
       aria-label={locale === "zh" ? "移动端主导航" : "Mobile primary navigation"}
     >
       {tabs.map((tab) => {
-        const active = tab.exact ? pathname === tab.href : pathname.startsWith(tab.href);
+        const active = isNavActive(pathname, tab.href, tab.exact);
+        // 会员中心：始终回首页；英文版按钮文案用短词 Member
+        const label =
+          tab.href === "/member" && locale === "en" ? "Member" : tab.label;
         return (
           <Link
             key={tab.href}
             href={tab.href}
             aria-current={active ? "page" : undefined}
+            onClick={() => {
+              if (tab.href === "/member") window.dispatchEvent(new CustomEvent("mc:go-home"));
+            }}
             className={`flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 py-1.5 transition-colors ${
-              active ? "text-emerald-300" : "text-zinc-400 hover:text-zinc-200"
+              active ? "font-medium text-orange-400" : "text-zinc-400 hover:text-zinc-200"
             }`}
           >
             <TabIcon name={tab.icon} />
-            <span className="text-[10px] leading-none">{tab.label}</span>
+            <span className="text-xs leading-none">{label}</span>
           </Link>
         );
       })}

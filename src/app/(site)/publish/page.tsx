@@ -204,6 +204,7 @@ export default function PublishPage() {
         <RichEditor
           value={form.content}
           onChange={onContentChange}
+          toolbar="simple"
           maxImageMB={cfg?.maxImageMB ?? 10}
           maxVideoMB={cfg?.maxVideoMB ?? 100}
         />

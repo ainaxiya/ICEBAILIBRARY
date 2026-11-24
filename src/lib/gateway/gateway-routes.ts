@@ -73,3 +73,22 @@ export async function getGatewayRoutes(): Promise<GatewayRoute[]> {
   const legacy = normalizeRouteUrl(map[API_DOCS_BASE_URL_SETTING_KEY] || "");
   return [{ name: "默认线路", url: legacy || DEFAULT_API_DOCS_BASE_URL }];
 }
+
+// ─── 当前请求命中的网关 Base（协议 + Host） ───
+// 用于把「客户端可回访的 /v1 地址」（如视频轮询 poll）返回给调用方。
+// 不能再用 NEXT_PUBLIC_SITE_URL：那是主站域名，/v1/* 在非白名单域名上按设计 404。
+// 调用前提：已通过 authenticateV1 的域名白名单校验（Host 必然是配置里的网关域名）。
+export function requestGatewayBase(req: Request): string {
+  const host = (req.headers.get("host") || "").trim();
+  if (!host) return "";
+  let proto = (req.headers.get("x-forwarded-proto") || "").split(",")[0].trim().toLowerCase();
+  if (proto !== "http" && proto !== "https") {
+    try {
+      proto = new URL(req.url).protocol.replace(":", "").toLowerCase();
+    } catch {
+      proto = "";
+    }
+  }
+  if (proto !== "http" && proto !== "https") proto = "https";
+  return `${proto}://${host}`;
+}

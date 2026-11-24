@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { PERMISSION_GROUPS } from "@/lib/permissions";
+import { Fragment, useState } from "react";
+import { PERMISSION_GROUPS, togglePermission } from "@/lib/permissions";
+import { adminFetch } from "@/lib/admin-fetch";
 
 type Role = {
   id: number;
@@ -10,7 +11,7 @@ type Role = {
   description: string | null;
   createdAt: string;
   updatedAt: string;
-  userCount: number;
+  adminCount: number;
 };
 
 type Props = { initial: Role[] };
@@ -28,6 +29,10 @@ export default function RoleManager({ initial }: Props) {
   const [description, setDescription] = useState("");
   const [perms, setPerms] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  // b13 权限矩阵视图
+  const [view, setView] = useState<"list" | "matrix">("list");
+  const [dirty, setDirty] = useState<Set<number>>(new Set());
+  const [savingMatrix, setSavingMatrix] = useState(false);
 
   const flash = (kind: "ok" | "err", text: string) => {
     setMsg({ kind, text });
@@ -51,11 +56,7 @@ export default function RoleManager({ initial }: Props) {
   };
 
   const togglePerm = (p: string) => {
-    setPerms((prev) => {
-      if (p === "*") return prev.includes("*") ? [] : ["*"];
-      const without = prev.filter((x) => x !== "*");
-      return without.includes(p) ? without.filter((x) => x !== p) : [...without, p];
-    });
+    setPerms((prev) => togglePermission(prev, p));
   };
 
   const toggleGroup = (groupPerms: string[]) => {
@@ -76,7 +77,7 @@ export default function RoleManager({ initial }: Props) {
     setBusy(true);
     try {
       if (editing) {
-        const r = await fetch(`/api/admin/roles/${editing.id}`, {
+        const r = await adminFetch(`/api/admin/roles/${editing.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -96,7 +97,7 @@ export default function RoleManager({ initial }: Props) {
         );
         flash("ok", "角色已更新");
       } else {
-        const r = await fetch("/api/admin/roles", {
+        const r = await adminFetch("/api/admin/roles", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -107,7 +108,7 @@ export default function RoleManager({ initial }: Props) {
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "创建失败");
-        setRoles((prev) => [...prev, { ...d, userCount: 0 }]);
+        setRoles((prev) => [...prev, { ...d, adminCount: 0 }]);
         flash("ok", "角色已创建");
       }
       setShowModal(false);
@@ -119,13 +120,13 @@ export default function RoleManager({ initial }: Props) {
   };
 
   const remove = async (r: Role) => {
-    if (r.userCount > 0) {
-      flash("err", `该角色下还有 ${r.userCount} 个用户，无法删除`);
+    if (r.adminCount > 0) {
+      flash("err", `该角色下还有 ${r.adminCount} 个管理员，无法删除`);
       return;
     }
     if (!confirm(`确认删除角色「${r.name}」？此操作不可恢复。`)) return;
     try {
-      const res = await fetch(`/api/admin/roles/${r.id}`, { method: "DELETE" });
+      const res = await adminFetch(`/api/admin/roles/${r.id}`, { method: "DELETE" });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "删除失败");
       setRoles((prev) => prev.filter((x) => x.id !== r.id));
@@ -133,6 +134,45 @@ export default function RoleManager({ initial }: Props) {
     } catch (e) {
       flash("err", (e as Error).message);
     }
+  };
+
+  // ── b13 权限矩阵：角色 × 权限，勾选后统一保存 ──
+  const matrixToggle = (roleId: number, perm: string) => {
+    setRoles((prev) =>
+      prev.map((r) => (r.id === roleId ? { ...r, permissions: togglePermission(r.permissions, perm) } : r)),
+    );
+    setDirty((prev) => new Set(prev).add(roleId));
+  };
+
+  const saveMatrix = async () => {
+    if (dirty.size === 0) {
+      flash("ok", "没有待保存的改动");
+      return;
+    }
+    setSavingMatrix(true);
+    const failed: string[] = [];
+    for (const id of dirty) {
+      const role = roles.find((r) => r.id === id);
+      if (!role) continue;
+      try {
+        const r = await adminFetch(`/api/admin/roles/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ permissions: role.permissions }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) failed.push(`${role.name}：${d.error || "保存失败"}`);
+      } catch {
+        failed.push(`${role.name}：网络异常`);
+      }
+    }
+    setSavingMatrix(false);
+    if (failed.length) {
+      flash("err", failed.join("；"));
+      return;
+    }
+    setDirty(new Set());
+    flash("ok", "权限矩阵已保存");
   };
 
   return (
@@ -147,24 +187,55 @@ export default function RoleManager({ initial }: Props) {
         </div>
       )}
 
-      <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-zinc-400">共 {roles.length} 个角色</p>
-        <button
-          type="button"
-          onClick={openCreate}
-          className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
-        >
-          + 新建角色
-        </button>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-3">
+          <p className="text-sm text-zinc-400">共 {roles.length} 个角色</p>
+          <div className="flex overflow-hidden rounded-lg border border-zinc-700 text-xs">
+            <button
+              type="button"
+              onClick={() => setView("list")}
+              className={`px-3 py-1.5 ${view === "list" ? "bg-indigo-600 text-white" : "text-zinc-400 hover:bg-zinc-800"}`}
+            >
+              列表
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("matrix")}
+              className={`px-3 py-1.5 ${view === "matrix" ? "bg-indigo-600 text-white" : "text-zinc-400 hover:bg-zinc-800"}`}
+            >
+              权限矩阵
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {view === "matrix" && (
+            <button
+              type="button"
+              onClick={saveMatrix}
+              disabled={savingMatrix || dirty.size === 0}
+              className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+            >
+              {savingMatrix ? "保存中…" : dirty.size ? `保存矩阵（${dirty.size}）` : "保存矩阵"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={openCreate}
+            className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
+          >
+            + 新建角色
+          </button>
+        </div>
       </div>
 
+      {view === "list" && (
       <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-zinc-800 text-left text-xs text-zinc-500">
               <th className="px-4 py-3">名称</th>
               <th className="px-4 py-3 w-24">权限数</th>
-              <th className="px-4 py-3 w-20">用户数</th>
+              <th className="px-4 py-3 w-20">管理员数</th>
               <th className="px-4 py-3">描述</th>
               <th className="px-4 py-3 w-32 text-right">操作</th>
             </tr>
@@ -190,7 +261,7 @@ export default function RoleManager({ initial }: Props) {
                 <td className="px-4 py-3 text-zinc-400">
                   {r.permissions.includes("*") ? "全部" : r.permissions.length}
                 </td>
-                <td className="px-4 py-3 text-zinc-400">{r.userCount}</td>
+                <td className="px-4 py-3 text-zinc-400">{r.adminCount}</td>
                 <td className="px-4 py-3 text-zinc-400">{r.description || "—"}</td>
                 <td className="px-4 py-3 text-right">
                   <button
@@ -213,6 +284,70 @@ export default function RoleManager({ initial }: Props) {
           </tbody>
         </table>
       </div>
+      )}
+
+      {view === "matrix" && (
+        <div className="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900">
+          <table className="w-full min-w-[720px] text-sm">
+            <thead>
+              <tr className="border-b border-zinc-800 text-xs text-zinc-500">
+                <th className="sticky left-0 z-10 bg-zinc-900 px-4 py-3 text-left">权限</th>
+                {roles.map((r) => (
+                  <th key={r.id} className="whitespace-nowrap px-3 py-3 text-center font-medium text-zinc-300">
+                    {r.name}
+                    {r.permissions.includes("*") && (
+                      <span className="ml-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs text-amber-300">
+                        超级
+                      </span>
+                    )}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {PERMISSION_GROUPS.map((g) => (
+                <Fragment key={g.label}>
+                  <tr className="bg-zinc-950/60">
+                    <td
+                      colSpan={roles.length + 1}
+                      className="sticky left-0 px-4 py-1.5 text-xs font-semibold tracking-wide text-indigo-300"
+                    >
+                      {g.label}
+                    </td>
+                  </tr>
+                  {g.perms.map((p) => (
+                    <tr key={p} className="border-t border-zinc-800/50">
+                      <td className="sticky left-0 z-10 whitespace-nowrap bg-zinc-900 px-4 py-2 text-xs text-zinc-400">
+                        {p}
+                      </td>
+                      {roles.map((r) => {
+                        const isSuperRole = r.permissions.includes("*");
+                        return (
+                          <td key={r.id} className="px-3 py-2 text-center">
+                            <input
+                              type="checkbox"
+                              className="accent-indigo-500"
+                              checked={isSuperRole || r.permissions.includes(p)}
+                              disabled={isSuperRole}
+                              onChange={() => matrixToggle(r.id, p)}
+                            />
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+          {roles.length === 0 && (
+            <p className="px-4 py-6 text-center text-sm text-zinc-600">暂无角色，请先新建角色</p>
+          )}
+          <p className="border-t border-zinc-800 px-4 py-2 text-xs text-zinc-500">
+            勾选后点右上「保存矩阵」生效；拥有「全部权限」的角色不可逐项修改。
+          </p>
+        </div>
+      )}
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">

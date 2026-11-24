@@ -67,7 +67,13 @@ export default function CommentSection({
   const [total, setTotal] = useState<number>(initialTotal ?? initialComments.length);
   const [page, setPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [me, setMe] = useState<{ id: number; commentBanned?: boolean } | null>(null);
+  const [me, setMe] = useState<{
+    id: number;
+    commentBanned?: boolean;
+    avatar?: string | null;
+    nickname?: string | null;
+    username?: string;
+  } | null>(null);
   const [closed, setClosed] = useState(initialClosed);
 
   const [content, setContent] = useState("");
@@ -86,7 +92,14 @@ export default function CommentSection({
     fetch("/api/me")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (d?.user?.id) setMe({ id: d.user.id, commentBanned: !!d.user.commentBanned });
+        if (d?.user?.id)
+          setMe({
+            id: d.user.id,
+            commentBanned: !!d.user.commentBanned,
+            avatar: d.user.avatar || null,
+            nickname: d.user.nickname || null,
+            username: d.user.username,
+          });
       })
       .catch(() => {});
   }, []);
@@ -291,7 +304,8 @@ export default function CommentSection({
     }
   };
 
-  const displayName = (u: CommentUser | null) => (u ? u.nickname || u.username : "用户");
+  // 作者为空 = 该会员已被删除，评论保留但显示注销占位
+  const displayName = (u: CommentUser | null) => (u ? u.nickname || u.username : "该会员号已注销");
 
   const renderCaptcha = () =>
     captcha && (
@@ -389,6 +403,12 @@ export default function CommentSection({
             {replyTo?.id === c.id && !closed && (
               <div className="mt-2">
                 <div className="flex gap-2">
+                  <UserAvatar
+                    src={me?.avatar}
+                    name={me?.nickname || me?.username || ""}
+                    size={28}
+                    className="mt-1"
+                  />
                   <input
                     value={replyContent}
                     onChange={(e) => setReplyContent(e.target.value)}
@@ -450,6 +470,13 @@ export default function CommentSection({
       {canPost ? (
         <div className="mb-5">
           <div className="flex gap-2">
+            {/* 我的头像（与评论列表一致；未设置头像显示首字母圆标） */}
+            <UserAvatar
+              src={me?.avatar}
+              name={me?.nickname || me?.username || ""}
+              size={36}
+              className="mt-0.5"
+            />
             <textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}

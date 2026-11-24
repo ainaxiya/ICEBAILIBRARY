@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import {
+  normalizeAddress,
+  normalizeLocaleField,
+  normalizePostalCode,
+  normalizeRegion,
+  normalizeTimezone,
+  normalizeWebsiteField,
+} from "@/lib/profile-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +23,7 @@ export async function GET() {
       id: true,
       username: true,
       email: true,
+      emailVerified: true,
       phone: true,
       nickname: true,
       avatar: true,
@@ -25,7 +34,15 @@ export async function GET() {
       birthday: true,
       gender: true,
       nationality: true,
-      role: true,
+      countryCode: true,
+      province: true,
+      city: true,
+      district: true,
+      address: true,
+      postalCode: true,
+      website: true,
+      locale: true,
+      timezone: true,
       membershipLevel: true,
       membershipUntil: true,
       status: true,
@@ -52,7 +69,7 @@ export async function PUT(req: NextRequest) {
     data.nickname = nickname || null;
   }
   if (typeof body?.avatar === "string") {
-    // avatar 通常是上传后返回的路径 /uploads/avatars/xxx.webp
+    // avatar 通常是上传后返回的路径 /uploads/<YYYY-MM>/image-xxx.webp
     if (body.avatar.length > 500) {
       return NextResponse.json({ error: "avatar 路径过长" }, { status: 400 });
     }
@@ -70,7 +87,6 @@ export async function PUT(req: NextRequest) {
     ["wechat", 50],
     ["qq", 30],
     ["telegram", 50],
-    ["nationality", 50],
   ];
   for (const [field, max] of contactFields) {
     if (typeof body?.[field] === "string") {
@@ -81,24 +97,7 @@ export async function PUT(req: NextRequest) {
       data[field] = v || null;
     }
   }
-  // v0.92 #9 手机/邮箱可改（唯一性校验）
-  if (typeof body?.email === "string") {
-    const email = body.email.trim().toLowerCase();
-    if (email.length > 100) {
-      return NextResponse.json({ error: "邮箱过长（最多 100 字符）" }, { status: 400 });
-    }
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return NextResponse.json({ error: "邮箱格式不正确" }, { status: 400 });
-    }
-    if (email) {
-      const taken = await db.user.findFirst({
-        where: { email, NOT: { id: currentUser.id } },
-        select: { id: true },
-      });
-      if (taken) return NextResponse.json({ error: "该邮箱已被其他账号使用" }, { status: 409 });
-    }
-    data.email = email || null;
-  }
+  // v0.92 #9 手机可改（唯一性校验）；邮箱注册后锁定，不再接受修改
   if (typeof body?.phone === "string") {
     const phone = body.phone.trim();
     if (phone.length > 20) {
@@ -135,6 +134,30 @@ export async function PUT(req: NextRequest) {
     }
   }
 
+  // v1.0.5 地区分列 + 地址/邮编/网站/语言/时区（与后台共用同一套口径）
+  const region = normalizeRegion({
+    countryCode: body?.countryCode,
+    province: body?.province,
+    city: body?.city,
+    district: body?.district,
+  });
+  if (region.error) return NextResponse.json({ error: region.error }, { status: 400 });
+  Object.assign(data, region.data);
+
+  const fieldChecks: Array<[string, (v: string) => { error?: string; value?: string | null }]> = [
+    ["address", normalizeAddress],
+    ["postalCode", normalizePostalCode],
+    ["website", normalizeWebsiteField],
+    ["locale", normalizeLocaleField],
+    ["timezone", normalizeTimezone],
+  ];
+  for (const [field, check] of fieldChecks) {
+    if (typeof body?.[field] !== "string") continue;
+    const r = check(body[field] as string);
+    if (r.error) return NextResponse.json({ error: r.error }, { status: 400 });
+    data[field] = r.value ?? null;
+  }
+
   if (Object.keys(data).length === 0) {
     return NextResponse.json({ error: "没有需要更新的字段" }, { status: 400 });
   }
@@ -156,6 +179,15 @@ export async function PUT(req: NextRequest) {
       birthday: true,
       gender: true,
       nationality: true,
+      countryCode: true,
+      province: true,
+      city: true,
+      district: true,
+      address: true,
+      postalCode: true,
+      website: true,
+      locale: true,
+      timezone: true,
     },
   });
 

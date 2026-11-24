@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import AuthForm from "@/components/AuthForm";
+import AuthShell from "@/components/AuthShell";
 import { getPublicSite } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ export default async function RegisterPage() {
   const site = await getPublicSite();
   return (
     <Suspense fallback={null}>
-      <AuthForm mode="register" siteName={site.siteName} />
+      <AuthShell mode="register" siteName={site.siteName} logoIcon={site.logoIcon || "/logo/icon.png"} />
     </Suspense>
   );
 }

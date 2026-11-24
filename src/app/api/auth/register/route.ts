@@ -3,9 +3,10 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { signToken, setAuthCookie } from "@/lib/auth";
-import { getPublicSite } from "@/lib/settings";
+import { getPublicSite, getSettings, resolveEmailVerify } from "@/lib/settings";
 import { randomNickname } from "@/lib/random-name";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
+import { verifyEmailCode, EmailCodeError } from "@/lib/email-codes";
 import { getCreditsConfig, grant } from "@/lib/credits";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,18 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null) || {};
   const fields = site.registerFields;
 
+  // P7 邮箱验证码开启：邮箱强制必填（忽略后台字段收集策略），并要求验证码
+  // 判定只认注册设置本身；邮件服务未启用属于配置错误 → 显式拒绝，绝不静默跳过验证
+  const full = await getSettings();
+  const emailVerifyMode = resolveEmailVerify(full.register, full.email);
+  if (emailVerifyMode === "misconfigured") {
+    return NextResponse.json(
+      { error: "邮件服务未启用，暂时无法完成邮箱验证注册，请联系管理员" },
+      { status: 503 }
+    );
+  }
+  const emailVerifyOn = emailVerifyMode === "on";
+
   // 按后台「注册设置」动态构造校验：账号/密码恒必填，其他字段按 off/optional/required
   const schemaShape: Record<string, z.ZodTypeAny> = {
     username: z
@@ -39,7 +52,10 @@ export async function POST(req: NextRequest) {
     .regex(/^[0-9+\-\s]{6,20}$/, "手机号格式不正确");
   const nicknameRule = z.string().trim().min(1, "昵称不能为空").max(20);
 
-  if (fields.email === "required") schemaShape.email = emailRule;
+  if (emailVerifyOn) {
+    schemaShape.email = emailRule;
+    schemaShape.code = z.string().regex(/^\d{6}$/, "请输入 6 位邮箱验证码");
+  } else if (fields.email === "required") schemaShape.email = emailRule;
   else if (fields.email === "optional") schemaShape.email = emailRule.or(z.literal("")).optional();
   if (fields.phone === "required") schemaShape.phone = phoneRule;
   else if (fields.phone === "optional") schemaShape.phone = phoneRule.or(z.literal("")).optional();
@@ -56,6 +72,7 @@ export async function POST(req: NextRequest) {
     email?: string;
     phone?: string;
     nickname?: string;
+    code?: string;
   };
 
   // 账号唯一（会员 + 管理员表都不能重名）
@@ -79,6 +96,18 @@ export async function POST(req: NextRequest) {
     if (dup) return NextResponse.json({ error: "手机号已被注册" }, { status: 409 });
   }
 
+  // P7 邮箱验证码校验（放在所有前置校验之后，验证码最后消费，避免白扣）
+  if (emailVerifyOn) {
+    try {
+      await verifyEmailCode(email!, "register", d.code!);
+    } catch (e) {
+      if (e instanceof EmailCodeError) {
+        return NextResponse.json({ error: e.message }, { status: e.status });
+      }
+      throw e;
+    }
+  }
+
   const user = await db.user.create({
     data: {
       username: d.username,
@@ -86,7 +115,8 @@ export async function POST(req: NextRequest) {
       email,
       phone,
       nickname,
-      role: "user",
+      // 邮箱验证码注册通过即视为已验证（邮箱注册后锁定不可修改）
+      emailVerified: !!(email && emailVerifyOn),
       status: "active",
       allowPublish: true,
       registerIp: clientIp(req),

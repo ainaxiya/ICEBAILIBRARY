@@ -17,9 +17,9 @@ export async function POST(req: NextRequest) {
   if (username.length > 64 || password.length > 128) {
     return NextResponse.json({ error: "用户名或密码错误" }, { status: 401 });
   }
-  // 会员登录只认 role=user（管理员有独立登录入口，采集账号禁止登录）
+  // 会员登录只放行 canLogin 等级（系统等级 importer/legacy_admin 禁止登录）
   const user = await db.user.findFirst({
-    where: { username, role: "user" },
+    where: { username, membership: { canLogin: true } },
   });
   if (!user?.passwordHash || !(await bcrypt.compare(password, user.passwordHash))) {
     return NextResponse.json({ error: "用户名或密码错误" }, { status: 401 });

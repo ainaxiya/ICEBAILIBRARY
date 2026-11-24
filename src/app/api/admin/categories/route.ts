@@ -40,6 +40,9 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const name = (body?.name || "").trim();
   const nameEn = (body?.nameEn || "").trim();
+  // 自定义栏目描述与关键字（SEO；空则前台用默认文案）
+  const metaDescription = typeof body?.metaDescription === "string" ? body.metaDescription.trim().slice(0, 500) : null;
+  const metaKeywords = typeof body?.metaKeywords === "string" ? body.metaKeywords.trim().slice(0, 300) : null;
   if (!name) return NextResponse.json({ error: "名称不能为空" }, { status: 400 });
 
   const slug = slugify(name);
@@ -48,7 +51,7 @@ export async function POST(req: NextRequest) {
 
   const maxSort = await db.category.aggregate({ _max: { sort: true } });
   const cat = await db.category.create({
-    data: { name, nameEn: nameEn || name, slug, sort: (maxSort._max.sort ?? -1) + 1 },
+    data: { name, nameEn: nameEn || name, slug, sort: (maxSort._max.sort ?? -1) + 1, metaDescription, metaKeywords },
   });
   invalidateCategoryCache();
   return NextResponse.json(cat);

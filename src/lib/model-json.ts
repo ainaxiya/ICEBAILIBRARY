@@ -14,6 +14,8 @@ export function pricingJson(p: ModelPricing) {
   return {
     id: p.id,
     modelId: p.modelId,
+    // 计费档位键（'' = 通用；视频为 480p:n / 720p:n / 1080p:n / 4K:n / 720p:v）
+    variant: p.variant,
     meterBase: p.meterBase,
     unit: p.unit,
     inputPrice: num(p.inputPrice),

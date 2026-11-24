@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { PERMISSIONS, requirePerm, logAdminAction, getClientIp } from "@/lib/rbac";
+import { deleteMembers } from "@/lib/member-delete";
+import { PERMISSIONS, requirePerm, requireSensitivePerm, reauthRequired, logAdminAction, getClientIp } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -31,9 +32,9 @@ export async function POST(req: NextRequest) {
       if (value !== "active" && value !== "banned") {
         return NextResponse.json({ error: "value 必须为 active 或 banned" }, { status: 400 });
       }
-      // 只作用于前台会员，避免误改管理员账号
+      // 只作用于普通等级会员，避免误改系统账号
       const r = await db.user.updateMany({
-        where: { id: { in: ids }, role: "user" },
+        where: { id: { in: ids }, membership: { isSystem: false } },
         data: { status: value },
       });
       affected = r.count;
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "value 必须为布尔值" }, { status: 400 });
       }
       const r = await db.user.updateMany({
-        where: { id: { in: ids }, role: "user" },
+        where: { id: { in: ids }, membership: { isSystem: false } },
         data: { allowPublish: value },
       });
       affected = r.count;
@@ -55,36 +56,29 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "value 必须为布尔值" }, { status: 400 });
       }
       const r = await db.user.updateMany({
-        where: { id: { in: ids }, role: "user" },
+        where: { id: { in: ids }, membership: { isSystem: false } },
         data: { commentBanned: value },
       });
       affected = r.count;
       break;
     }
     case "delete": {
-      // 删号需更高权限（与单条删除一致）
-      const del = await requirePerm(PERMISSIONS.USER_DELETE);
+      // 删号需更高权限（与单条删除一致），且需 10 分钟内二次密码验证
+      const del = await requireSensitivePerm(PERMISSIONS.USER_DELETE);
       if (!del.ok) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+      if (del.needReauth) return reauthRequired();
 
-      // 只删 role="user" 且名下 0 条提示词的账号，其余（有提示词/非会员）跳过
+      // 只删普通等级账号（系统账号跳过）；会员名下的提示词/技能/评论/产物与流水全部保留
       const targets = await db.user.findMany({
-        where: { id: { in: ids }, role: "user" },
-        select: { id: true, _count: { select: { prompts: true } } },
+        where: { id: { in: ids }, membership: { isSystem: false } },
+        select: { id: true },
       });
-      const deletableIds = targets.filter((t) => t._count.prompts === 0).map((t) => t.id);
+      const deletableIds = targets.map((t) => t.id);
       skipped = ids.length - deletableIds.length;
 
       if (deletableIds.length > 0) {
-        // 无内容后清理互动数据再删号（评论点赞外键指向 User，须先清），与单条删除事务一致
-        await db.$transaction([
-          db.like.deleteMany({ where: { userId: { in: deletableIds } } }),
-          db.favorite.deleteMany({ where: { userId: { in: deletableIds } } }),
-          db.commentLike.deleteMany({ where: { userId: { in: deletableIds } } }),
-          db.comment.deleteMany({ where: { userId: { in: deletableIds } } }),
-          db.user.deleteMany({ where: { id: { in: deletableIds } } }),
-        ]);
+        affected = await deleteMembers(deletableIds);
       }
-      affected = deletableIds.length;
       break;
     }
   }

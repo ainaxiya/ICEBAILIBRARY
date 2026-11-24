@@ -1,21 +1,37 @@
 import type { NextConfig } from "next";
-import path from "path";
+import path from "node:path";
 
 const nextConfig: NextConfig = {
   // 关闭开发模式左下角的 Next.js DevTools 悬浮按钮（含 Preferences 面板）
   devIndicators: false,
   // 移除响应头 X-Powered-By: Next.js（避免暴露技术栈）
   poweredByHeader: false,
+  // 允许用 NEXT_DIST_DIR 指定独立产物目录：本地预览时给 dev 用 .next-preview，
+  // 避免 dev 产物污染待发版的 .next；未设置时保持默认 .next，线上行为不变。
+  distDir: process.env.NEXT_DIST_DIR || ".next",
+  // BullMQ/ioredis 保持外部化（运行时直连 node_modules，避免打包破坏连接池/内部 require）
+  serverExternalPackages: ["bullmq", "ioredis"],
   experimental: {
     serverActions: { bodySizeLimit: "4mb" },
     // 中间件会缓冲请求体，默认 10MB 截断大文件上传（技能整包 zip / 软件包），放开到 250MB
     middlewareClientMaxBodySize: "250mb",
   },
-  webpack: (config) => {
-    // react-photo-editor 的 exports 字段只声明了 import 条件，webpack 解析失败，
-    // 直接 alias 到构建产物（其内部相对引用 ./index.css 会一并解析）
-    config.resolve.alias["react-photo-editor"] = path.resolve(
-      "node_modules/react-photo-editor/dist/react-photo-editor.es.js"
+  webpack: (config, { webpack }) => {
+    // reactjs-tiptap-editor 1.0.48 把 React 19.3.1 与 jsx-runtime 打进了自己的 lib，
+    // 与 Next 的 React 形成双实例（useId 读到空 dispatcher → 后台富文本页面崩溃）。
+    // 这里把这两个打包产物替换成复用应用 React 的 shim。
+    config.plugins.push(
+      new webpack.NormalModuleReplacementPlugin(
+        /^\.\/(react|jsx-runtime)-[^/\\]+\.(js|cjs)$/,
+        (resource: { request: string; context?: string }) => {
+          const context = String(resource.context || "").replace(/\\/g, "/");
+          if (!context.includes("reactjs-tiptap-editor/lib")) return;
+          const isJsxRuntime = /^\.\/jsx-runtime-/.test(resource.request);
+          resource.request = path.resolve(
+            isJsxRuntime ? "src/lib/tiptap-jsx-runtime-shim.mjs" : "src/lib/tiptap-react-shim.mjs"
+          );
+        }
+      )
     );
     return config;
   },

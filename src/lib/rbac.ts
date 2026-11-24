@@ -1,7 +1,9 @@
 import { db } from "./db";
-import { getCurrentAdmin } from "./auth";
+import { getCurrentAdmin, getReauthAdminId } from "./auth";
 import { headers } from "next/headers";
+import { NextResponse } from "next/server";
 import { PERMISSIONS, ALL_PERMISSIONS, PERMISSION_GROUPS } from "./permissions";
+import { REAUTH_REQUIRED_CODE } from "./reauth-core";
 
 // 重新导出（服务端组件可用）
 export { PERMISSIONS, ALL_PERMISSIONS, PERMISSION_GROUPS };
@@ -34,6 +36,27 @@ export async function requirePerm(perm: Permission) {
   const perms = new Set(admin.adminRole?.permissions || []);
   const ok = perms.has("*") || perms.has(perm);
   return { admin, user: admin, ok } as const;
+}
+
+// ─── b13 敏感操作：权限校验 + 10 分钟内二次密码验证 ───
+// needReauth=true 时路由返回 reauthRequired()（403 + code=REAUTH_REQUIRED），前端弹窗重输密码后重试。
+export async function requireSensitivePerm(perm: Permission) {
+  const r = await requirePerm(perm);
+  if (!r.ok || !r.admin) return { ...r, needReauth: false } as const;
+  const reauthAdminId = await getReauthAdminId();
+  return { ...r, needReauth: reauthAdminId !== r.admin.id } as const;
+}
+
+// 已登录管理员的二次验证是否仍在有效期内（超管专用接口直接调用）
+export async function hasRecentReauth(adminId: number): Promise<boolean> {
+  return (await getReauthAdminId()) === adminId;
+}
+
+export function reauthRequired() {
+  return NextResponse.json(
+    { error: "敏感操作需二次验证，请输入当前管理员密码", code: REAUTH_REQUIRED_CODE },
+    { status: 403 },
+  );
 }
 
 // ─── 操作日志（只增不删，新日志一律挂 adminId） ───

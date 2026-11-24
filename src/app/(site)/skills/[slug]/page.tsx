@@ -10,6 +10,7 @@ import { getSettings } from "@/lib/settings";
 import { COMMENT } from "@/lib/comment-policy";
 import CommentSection, { type CommentData } from "@/components/CommentSection";
 import SkillActions from "@/components/SkillActions";
+import FavoriteButton from "@/components/FavoriteButton";
 import { skillHref } from "@/lib/skill-link";
 
 export const dynamic = "force-dynamic";
@@ -48,7 +49,10 @@ function serializeComment(c: any): CommentData {
     content: c.content, parentId: c.parentId, status: c.status, likeCount: c.likeCount,
     liked: Array.isArray(c.likes) ? c.likes.length > 0 : false,
     createdAt: c.createdAt.toISOString(), updatedAt: c.updatedAt.toISOString(),
-    user: { id: c.user.id, username: c.user.username, nickname: c.user.nickname, avatar: c.user.avatar },
+    // 会员被删除后评论保留，作者为 null（前端显示「该会员号已注销」）
+    user: c.user
+      ? { id: c.user.id, username: c.user.username, nickname: c.user.nickname, avatar: c.user.avatar }
+      : null,
     replies: ((c.replies ?? []) as any[]).map(serializeComment),
   };
 }
@@ -179,6 +183,8 @@ export default async function SkillDetail({ params }: { params: Promise<{ slug: 
             {skill.status === "pending" && (
               <span className="rounded bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300">{locale === "zh" ? "待审核" : "Pending"}</span>
             )}
+            {/* v0.117 会员收藏（星星胶囊款，第一排栏目行最右） */}
+            <FavoriteButton type="skill" targetId={skill.id} size="sm" className="ml-auto" />
           </div>
 
           <h1 className="mb-3 text-2xl font-bold leading-tight">{skill.name}</h1>
@@ -249,7 +255,7 @@ export default async function SkillDetail({ params }: { params: Promise<{ slug: 
                   ]
               ).map(([title, desc], i) => (
                 <li key={i} className="flex gap-2.5">
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500/30 to-violet-500/30 text-[10px] font-bold text-cyan-200">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500/30 to-violet-500/30 text-xs font-bold text-cyan-200">
                     {i + 1}
                   </span>
                   <div>
@@ -260,7 +266,7 @@ export default async function SkillDetail({ params }: { params: Promise<{ slug: 
                 </li>
               ))}
             </ol>
-            <p className="mt-3 border-t border-zinc-800/70 pt-2.5 text-[11px] text-zinc-500">
+            <p className="mt-3 border-t border-zinc-800/70 pt-2.5 text-xs text-zinc-500">
               {locale === "zh"
                 ? "💡 提示：技能生效后，每次对话只需一句需求，AI 会按 SKILL.md 的流程执行。"
                 : "💡 Tip: once loaded, a single instruction is enough — the AI follows SKILL.md's workflow."}
@@ -340,29 +346,29 @@ export default async function SkillDetail({ params }: { params: Promise<{ slug: 
             >
               <div className="mb-3">
                 <h4 className="skill-title line-clamp-2 font-semibold leading-snug text-zinc-50" title={r.name}>{r.name}</h4>
-                <div className="mt-1.5 flex items-center gap-1.5 text-[11px]">
+                <div className="mt-1.5 flex items-center gap-1.5 text-xs">
                   <span className="truncate text-zinc-500">{r.slug}</span>
-                  <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${th.badge}`}>
+                  <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-xs font-medium ${th.badge}`}>
                     {(skill.category as { icon?: string | null }).icon && <span className="mr-0.5">{(skill.category as { icon?: string | null }).icon}</span>}
                     {locale === "zh" ? skill.category.name : skill.category.nameEn}
                   </span>
                 </div>
               </div>
               <div className="mb-2.5 rounded-xl bg-zinc-800/40 p-2.5">
-                <p className="mb-1 text-[11px] font-medium text-zinc-400">📄 {locale === "zh" ? "说明" : "About"}</p>
+                <p className="mb-1 text-xs font-medium text-zinc-400">📄 {locale === "zh" ? "说明" : "About"}</p>
                 <p className="line-clamp-2 text-xs leading-relaxed text-zinc-300">{r.summary}</p>
               </div>
               {r.tags.length > 0 && (
                 <div className="mb-2.5">
-                  <p className="mb-1.5 text-[11px] font-medium text-zinc-400">🏷 {locale === "zh" ? "关联标签" : "Tags"}</p>
+                  <p className="mb-1.5 text-xs font-medium text-zinc-400">🏷 {locale === "zh" ? "关联标签" : "Tags"}</p>
                   <div className="flex flex-wrap gap-1.5">
                     {r.tags.map((tag) => (
-                      <span key={tag} className={`rounded-md px-2 py-0.5 text-[10px] ${th.badge}`}>{tag}</span>
+                      <span key={tag} className={`rounded-md px-2 py-0.5 text-xs ${th.badge}`}>{tag}</span>
                     ))}
                   </div>
                 </div>
               )}
-              <div className="mt-auto flex items-center justify-between pt-1 text-[11px] text-zinc-500">
+              <div className="mt-auto flex items-center justify-between pt-1 text-xs text-zinc-500">
                 <span>{locale === "zh" ? `复制使用 ≈ ${r.copyCount} 次` : `Used ≈ ${r.copyCount}x`}</span>
                 <span className="inline-flex items-center gap-1">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>

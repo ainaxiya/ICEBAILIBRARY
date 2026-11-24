@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useLocale, translate as t } from "@/lib/i18n-client";
+import { isNavActive } from "@/lib/nav-active";
 import {
   SEARCH_BAR_BUTTON_CLASS,
   SEARCH_BAR_BUTTON_ICON_CLASS,
@@ -63,6 +64,13 @@ function Icon({ name, className = "h-4 w-4" }: { name: string; className?: strin
           <circle cx="12" cy="15" r="2.5" />
         </svg>
       );
+    case "flask":
+      return (
+        <svg {...common}>
+          <path d="M10 3h4M10 3v6l-5.5 9.2A2 2 0 0 0 6.2 21h11.6a2 2 0 0 0 1.7-2.8L14 9V3" />
+          <path d="M7.5 15h9" />
+        </svg>
+      );
     case "plus":
       return (
         <svg {...common}>
@@ -92,11 +100,14 @@ export default function SiteHeader({
   siteName,
   logoIcon = "/logo/icon.png",
   messageUnread = null,
+  playgroundEnabled = true,
 }: {
   siteName: string;
   logoIcon?: string;
   // P4 消息入口：null = 未登录（不显示）；数字 = 未读消息数
   messageUnread?: number | null;
+  // pa1 实验场总开关：关闭时隐藏导航入口
+  playgroundEnabled?: boolean;
 }) {
   const locale = useLocale();
   const pathname = usePathname();
@@ -122,7 +133,7 @@ export default function SiteHeader({
   }, [locale]);
 
   const navItem = (href: string, icon: string, label: string, exact = false) => {
-    const active = exact ? pathname === href : pathname.startsWith(href);
+    const active = isNavActive(pathname, href, exact);
     return (
       <Link
         href={href}
@@ -178,12 +189,12 @@ export default function SiteHeader({
         </Link>
 
         {/* 手机端导航由底部 MobileTabBar 承接，<md 整块隐藏 */}
-        {/* v0.6 四大栏目：首页 / 提示词 / AI技能 / AI软件（发布入口已收回会员中心） */}
+        {/* v0.117 四大栏目：首页 / 提示词 / AI技能 / 实验场（AI软件已下线，发布入口已收回会员中心） */}
         <nav className="hidden items-center gap-1 md:flex">
           {navItem("/", "home", t(locale, "nav.home"), true)}
           {navItem("/categories", "grid", t(locale, "nav.categories"))}
           {navItem("/skills", "puzzle", t(locale, "nav.skills"))}
-          {navItem("/software", "disk", t(locale, "nav.software"))}
+          {playgroundEnabled && navItem("/playground", "flask", t(locale, "nav.software"))}
         </nav>
 
         <div className="ml-auto flex items-center gap-1">
@@ -197,7 +208,7 @@ export default function SiteHeader({
             >
               <Icon name="bell" className="h-5 w-5" />
               {messageUnread > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold leading-none text-white">
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-xs font-semibold leading-none text-white">
                   {messageUnread > 99 ? "99+" : messageUnread}
                 </span>
               )}

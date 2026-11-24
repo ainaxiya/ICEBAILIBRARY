@@ -1,74 +1,33 @@
 import { redirect } from "next/navigation";
-import { db } from "@/lib/db";
+import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
-import UserAvatar from "@/components/UserAvatar";
-import ProfileForm, { type ProfileUser } from "./ProfileForm";
+import ProfileSettings from "@/components/member/ProfileSettings";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "个人中心", robots: { index: false, follow: true } };
+export const metadata = { title: "我的资料", robots: { index: false, follow: true } };
 
+// 会员资料独立页：完整资料 + 头像真实上传（不走弹层，避免装不下）
 export default async function ProfilePage() {
   const me = await getCurrentUser();
   if (!me) redirect("/login?next=/user/profile");
 
-  // getCurrentUser 未返回 nickname/avatar/email/bio，重新查询完整资料
-  const u = await db.user.findUnique({
-    where: { id: me.id },
-    select: {
-      id: true,
-      username: true,
-      email: true,
-      nickname: true,
-      avatar: true,
-      bio: true,
-      role: true,
-      createdAt: true,
-    },
-  });
-  if (!u) redirect("/login?next=/user/profile");
-
-  // 序列化为 plain object（Date → ISO 字符串）传给 client 组件
-  const profile: ProfileUser = {
-    id: u.id,
-    username: u.username,
-    email: u.email,
-    nickname: u.nickname,
-    avatar: u.avatar,
-    bio: u.bio,
-    createdAt: u.createdAt.toISOString(),
-  };
-
   return (
     <div className="mx-auto max-w-2xl">
-      <h1 className="mb-6 text-2xl font-bold text-zinc-100">个人中心</h1>
-
-      {/* 基本信息卡片 */}
-      <div className="mb-6 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
-        <div className="flex items-center gap-4">
-          <UserAvatar src={u.avatar} name={u.nickname || u.username} size={64} />
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="truncate text-lg font-semibold text-zinc-100">
-                {u.nickname || u.username}
-              </h2>
-            </div>
-            <p className="text-sm text-zinc-500">@{u.username}</p>
-          </div>
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-zinc-100">我的资料</h1>
+          <p className="mt-1 text-sm text-zinc-500">头像、联系方式和个人档案都在这里维护</p>
         </div>
-        <dl className="mt-4 space-y-1.5 text-sm">
-          <div className="flex gap-2">
-            <dt className="w-20 shrink-0 text-zinc-500">邮箱</dt>
-            <dd className="text-zinc-300">{u.email || "—"}</dd>
-          </div>
-          <div className="flex gap-2">
-            <dt className="w-20 shrink-0 text-zinc-500">注册时间</dt>
-            <dd className="text-zinc-300">{u.createdAt.toISOString().slice(0, 10)}</dd>
-          </div>
-        </dl>
+        <Link
+          href="/member"
+          className="shrink-0 rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 transition hover:border-zinc-500"
+        >
+          返回会员中心
+        </Link>
       </div>
 
-      <ProfileForm initial={profile} />
+      <ProfileSettings />
     </div>
   );
 }

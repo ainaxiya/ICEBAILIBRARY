@@ -17,6 +17,8 @@ model User {
   nickname        String?
   avatar          String?
   bio             String?
+  // 注册邮箱验证码通过后置 true（邮箱注册后锁定不可修改）
+  emailVerified   Boolean  @default(false)
   // v0.92 #9 会员资料扩展：联系方式与个人档案（前台会员中心可改）
   wechat          String?
   qq              String?
@@ -25,14 +27,22 @@ model User {
   // male | female | other | secret
   gender          String?
   nationality     String?
-  // user = 前台会员；importer = 采集系统账号；admin_legacy = 已迁移到 AdminAccount 的历史管理员
-  role            String     @default("user")
-  // 历史遗留：旧版管理员角色外键（新管理员体系见 AdminAccount），保留不用于鉴权
-  adminRoleId     Int?
-  adminRole       AdminRole? @relation("AdminRoleUsers", fields: [adminRoleId], references: [id])
-  // 会员级别列保留（当前只有普通会员，界面不再展示）
-  membershipLevel String     @default("free")
+  // 地区分列存储（前台/后台同源）：countryCode 为 ISO2，province/city/district 为行政区名
+  countryCode     String?
+  province        String?
+  city            String?
+  district        String?
+  // 详细地址 / 邮编 / 个人网站 / 语言偏好 / 时区（IANA）
+  address         String?
+  postalCode      String?
+  website         String?
+  locale          String?
+  timezone        String?
+  // 会员等级（账号类别统一由等级表表达：普通等级 / 系统等级 importer）
+  membershipLevel String          @default("free")
   membershipUntil DateTime?
+  // 等级表关联：membershipLevel → MembershipLevel.code（非空外键，指向不存在的等级会被数据库拒绝）
+  membership      MembershipLevel @relation("UserMembershipLevel", fields: [membershipLevel], references: [code])
   // active | banned
   status          String     @default("active")
   // 是否允许发布提示词（注册默认允许，后台可单独封禁发布权限）
@@ -52,6 +62,7 @@ model User {
   adminLogs       AdminLog[]
   skills          Skill[]
   usageRecords    UsageRecord[]
+  videoTasks      VideoTask[]
   creditGrants    CreditGrant[]
   ledger          CreditLedger[]
   billingReconciles BillingReconcile[]
@@ -67,6 +78,10 @@ model AdminAccount {
   id           Int        @id @default(autoincrement())
   username     String     @unique
   nickname     String?
+  // 告警通知邮箱（为空 = 不接收邮件告警）
+  email        String?
+  // 告警订阅：JSON 数组，如 ["credit_pool","pay_fail"]；NULL / 空数组 = 订阅全部
+  alertSubscriptions String? @db.Text
   passwordHash String
   // active | disabled
   status       String     @default("active")
@@ -92,13 +107,17 @@ model Category {
   slug      String   @unique
   sort      Int      @default(0)
   createdAt DateTime @default(now())
+  // 自定义栏目 SEO（后台可编辑；空则前台用默认文案）
+  metaDescription String? @db.Text
+  metaKeywords    String?
 
   @@index([sort])
 }
 
 model Prompt {
   id            Int      @id @default(autoincrement())
-  userId        Int
+  // 作者可空：会员被删除后内容保留，作者置空（前台显示「该会员号已注销」）
+  userId        Int?
   title         String
   content       String   @db.Text
   description   String?  @db.Text
@@ -133,7 +152,7 @@ model Prompt {
   adminAuthorId Int?
   adminAuthor   AdminAccount? @relation(fields: [adminAuthorId], references: [id])
 
-  user      User       @relation(fields: [userId], references: [id])
+  user      User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
   likes     Like[]
   favorites Favorite[]
   crawlItem CrawlItem?
@@ -214,7 +233,6 @@ model AdminRole {
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  users       User[]   @relation("AdminRoleUsers")
   admins      AdminAccount[] @relation("AdminRoleAdmins")
 }
 
@@ -246,7 +264,8 @@ model AdminLog {
 // 通用评论（targetType: prompt | skill | software，未来新栏目直接加值）
 model Comment {
   id        Int      @id @default(autoincrement())
-  userId    Int
+  // 作者可空：会员被删除后评论保留，作者置空（前台显示「该会员号已注销」）
+  userId    Int?
   // 通用挂载点：目标类型 + 目标 ID（v0.6 起替代原 promptId 硬外键；孤儿评论永不自动清理）
   targetType String  @default("prompt")
   targetId  Int
@@ -264,7 +283,7 @@ model Comment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user   User   @relation(fields: [userId], references: [id])
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
   likes  CommentLike[]
 
   @@index([targetType, targetId, createdAt(sort: Desc)])
@@ -350,6 +369,9 @@ model SkillCategory {
   icon      String   @default("")
   sort      Int      @default(0)
   createdAt DateTime @default(now())
+  // 自定义栏目 SEO（后台可编辑；空则前台用默认文案）
+  metaDescription String? @db.Text
+  metaKeywords    String?
 
   skills Skill[]
 
@@ -385,9 +407,9 @@ model Skill {
   commentCount  Int      @default(0)
   copyCount     Int      @default(0)
   downloadCount Int      @default(0)
-  // 发布者（系统账号 system）
-  userId        Int
-  user          User     @relation(fields: [userId], references: [id])
+  // 发布者（系统账号 system）；会员被删除后置空，技能保留
+  userId        Int?
+  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   publishedAt   DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -412,6 +434,9 @@ model SoftwareCategory {
   icon      String   @default("")
   sort      Int      @default(0)
   createdAt DateTime @default(now())
+  // 自定义栏目 SEO（后台可编辑；空则前台用默认文案）
+  metaDescription String? @db.Text
+  metaKeywords    String?
 
   software Software[]
 
@@ -559,7 +584,13 @@ model VendorApiKey {
   keyCipher  String                    // 密文 enc:v1:iv:tag:cipher
   // active | disabled
   status     String   @default("active")
+  // P2 路由权重（≥1；加权随机选路，越大流量越多）
+  weight     Int      @default(1)
+  // P5 维护窗口：到该时间点前不参与选路（null=不在维护中）
+  maintainUntil DateTime?
   remark     String?
+  // 运营标签（批量打标：如 生产 / 测试 / 高并发）
+  tags       String[] @default([])
   lastUsedAt DateTime?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -574,13 +605,16 @@ model AiModel {
   vendor       AiVendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   name         String                    // 上游模型名（调用透传）
   displayName  String                    // 展示名
-  // chat | image | video | audio
+  // chat | embedding | image | video | audio
   endpointType String   @default("chat")
   // online | deprecated | offline
   status       String   @default("online")
   remark       String?
   // 高级配置（JSON 文本）：该模型的高级参数与细节调整
   advancedConfig String? @db.Text
+  // P4 能力矩阵（JSON 文本）：{"params":["temperature","max_tokens",...],"modalities":["text","image"]}
+  // null = 全透传（向后兼容）；配置后 chat 请求参数超出白名单 → 400 指名不支持
+  capabilities Json?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   endpoints    ModelEndpoint[]
@@ -628,8 +662,12 @@ model ModelPricing {
   // v0.96 直观定价：会员价按输入/输出直接填（积分/计量基数；token 模型即积分/1M tokens）
   memberInputPrice  Decimal? @db.Decimal(18, 8)
   memberOutputPrice Decimal? @db.Decimal(18, 8)
+  // 计费档位键（空字符串 = 通用/兜底）。视频按分辨率×是否含视频输入分档：
+  //   480p:n / 720p:n / 1080p:n / 4K:n / 720p:v（n=输入不含视频，v=输入含视频）
+  variant       String   @default("")
   effectiveAt   DateTime @default(now())                 // 调价生效时间
   createdAt     DateTime @default(now())
+  @@unique([modelId, variant, effectiveAt])
   @@index([modelId, effectiveAt(sort: Desc)])
   @@map("model_pricing")
 }
@@ -639,8 +677,9 @@ model ModelPricing {
 // api_key_id/model_id 按方案为 bigint 无外键（站外 Key 表 user_api_key 随 P5 落库）
 model UsageRecord {
   id            Int      @id @default(autoincrement())
-  userId        Int
-  user          User     @relation(fields: [userId], references: [id])
+  // 会员被删除后流水保留，作者置空
+  userId        Int?
+  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   apiKeyId      BigInt?
   // onsite | apikey
   channel       String
@@ -658,8 +697,11 @@ model UsageRecord {
   // 用户实扣整数积分（ceil，最低 1 分）
   paidCredits   BigInt   @default(0)
   latencyMs     Int?
-  // success | failed | blocked
+  // success | failed | blocked | cancelled（P2：客户端断连按已发生用量结算）
   status        String
+  // P3 价格版本：结算时点的定价行 ID + 单价快照 JSON（调价不回写历史账单，可按快照重算）
+  priceVersionId BigInt?
+  priceSnapshot  String? @db.Text
   requestId     String
   createdAt     DateTime @default(now())
 
@@ -667,6 +709,49 @@ model UsageRecord {
   @@index([userId, createdAt(sort: Desc)], map: "idx_usage_user_daily")
   @@index([modelId, createdAt(sort: Desc)], map: "idx_usage_model_daily")
   @@map("usage_record")
+}
+
+// ─── P6 #19 异步视频生成任务（/v1/videos task_id 状态机） ───
+// 创建即返 task_id，进程内后台执行（P6 #20 迁 BullMQ 多实例）；
+// requestId 幂等：客户端 Idempotency-Key 重试返回同一任务，不重复扣费。
+// 卡死兜底：进程重启卡 processing 的任务由 GET 惰性超时标 failed，退款走 P3 对账扫描。
+model VideoTask {
+  id            Int      @id @default(autoincrement())
+  // 对外任务 ID（vt- 前缀随机串，不暴露自增主键）
+  taskId        String   @unique
+  // 计费幂等键（= usage_record.requestId，Idempotency-Key 派生）
+  requestId     String   @unique
+  userId        Int
+  user          User     @relation(fields: [userId], references: [id])
+  apiKeyId      BigInt?
+  channel       String   // onsite | apikey
+  modelId       Int
+  modelSnapshot String
+  vendorKeyId   Int?
+  // queued | processing | succeeded | failed
+  status        String   @default("queued")
+  progress      Int      @default(0) // 0-100（上游无进度按阶段估）
+  // ── 队列租约（P6 #21 常驻 Worker）──
+  // 已执行次数（含重启接管）；达到上限仍未完成则由 reconciler 失败退款
+  attempts      Int      @default(0)
+  // 租约到期时间：执行中每 60s 续租；过期后允许其它 Worker 接管
+  lockedUntil   DateTime?
+  // 当前持有租约的 Worker 标识（host:pid:rand），用于条件更新防交叉写
+  workerId      String?
+  // 生成参数 JSON（审计/重试）
+  payload       String   @db.Text
+  // 成功产物：转存资产 ID（下载走签名 URL）；转存失败兜底存原始 URL JSON
+  assetId       Int?
+  resultUrls    String?  @db.Text
+  errorMessage  String?  @db.Text
+  costMilli     BigInt   @default(0)
+  paidCredits   BigInt   @default(0)
+  latencyMs     Int?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  finishedAt    DateTime?
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("video_task")
 }
 
 // ─── P2 会员积分闭环（方案第 4 章） ───
@@ -695,8 +780,8 @@ model CreditPack {
 // 积分授予（余额真源：有效 grant 的 remainingCredits 求和）
 model CreditGrant {
   id               Int       @id @default(autoincrement())
-  userId           Int
-  user             User      @relation(fields: [userId], references: [id])
+  userId           Int?
+  user             User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
   // subscription | topup | gift | trial
   grantType        String
   totalCredits     BigInt
@@ -717,8 +802,8 @@ model CreditGrant {
 // 积分流水（只增不改；requestId 幂等）
 model CreditLedger {
   id           Int      @id @default(autoincrement())
-  userId       Int
-  user         User     @relation(fields: [userId], references: [id])
+  userId       Int?
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   // 变动量（正=入账，负=扣减）
   changeAmount BigInt
   balanceAfter BigInt
@@ -739,8 +824,8 @@ model CreditLedger {
 // 重试安全依据：CreditLedger.requestId 唯一约束保证同键不重复入账/扣款。
 model BillingReconcile {
   id        Int      @id @default(autoincrement())
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id])
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   // 关联网关请求（与 CreditLedger.requestId 同源）
   requestId String
   // settle | refund
@@ -759,13 +844,66 @@ model BillingReconcile {
   @@map("billing_reconcile")
 }
 
+// ─── 响应级幂等：同一 Idempotency-Key 的成功响应回放（v0.94） ───
+// requestId 与计费幂等键同源（user + Key + 端点 + 模型 + body 指纹）。
+// 只缓存成功响应：失败不写，否则一次失败会把后续重试全部堵死。
+// 不存二进制：媒体产物在响应体里是我们自己的资产 URL，二进制在对象存储。
+// pending = 首个请求执行中（并发重复请求据此返回 409，避免重复调用上游）。
+model IdempotencyRecord {
+  id             Int      @id @default(autoincrement())
+  requestId      String   @unique
+  userId         Int
+  endpoint       String
+  // pending | completed
+  status         String   @default("pending")
+  responseStatus Int?
+  responseBody   Json?
+  // pending 期：接管阈值（进程崩溃后可被新请求接管）；completed 后：回放有效期
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([expiresAt])
+  @@map("idempotency_record")
+}
+
+// ─── P7 邮件体系：验证码（注册/找回密码） ───
+// 只存 sha256(code) 哈希，不存明文；验证失败计 attempts，≥5 次作废
+model EmailCode {
+  id         Int       @id @default(autoincrement())
+  email      String
+  // register | reset
+  purpose    String
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([email, purpose, createdAt(sort: Desc)])
+  @@map("email_code")
+}
+
+// ─── P7 邮件体系：可编辑邮件模板（后台维护，{{var}} 插值） ───
+model EmailTemplate {
+  id        Int      @id @default(autoincrement())
+  // register_code | reset_code | test_mail
+  key       String   @unique
+  subject   String
+  bodyHtml  String   @db.Text
+  enabled   Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+
+  @@map("email_template")
+}
+
 // 充值订单（充值记录订单号语义必需）
 model PayOrder {
   id              Int        @id @default(autoincrement())
   // 订单号（对外幂等键）
   orderNo         String     @unique
-  userId          Int
-  user            User       @relation(fields: [userId], references: [id])
+  userId          Int?
+  user            User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
   packId          Int
   pack            CreditPack @relation(fields: [packId], references: [id])
   // 应付金额（人民币分）
@@ -807,8 +945,8 @@ model MemberPlan {
 // 用户订阅（表结构就绪，暂不启用）
 model UserSubscription {
   id        Int        @id @default(autoincrement())
-  userId    Int
-  user      User       @relation(fields: [userId], references: [id])
+  userId    Int?
+  user      User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
   planId    Int
   plan      MemberPlan @relation(fields: [planId], references: [id])
   // active | expired | canceled
@@ -822,13 +960,40 @@ model UserSubscription {
   @@map("user_subscription")
 }
 
+// 账号等级（替代 User.role 区分账号类别）：
+//   regular 普通等级（会员可登录、可后台授予）
+//   system  系统等级（采集号/历史管理员，不可前台登录、不给调网关 API Key）
+// 物理列 User.membershipLevel 直接作为外键指向本表 code。
+model MembershipLevel {
+  code           String   @id
+  // 显示名（后台可改）
+  name           String
+  // true = 系统等级（不可前台登录）
+  isSystem       Boolean  @default(false)
+  // 是否允许前台登录（登录闸门只看这个字段）
+  canLogin       Boolean  @default(true)
+  // 默认等级：禁止删除、可改名；全表唯一（数据库层部分唯一索引兜底）
+  isDefault      Boolean  @default(false)
+  // 获得条件文案，例如「注册自动获得」「后台授予」「系统创建」
+  grantCondition String   @default("")
+  sortOrder      Int      @default(0)
+  // 仅控制后台可选性，不影响登录
+  isActive       Boolean  @default(true)
+  remark         String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  users          User[]   @relation("UserMembershipLevel")
+
+  @@map("membership_level")
+}
+
 // ─── P4 用户中心：消息·工单（双向合一） ───
 // 会话 = 根消息（replyToId NULL）+ 回复（replyToId 指向会话根消息，串成对话）
 // 工单状态 ticketStatus 维护在会话根消息上：open=待管理员处理 / replied=管理员已回 / closed=已关闭
 model UserMessage {
   id           BigInt       @id @default(autoincrement())
-  userId       Int
-  user         User         @relation(fields: [userId], references: [id])
+  userId       Int?
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
   // user_to_admin | admin_to_user
   direction    String
   // ticket | notice
@@ -861,12 +1026,15 @@ model UserMessage {
 // 生成物默认 30 天过期（expireAt），软删（status=deleted）不物理删除
 model GeneratedAsset {
   id            BigInt         @id @default(autoincrement())
-  userId        Int
-  user          User           @relation(fields: [userId], references: [id])
+  // 会员被删除后产物保留，作者置空
+  userId        Int?
+  user          User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
   // 关联调用日志（P5 写入，无外键对齐 usage_record.id 语义）
   usageRecordId BigInt?
-  // image | video | audio | file
+  // image | video | audio | speech | music | sfx | model3d | text | document | archive | other | file（历史值）
   assetType     String
+  // 产物真实 MIME（落桶时按文件头嗅探写入；嗅探不出保持 NULL，不用上游 octet-stream 乱填）
+  mimeType      String?
   bucketId      Int?
   bucket        StorageBucket? @relation(fields: [bucketId], references: [id])
   storageKey    String
@@ -900,6 +1068,12 @@ model UserApiKey {
   status     String    @default("active")
   // 过期时间（NULL = 永不过期）
   expiresAt  DateTime?
+  // 额度上限（积分；NULL = 不限额）
+  quotaCredits Int?
+  // 额度已用（原子消耗计数：预占 + 结算口径，防并发超卖）
+  usedCredits  BigInt   @default(0)
+  // b1 模型白名单（空数组 = 不限制；元素为调用时 model 参数值）
+  allowedModels String[] @default([])
   lastUsedAt DateTime?
   createdAt  DateTime  @default(now())
 
@@ -907,16 +1081,31 @@ model UserApiKey {
   @@map("user_api_key")
 }
 
-// ─── P6 运营告警（余额/毛利/单用户异常消耗巡检记录） ───
+// ─── API Key 额度预占（b2 硬额度） ───
+// preDeduct 时按预估积分预占 Key 额度；settle / refund 按 requestId 收口，防并发超卖。
+model ApiKeyQuotaHold {
+  id        Int      @id @default(autoincrement())
+  requestId String   @unique
+  apiKeyId  Int
+  // 预占积分
+  amount    Int
+  createdAt DateTime @default(now())
+
+  @@index([apiKeyId])
+  @@map("api_key_quota_hold")
+}
+
+// ─── P6 运营告警（积分池/毛利/支付异常/注册异常巡检记录） ───
 // checkOperationalAlerts（src/lib/alerts.ts）巡检命中后写入；ackAt 非空 = 已确认
 model OperationalAlert {
   id        Int       @id @default(autoincrement())
-  // credit_pool=积分池余额告警 | gross_margin=毛利告警 | user_burst=单用户异常消耗
+  // credit_pool=积分池 | gross_margin=毛利 | pay_fail=支付异常 | register_burst=注册异常
+  // usage_invalid=用量记录异常 | reconcile_failed=对账重试耗尽（scanReconcile 写入）
   alertType String
   // warn | critical
   level     String
   message   String
-  // 巡检快照 JSON（阈值/实测值，user_burst 含 userId 供去重）
+  // 巡检快照 JSON（阈值/实测值/会员与请求信息）
   payload   String    @default("{}")
   // 确认时间（NULL = 未确认）
   ackAt     DateTime?
@@ -925,4 +1114,87 @@ model OperationalAlert {
   @@index([alertType, createdAt(sort: Desc)])
   @@index([ackAt, createdAt(sort: Desc)])
   @@map("operational_alert")
+}
+
+// ─── 冰山实验场 M2：会话与消息（仅新增，不改动既有 model） ───
+// userId 不建外键关系，避免改动 User model；按用户查询走 [userId, updatedAt] 索引。
+model PlaygroundSession {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  title     String   @default("新对话")
+  modelName String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages PlaygroundMessage[]
+
+  @@index([userId, updatedAt(sort: Desc)])
+  @@map("playground_session")
+}
+
+model PlaygroundMessage {
+  id           Int      @id @default(autoincrement())
+  sessionId    Int
+  // user | assistant
+  role         String
+  content      String   @db.Text
+  promptTokens Int      @default(0)
+  outputTokens Int      @default(0)
+  // 媒体任务关联（图片 / 视频）：刷新或重新登录后据此恢复产物与任务状态
+  taskId       String?
+  createdAt    DateTime @default(now())
+
+  session PlaygroundSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("playground_message")
+}
+
+// ─── 冰山实验场 M4：统一媒体任务（图片 / 视频共用一套状态机） ───
+// 提交即返回 taskId，后台 worker 执行：图片=同步上游放后台跑，视频=上游三段式任务轮询。
+// 前端轮询任务状态；状态在库，用户关页面/刷新不丢任务。
+// userId 不建外键关系（同 PlaygroundSession，避免改动既有 User model）。
+model PlaygroundMediaTask {
+  id            Int      @id @default(autoincrement())
+  // 对外任务 ID（mt- 前缀随机串，不暴露自增主键）
+  taskId        String   @unique
+  // 计费幂等键（= usage_record.requestId）
+  requestId     String   @unique
+  userId        Int
+  // image | video
+  kind          String
+  modelId       Int
+  modelSnapshot String
+  // 实际命中的上游 Key（重试换 Key 后记录成功的那个）
+  vendorKeyId   Int?
+  // queued | running | succeeded | failed
+  status        String   @default("queued")
+  progress      Int      @default(0)
+  // ── 队列租约（P6 #21 常驻 Worker）──
+  attempts      Int      @default(0)
+  lockedUntil   DateTime?
+  workerId      String?
+  // 阶段文案：排队中 / 提交上游 / 生成中 / 下载产物 / 结算中
+  stage         String?
+  // 生成参数与上游请求快照 JSON
+  params        String   @db.Text
+  requestSize   String?
+  // 视频结算依据：上游报价（USD）+ 报价单号（10 分钟有效），图片为空走 model_pricing
+  quoteUsd      Decimal? @db.Decimal(18, 8)
+  quoteId       String?
+  // 预估预扣积分 / 实扣积分 / 内部成本（毫积分）
+  estCredits    Int      @default(0)
+  paidCredits   BigInt   @default(0)
+  costMilli     BigInt   @default(0)
+  // 产物 URL JSON（本地落盘地址或上游兜底临时地址）
+  resultUrls    String?  @db.Text
+  errorMessage  String?  @db.Text
+  latencyMs     Int?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status, createdAt])
+  @@map("playground_media_task")
 }

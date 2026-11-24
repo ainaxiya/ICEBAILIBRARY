@@ -1,4 +1,5 @@
 import type { MediaItem } from "@/lib/media";
+import SiteVideoPlayer from "@/components/media/SiteVideoPlayer";
 
 // 顶部画廊：只展示不属于任何分段的媒体（封面、未绑定节点）
 export default function MediaGallery({ media }: { media: MediaItem[] }) {
@@ -24,13 +25,11 @@ export default function MediaGallery({ media }: { media: MediaItem[] }) {
         }
         if (m.type === "video") {
           return (
-            <video
+            <SiteVideoPlayer
               key={i}
               src={m.url}
               poster={m.poster}
-              controls
-              preload="metadata"
-              className="aspect-video w-full rounded-xl border border-zinc-800 bg-black object-contain"
+              className="overflow-hidden rounded-xl border border-zinc-800 bg-black"
             />
           );
         }
@@ -50,7 +49,7 @@ export default function MediaGallery({ media }: { media: MediaItem[] }) {
   );
 }
 
-// 分段内的节点图片（视频节点展示截帧并打上 VIDEO 角标）
+// 分段内的节点媒体：视频直接播放（封面用截帧），截帧降级时展示原因
 export function SectionMedia({ items, altBase }: { items: MediaItem[]; altBase?: string }) {
   if (!items || items.length === 0) return null;
   const cols =
@@ -61,32 +60,50 @@ export function SectionMedia({ items, altBase }: { items: MediaItem[]; altBase?:
         : "grid-cols-2 sm:grid-cols-3";
   return (
     <div className={`media-lightbox-src mt-3 grid gap-2 ${cols}`}>
-      {items.map((m, i) => (
-        <div
-          key={i}
-          className={`group/media relative block cursor-zoom-in overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/70 transition hover:border-emerald-500/50 ${
-            items.length === 1 ? "" : "aspect-square"
-          }`}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={m.url}
-            alt={m.alt || `${altBase || ""} ${m.nodeKind === "video" ? "视频截图" : "配图"} ${m.nodeNo ?? ""}`.trim()}
-            loading="lazy"
-            className={`w-full object-contain ${items.length === 1 ? "max-h-[520px]" : "h-full"}`}
-          />
-          {m.nodeKind === "video" && (
-            <span className="absolute left-1.5 top-1.5 rounded bg-sky-500/90 px-1.5 py-0.5 text-[10px] font-bold text-zinc-950">
-              视频截图
-            </span>
-          )}
-          {m.nodeNo != null && (
-            <span className="absolute bottom-1.5 right-1.5 rounded bg-zinc-950/80 px-1.5 py-0.5 text-[10px] text-zinc-300">
-              {m.nodeKind === "video" ? "视频" : "图片"}节点 {m.nodeNo}
-            </span>
-          )}
-        </div>
-      ))}
+      {items.map((m, i) => {
+        const isVideo = m.type === "video";
+        return (
+          <div
+            key={i}
+            className={`group/media relative overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/70 transition hover:border-emerald-500/50 ${
+              isVideo ? "" : "block cursor-zoom-in"
+            } ${items.length === 1 || isVideo ? "" : "aspect-square"}`}
+          >
+            {isVideo ? (
+              <SiteVideoPlayer key={i} src={m.url} poster={m.poster} />
+            ) : (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={m.url}
+                alt={m.alt || `${altBase || ""} ${m.nodeKind === "video" ? "视频截图" : "配图"} ${m.nodeNo ?? ""}`.trim()}
+                loading="lazy"
+                className={`w-full object-contain ${items.length === 1 ? "max-h-[520px]" : "h-full"}`}
+              />
+            )}
+            {isVideo ? (
+              <span className="pointer-events-none absolute left-1.5 top-1.5 rounded bg-emerald-500/90 px-1.5 py-0.5 text-xs font-bold text-zinc-950">
+                视频
+              </span>
+            ) : (
+              m.nodeKind === "video" && (
+                <span className="absolute left-1.5 top-1.5 rounded bg-sky-500/90 px-1.5 py-0.5 text-xs font-bold text-zinc-950">
+                  视频截图
+                </span>
+              )
+            )}
+            {m.nodeNo != null && (
+              <span className="pointer-events-none absolute bottom-1.5 right-1.5 rounded bg-zinc-950/80 px-1.5 py-0.5 text-xs text-zinc-300">
+                {m.nodeKind === "video" ? "视频" : "图片"}节点 {m.nodeNo}
+              </span>
+            )}
+            {m.note && (
+              <div className="border-t border-amber-700/40 bg-amber-500/10 px-2 py-1 text-xs leading-snug text-amber-300">
+                {m.note}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

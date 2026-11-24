@@ -9,8 +9,8 @@
 ## 鉴权机制（与每个接口相关）
 
 - 登录成功写 httpOnly cookie，名 `token`，JWT(HS256) payload 仅 `{ uid }`，30 天有效
-- `getCurrentUser()` 返回的用户字段是**白名单 select**（id/username/role/bio/membershipLevel/membershipUntil/status/createdAt）——要新字段必须改 auth.ts
-- `requireAdmin()`：role==="admin" 且 status==="active"，否则 null
+- `getCurrentUser()` 返回的用户字段是**白名单 select**（id/username/bio/nickname/membershipLevel/membershipUntil/status/createdAt）——要新字段必须改 auth.ts
+- `requireAdmin()`：从 `admin_token` 解析 `AdminAccount` 且 status==="active"，否则 null（与会员 User 无关）
 - `requirePerm(点)` 返回 `{ user, ok }`；adminRoleId 为空 = 超管全通过
 - 限流：`rateLimit(key, hit, windowMs)`，内存滑窗，key 习惯 `"业务:IP"`
 
@@ -35,7 +35,7 @@
 - `{ user }`，未登录 user=null（不返 401）；字段=getCurrentUser 白名单
 
 ### GET /api/user/profile
-- 需登录；返回完整资料（id/username/email/nickname/avatar/bio/role/membershipLevel/membershipUntil/status/createdAt）
+- 需登录；返回完整资料（id/username/email/nickname/avatar/bio/membershipLevel/membershipUntil/status/createdAt）
 
 ### PUT /api/user/profile
 - 需登录；**白名单字段更新**：仅处理 nickname(≤30)、avatar(≤500 路径串)、bio(≤500)，空串落 null；无有效字段 → 400
@@ -141,13 +141,19 @@
 
 ### 用户
 - `GET /api/admin/users?page=&q=`：30/页；q 模糊匹配 username/email；include 发布数 `_count.prompts`；**剔除 passwordHash**
-- `PATCH /api/admin/users/[id]`：body 仅接受 `{ role?: user|admin, status?: active|banned, membershipLevel?≤20, membershipDays?: 0-3650|null }`
+- `PATCH /api/admin/users/[id]`：body 接受会员资料字段（昵称/头像/bio/邮箱/手机/状态/发布权限/评论禁言/会员等级 `membershipLevel`/新密码）；`membershipLevel` 只能设为普通等级（`isSystem=false` 且 `isActive=true`）
   - 不能改自己（400）；membershipDays 给数字 = 今天起 N 天；null/0 = 取消会员并回落 free
 
-### 角色
-- `GET /api/admin/roles`：角色 + permissions + userCount
+### 角色（后台管理员 RBAC，与会员等级无关）
+- `GET /api/admin/roles`：角色 + permissions + adminCount（引用该角色的 AdminAccount 数）
 - `POST`：`{ name≤50, description?≤200, permissions: string[] }`；权限值白名单（`*` 或 ALL_PERMISSIONS）过滤去重；重名 400；记日志
-- `PUT /api/admin/roles/[id]`：更新；`DELETE /api/admin/roles/[id]`：删除（注意外键：被用户引用的角色删除会被 PG 拒绝，需先解绑用户）
+- `PUT /api/admin/roles/[id]`：更新；`DELETE /api/admin/roles/[id]`：删除（注意外键：被 AdminAccount 引用的角色删除会被 PG 拒绝，需先把管理员改为其他角色）
+
+### 会员等级
+- `GET /api/admin/membership-levels?regular=1`：需 USER_READ；`regular=1` 只返普通等级；按 sortOrder、code 排序
+- `POST`：需 USER_WRITE；`{ code, name, isSystem?, canLogin?, isDefault?, grantCondition?, sortOrder?, isActive? }`；code 唯一、`isSystem` 不可登录；`isDefault=true` 事务内切换唯一默认
+- `PATCH /api/admin/membership-levels/[code]`：改名/获得条件/排序/启停/设为默认；默认等级可改名不可取消默认；系统等级不可改为可登录
+- `DELETE /api/admin/membership-levels/[code]`：默认等级禁删；被 User 引用时返回「还有 N 个账号」拦截
 
 ### 日志
 - `GET /api/admin/logs?page=&pageSize=≤100&userId=&action=&targetType=`：需 LOG_READ；include user

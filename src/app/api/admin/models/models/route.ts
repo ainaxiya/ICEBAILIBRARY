@@ -3,7 +3,16 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { PERMISSIONS, requirePerm, logAdminAction, getClientIp } from "@/lib/rbac";
-import { latestPricing, perMillionCostCredits, perMillionMemberCredits } from "@/lib/gateway/pricing";
+import {
+  latestPricing,
+  perMillionCostCredits,
+  perMillionMemberCredits,
+  perUnitCostCredits,
+  perUnitMemberCredits,
+  videoDisplayPricing,
+  videoPerSecondCostCredits,
+  videoPerSecondMemberCredits,
+} from "@/lib/gateway/pricing";
 import { pricingJson } from "@/lib/model-json";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +46,9 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     models: models.map((m) => {
-      const cur = latestPricing(m);
+      // 视频：档位价优先、档位留空回退统一秒价；列表展示 720p 档位或最低档位价
+      const cur = m.endpointType === "video" ? videoDisplayPricing(m) : latestPricing(m);
+      const videoMember = m.endpointType === "video" && cur ? videoPerSecondMemberCredits(cur) : null;
       return {
         id: m.id,
         vendorId: m.vendorId,
@@ -50,15 +61,39 @@ export async function GET(req: NextRequest) {
         advancedConfig: m.advancedConfig,
         endpoints: m.endpoints.map((e) => ({ id: e.id, path: e.path, enabled: e.enabled })),
         currentPricing: cur ? pricingJson(cur) : null,
-        // v0.92 #5 计费透明化：百万 tokens 成本价/会员价（积分，1 元 = 100 积分）
-        pricePreview: cur
-          ? {
-              costInput: perMillionCostCredits(cur, "input"),
-              costOutput: perMillionCostCredits(cur, "output"),
-              memberInput: perMillionMemberCredits(cur, "input"),
-              memberOutput: perMillionMemberCredits(cur, "output"),
-            }
-          : null,
+        // v0.92 #5 计费透明化：成本价/会员价预览（积分，1 元 = 100 积分）
+        // v0.113 按计价单位区分：token → 积分/百万 tokens；媒体（按张/按秒/按次）→ 积分/单位（不再误乘 1e6）
+        // v1.0.94 视频统一秒价：展示通用行的每秒成本/会员价
+        // v1.0.98 恢复档位价：优先展示 720p 档位，档位留空回退通用秒价
+        // 两项都留空 = 未定价（pricePreview null）
+        pricePreview:
+          m.endpointType === "video"
+            ? cur && videoMember != null
+              ? {
+                  unit: "video_second",
+                  costInput: videoPerSecondCostCredits(cur) ?? 0,
+                  costOutput: 0,
+                  memberInput: videoMember,
+                  memberOutput: null,
+                }
+              : null
+            : cur
+              ? cur.unit === "token"
+                ? {
+                    unit: "token",
+                    costInput: perMillionCostCredits(cur, "input"),
+                    costOutput: perMillionCostCredits(cur, "output"),
+                    memberInput: perMillionMemberCredits(cur, "input"),
+                    memberOutput: perMillionMemberCredits(cur, "output"),
+                  }
+                : {
+                    unit: cur.unit,
+                    costInput: perUnitCostCredits(cur, "input"),
+                    costOutput: perUnitCostCredits(cur, "output"),
+                    memberInput: perUnitMemberCredits(cur, "input"),
+                    memberOutput: perUnitMemberCredits(cur, "output"),
+                  }
+              : null,
         createdAt: m.createdAt.toISOString(),
         updatedAt: m.updatedAt.toISOString(),
       };
@@ -68,7 +103,7 @@ export async function GET(req: NextRequest) {
 
 const pricingSchema = z.object({
   meterBase: z.number().int().min(1).max(1_000_000_000).optional(),
-  unit: z.enum(["token", "image", "video_second", "request"]).optional(),
+  unit: z.enum(["token", "image", "video_second", "audio_second", "char", "request"]).optional(),
   inputPrice: z.number().min(0).max(1_000_000),
   outputPrice: z.number().min(0).max(1_000_000),
   currency: z.string().trim().max(10).optional(),

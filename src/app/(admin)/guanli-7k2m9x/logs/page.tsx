@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { ADMIN_BASE } from "@/lib/admin-path";
 import Link from "next/link";
 import Pagination from "@/components/Pagination";
+import { extractChanges } from "@/lib/audit-diff";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "操作日志" };
@@ -158,10 +159,42 @@ function formatDetailOf(action: string, targetType: string | null, targetId: num
     : `${verb}${tail}。`;
 }
 
+// 变更前后取值展示（空值/布尔/数字/长文本统一格式化）
+function fmtChangeValue(v: unknown): string {
+  if (v === null || v === undefined || v === "") return "空";
+  if (typeof v === "boolean") return v ? "是" : "否";
+  if (typeof v === "number") return v.toLocaleString("zh-CN");
+  if (typeof v === "string") return v.length > 60 ? `${v.slice(0, 60)}…` : v;
+  const s = JSON.stringify(v);
+  return s.length > 60 ? `${s.slice(0, 60)}…` : s;
+}
+
+// 变更前后差异列：仅新日志带 changes（用户资料/提示词/模型价格/积分余额等）
+function ChangesCell({ detail }: { detail: string | null }) {
+  const changes = extractChanges(detail);
+  if (changes.length === 0) return <span className="text-xs text-zinc-600">—</span>;
+  const shown = changes.slice(0, 6);
+  return (
+    <div className="space-y-1">
+      {shown.map((c) => (
+        <div key={c.field} className="flex flex-wrap items-baseline gap-x-1 text-xs leading-relaxed">
+          <span className="text-zinc-400">{c.label || c.field}</span>
+          <span className="text-rose-300/80 line-through">{fmtChangeValue(c.before)}</span>
+          <span className="text-zinc-600">→</span>
+          <span className="text-emerald-300">{fmtChangeValue(c.after)}</span>
+        </div>
+      ))}
+      {changes.length > shown.length && (
+        <div className="text-xs text-zinc-600">另有 {changes.length - shown.length} 项变更…</div>
+      )}
+    </div>
+  );
+}
+
 export default async function AdminLogsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string; q?: string; action?: string; targetType?: string }>;
+  searchParams: Promise<{ page?: string; q?: string; action?: string; targetType?: string; targetId?: string }>;
 }) {
   const admin = await requireAdmin();
   if (!admin) redirect(`${ADMIN_BASE}/login`);
@@ -171,6 +204,8 @@ export default async function AdminLogsPage({
   const q = (sp.q || "").trim();
   const action = sp.action || "";
   const targetType = sp.targetType || "";
+  const targetIdText = (sp.targetId || "").trim();
+  const targetId = /^\d+$/.test(targetIdText) ? Number(targetIdText) : null;
 
   type LogWhere = NonNullable<Parameters<typeof db.adminLog.findMany>[0]>["where"];
   const where: LogWhere = {};
@@ -183,6 +218,7 @@ export default async function AdminLogsPage({
   }
   if (action) where.action = action;
   if (targetType) where.targetType = targetType;
+  if (targetId != null) where.targetId = targetId;
 
   const [logs, total] = await Promise.all([
     db.adminLog.findMany({
@@ -200,13 +236,14 @@ export default async function AdminLogsPage({
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
-  const buildUrl = (p: Partial<{ page: string; q: string; action: string; targetType: string }>) => {
+  const buildUrl = (p: Partial<{ page: string; q: string; action: string; targetType: string; targetId: string }>) => {
     const params = new URLSearchParams();
-    const merged = { page: String(page), q, action, targetType, ...p };
+    const merged = { page: String(page), q, action, targetType, targetId: targetIdText, ...p };
     if (merged.page && merged.page !== "1") params.set("page", merged.page);
     if (merged.q) params.set("q", merged.q);
     if (merged.action) params.set("action", merged.action);
     if (merged.targetType) params.set("targetType", merged.targetType);
+    if (merged.targetId) params.set("targetId", merged.targetId);
     const qs = params.toString();
     return `${ADMIN_BASE}/logs${qs ? "?" + qs : ""}`;
   };
@@ -251,13 +288,21 @@ export default async function AdminLogsPage({
           placeholder="管理员账号"
           className="w-36 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm outline-none focus:border-indigo-500"
         />
+        <input
+          name="targetId"
+          type="text"
+          inputMode="numeric"
+          defaultValue={targetIdText}
+          placeholder="对象 ID"
+          className="w-28 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm outline-none focus:border-indigo-500"
+        />
         <button
           type="submit"
           className="rounded-lg bg-indigo-600 px-5 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
         >
           查询
         </button>
-        {(action || targetType || q) && (
+        {(action || targetType || q || targetIdText) && (
           <Link
             href={`${ADMIN_BASE}/logs`}
             className="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800"
@@ -275,8 +320,8 @@ export default async function AdminLogsPage({
               <th className="px-3 py-2.5 w-40">时间</th>
               <th className="px-3 py-2.5">管理员</th>
               <th className="px-3 py-2.5 w-20">操作</th>
-              <th className="px-3 py-2.5 w-20">对象类型</th>
-              <th className="px-3 py-2.5 w-20">对象 ID</th>
+              <th className="px-3 py-2.5 w-28">对象</th>
+              <th className="px-3 py-2.5 w-64">变更前后</th>
               <th className="px-3 py-2.5">详情</th>
               <th className="px-3 py-2.5 w-32">IP</th>
             </tr>
@@ -303,11 +348,11 @@ export default async function AdminLogsPage({
                         {actor.nickname || actor.username}
                         <span className="ml-1 text-xs text-zinc-500">#{actor.id}</span>
                         {log.admin ? (
-                          <span className="ml-1.5 rounded bg-indigo-500/15 px-1 py-0.5 text-[10px] text-indigo-300">
+                          <span className="ml-1.5 rounded bg-indigo-500/15 px-1 py-0.5 text-xs text-indigo-300">
                             管理员
                           </span>
                         ) : (
-                          <span className="ml-1.5 rounded bg-zinc-700/50 px-1 py-0.5 text-[10px] text-zinc-400">
+                          <span className="ml-1.5 rounded bg-zinc-700/50 px-1 py-0.5 text-xs text-zinc-400">
                             历史
                           </span>
                         )}
@@ -323,9 +368,10 @@ export default async function AdminLogsPage({
                   </td>
                   <td className="px-3 py-2.5 text-xs text-zinc-400">
                     {log.targetType ? TARGET_LABELS[log.targetType] || log.targetType : "—"}
+                    {log.targetId ? <span className="ml-1 text-zinc-600">#{log.targetId}</span> : null}
                   </td>
-                  <td className="px-3 py-2.5 text-xs text-zinc-500">
-                    {log.targetId || "—"}
+                  <td className="px-3 py-2.5">
+                    <ChangesCell detail={log.detail} />
                   </td>
                   <td className="px-3 py-2.5">
                     <span className="max-w-md text-xs text-zinc-400">
@@ -350,7 +396,7 @@ export default async function AdminLogsPage({
         page={page}
         totalPages={totalPages}
         basePath={`${ADMIN_BASE}/logs`}
-        query={{ q, action, targetType }}
+        query={{ q, action, targetType, targetId: targetIdText }}
       />
     </div>
   );

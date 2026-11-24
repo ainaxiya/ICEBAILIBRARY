@@ -9,6 +9,7 @@ import { getCategorySlugs } from "@/lib/categories";
 import { sanitizeRich } from "@/lib/sanitize.server";
 import { isHtmlContent, stripHtml, extractFirstImage, makeExcerpt } from "@/lib/rich";
 import { getSystemUser } from "@/lib/system-user";
+import { dateRangeFilter } from "@/lib/date-range";
 
 export const dynamic = "force-dynamic";
 
@@ -25,8 +26,13 @@ export async function GET(req: NextRequest) {
   const status = searchParams.get("status") || "";
   const category = searchParams.get("category") || "";
   const pageSize = 30;
+  // 会员详情页「发布记录」：按会员 + 时间区间筛选
+  const userId = parseInt(searchParams.get("userId") || "0", 10) || 0;
+  const range = dateRangeFilter(searchParams.get("dateFrom"), searchParams.get("dateTo"));
 
   const where: any = {};
+  if (userId > 0) where.userId = userId;
+  if (range) where.createdAt = range;
   if (["published", "pending", "rejected", "draft"].includes(status)) where.status = status;
   if (category) {
     const slugs = await getCategorySlugs();

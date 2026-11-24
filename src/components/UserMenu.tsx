@@ -8,7 +8,8 @@ type Me =
   | {
       id: number;
       username: string;
-      role?: string;
+      nickname?: string | null;
+      avatar?: string | null;
       membershipLevel?: string | null;
       membershipUntil?: string | null;
     }
@@ -18,6 +19,8 @@ export default function UserMenu() {
   const locale = useLocale();
   const [me, setMe] = useState<Me>(null);
   const [loaded, setLoaded] = useState(false);
+  // 头像加载失败 → 回退人形图标
+  const [avatarFailed, setAvatarFailed] = useState(false);
 
   useEffect(() => {
     fetch("/api/me")
@@ -26,6 +29,11 @@ export default function UserMenu() {
       .catch(() => {})
       .finally(() => setLoaded(true));
   }, []);
+
+  // 头像变更（上传/清除）时重置失败态
+  useEffect(() => {
+    setAvatarFailed(false);
+  }, [me?.avatar]);
 
   if (!loaded) return <span className="w-10" />;
 
@@ -51,24 +59,39 @@ export default function UserMenu() {
     me.membershipLevel !== "free" &&
     (!me.membershipUntil || new Date(me.membershipUntil) > new Date());
 
-  // 已登录：会员图标 + 账号名 → 会员中心
+  // 已登录：头像（无头像回退人形图标）→ 会员中心
+  const showAvatar = !!me.avatar && !avatarFailed;
   return (
     <Link
       href="/member"
       title={t(locale, "nav.memberCenter")}
+      onClick={() => {
+        // 已在会员中心内时 Link 同页点击不会触发导航，用事件通知回到会员中心首页
+        window.dispatchEvent(new CustomEvent("mc:go-home"));
+      }}
       className="group flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-zinc-200 hover:bg-zinc-800"
     >
-      <span className="relative flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500/30 to-royal-500/25 text-emerald-300">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"
-          strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-          <circle cx="12" cy="8" r="3.5" />
-          <path d="M5 20c1.2-3.5 4-5 7-5s5.8 1.5 7 5" />
-        </svg>
+      <span className="relative flex h-7 w-7 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-emerald-500/30 to-royal-500/25 text-emerald-300">
+        {showAvatar ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={me.avatar as string}
+            alt=""
+            onError={() => setAvatarFailed(true)}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"
+            strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+            <circle cx="12" cy="8" r="3.5" />
+            <path d="M5 20c1.2-3.5 4-5 7-5s5.8 1.5 7 5" />
+          </svg>
+        )}
         {memberActive && (
-          <span className="absolute -right-1 -top-1 text-[10px] leading-none text-amber-400">★</span>
+          <span className="absolute -right-1 -top-1 z-10 text-xs leading-none text-amber-400">★</span>
         )}
       </span>
-      <span className="max-w-[90px] truncate group-hover:text-emerald-300">{me.username}</span>
+      <span className="max-w-[90px] truncate group-hover:text-emerald-300">{me.nickname || me.username}</span>
     </Link>
   );
 }

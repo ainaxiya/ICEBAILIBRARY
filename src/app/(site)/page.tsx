@@ -66,7 +66,7 @@ export default async function Home() {
       <div className="mb-6 mt-2 text-center">
         <div className="flex items-center justify-center gap-3">
           <span className="h-px w-10 bg-gradient-to-r from-transparent to-amber-400/60 sm:w-16" />
-          <span className="text-[10px] font-semibold uppercase tracking-[0.35em] text-amber-300/80 sm:text-xs">
+          <span className="text-xs font-semibold uppercase tracking-[0.35em] text-amber-300/80 sm:text-xs">
             Featured Prompts
           </span>
           <span className="h-px w-10 bg-gradient-to-l from-transparent to-amber-400/60 sm:w-16" />
@@ -110,7 +110,7 @@ export default async function Home() {
       <div className="mb-6 mt-14 text-center">
         <div className="flex items-center justify-center gap-3">
           <span className="h-px w-10 bg-gradient-to-r from-transparent to-emerald-400/60 sm:w-16" />
-          <span className="text-[10px] font-semibold uppercase tracking-[0.35em] text-emerald-300/80 sm:text-xs">
+          <span className="text-xs font-semibold uppercase tracking-[0.35em] text-emerald-300/80 sm:text-xs">
             Featured Skills
           </span>
           <span className="h-px w-10 bg-gradient-to-l from-transparent to-emerald-400/60 sm:w-16" />

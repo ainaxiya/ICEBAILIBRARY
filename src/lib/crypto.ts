@@ -6,15 +6,25 @@ import crypto from "crypto";
 
 const PREFIX = "enc:v1:";
 
-function getKey(): Buffer {
-  const raw = process.env.STORAGE_KEY_SECRET || process.env.JWT_SECRET || "";
+// o4：加密只用独立密钥 STORAGE_KEY_SECRET；解密保留 JWT_SECRET 兜底以兼容历史密文。
+function getKey(purpose: "encrypt" | "decrypt"): Buffer {
+  const dedicated = (process.env.STORAGE_KEY_SECRET || "").trim();
+  const fallback = purpose === "decrypt" ? (process.env.JWT_SECRET || "").trim() : "";
+  const raw = dedicated || fallback;
   if (!raw) throw new Error("STORAGE_KEY_SECRET 未配置");
   return crypto.createHash("sha256").update(raw, "utf8").digest();
 }
 
+// o4：密钥来源状态（后台 Key 健康页展示用；不回显密钥本身）
+export function storageKeySecretStatus(): { configured: boolean; usingJwtFallback: boolean } {
+  const configured = !!(process.env.STORAGE_KEY_SECRET || "").trim();
+  const jwt = !!(process.env.JWT_SECRET || "").trim();
+  return { configured, usingJwtFallback: !configured && jwt };
+}
+
 export function encryptSecret(plain: string): string {
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv("aes-256-gcm", getKey(), iv);
+  const cipher = crypto.createCipheriv("aes-256-gcm", getKey("encrypt"), iv);
   const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
   return `${PREFIX}${iv.toString("base64")}:${tag.toString("base64")}:${enc.toString("base64")}`;
@@ -26,7 +36,7 @@ export function decryptSecret(stored: string): string {
   if (parts.length !== 3) throw new Error("密文格式错误");
   const [ivB64, tagB64, cipherB64] = parts;
   try {
-    const decipher = crypto.createDecipheriv("aes-256-gcm", getKey(), Buffer.from(ivB64, "base64"));
+    const decipher = crypto.createDecipheriv("aes-256-gcm", getKey("decrypt"), Buffer.from(ivB64, "base64"));
     decipher.setAuthTag(Buffer.from(tagB64, "base64"));
     return Buffer.concat([decipher.update(Buffer.from(cipherB64, "base64")), decipher.final()]).toString("utf8");
   } catch {

@@ -2,15 +2,16 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useLocale, translate as t, type DictKey } from "@/lib/i18n-client";
-import LogoutButton from "@/components/LogoutButton";
 import MessageCenter from "./MessageCenter";
-import ProfileSettings from "./ProfileSettings";
 import PasswordChange from "./PasswordChange";
 import FavoritesPanel from "./FavoritesPanel";
 import ModelsPanel from "./ModelsPanel";
 import MemberOverview, { type OverviewData } from "./MemberOverview";
+import KeyIntegrationDialog from "./KeyIntegrationDialog";
 import RechargeClient from "@/components/RechargeClient";
+import { assetTypeIcon } from "@/lib/asset-types";
 
 // ─── P4 用户中心：会员中心分区（余额 / 充值记录 / 用量明细 / 我的资产 / 消息·工单 / 我的发布） ───
 
@@ -83,6 +84,13 @@ type ApiKeyRow = {
   expiresAt: string | null;
   lastUsedAt: string | null;
   createdAt: string;
+  // b2：Key 维度用量（已用积分 / 累计请求）
+  usedCredits: number;
+  calls: number;
+  // b2 硬额度：额度上限（null = 不限额）
+  quotaCredits: number | null;
+  // b1：模型白名单（空 = 不限制）
+  allowedModels: string[];
 };
 
 type LedgerRow = {
@@ -124,7 +132,7 @@ const PAY_BADGE: Record<string, string> = {
 const LEDGER_REASON: Record<string, string> = {
   grant: "入账",
   consume: "消费",
-  refund: "退回",
+  refund: "预扣退回",
   admin_adjust: "调账",
 };
 const USAGE_STATUS: Record<string, string> = {
@@ -136,12 +144,6 @@ const USAGE_BADGE: Record<string, string> = {
   success: "bg-emerald-500/15 text-emerald-300",
   failed: "bg-rose-500/15 text-rose-300",
   blocked: "bg-amber-500/15 text-amber-300",
-};
-const ASSET_ICON: Record<string, string> = {
-  image: "🖼️",
-  video: "🎬",
-  audio: "🎵",
-  file: "📄",
 };
 const POST_STATUS_BADGE: Record<string, string> = {
   published: "bg-emerald-500/15 text-emerald-300",
@@ -213,6 +215,7 @@ export default function MemberCenter({
     ? (initialTab as TabKey)
     : "overview";
   const [tab, setTab] = useState<TabKey>(initTab);
+  const router = useRouter();
   const [newTicketSignal, setNewTicketSignal] = useState(0);
   // 消息面板初始分区：概览「网站通知」跳转落到通知 tab，菜单直接进入默认工单 tab
   const [msgSection, setMsgSection] = useState<"tickets" | "notices">("tickets");
@@ -223,6 +226,69 @@ export default function MemberCenter({
       contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, []);
+
+  // ── 手机端抽屉导航（仿 ChatGPT）：☰ 翻开 → 主内容右推 3/4 露出左侧菜单；
+  //    手指右拖翻开 / 左拖还原（主内容与抽屉内任意位置均可左滑关闭）；
+  //    打开时锁背景滚动，拉宽到 PC 自动还原 ──
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  // 头像裁剪等弹层打开期间（body[data-crop-open]）屏蔽抽屉手势，防止拖图误触菜单
+  const gestureBlocked = () =>
+    typeof document !== "undefined" && document.body.dataset.cropOpen === "1";
+
+  // 打开时锁定背景滚动
+  useEffect(() => {
+    if (drawerOpen) {
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = "";
+      };
+    }
+  }, [drawerOpen]);
+
+  // 拉宽到 PC（lg）时自动还原（抽屉只在手机端存在）
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const onChange = () => {
+      if (mq.matches) setDrawerOpen(false);
+    };
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  // 顶部导航 / 底部漂浮「会员中心」点击：始终回到会员中心首页（overview）
+  useEffect(() => {
+    const goHome = () => {
+      setTab("overview");
+      setDrawerOpen(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    window.addEventListener("mc:go-home", goHome);
+    return () => window.removeEventListener("mc:go-home", goHome);
+  }, []);
+
+  // 左右手势：右拖（dx≥60 且横向明显）翻开，左拖还原；垂直拖动不影响（菜单可正常上下滚动）
+  const onNavTouchStart = (e: React.TouchEvent) => {
+    if (gestureBlocked()) return;
+    touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+  const onNavTouchEnd = (e: React.TouchEvent) => {
+    if (gestureBlocked()) {
+      touchStartRef.current = null;
+      return;
+    }
+    const s = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!s) return;
+    const dx = e.changedTouches[0].clientX - s.x;
+    const dy = e.changedTouches[0].clientY - s.y;
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+    if (dx > 0 && !drawerOpen) setDrawerOpen(true);
+    else if (dx < 0 && drawerOpen) setDrawerOpen(false);
+  };
+
+  const activeLabel = t(locale, MENU.find((x) => x.key === tab)?.labelKey ?? "member.tabOverview");
 
   // 充值记录
   const [orders, setOrders] = useState<PayOrderRow[] | null>(null);
@@ -257,10 +323,16 @@ export default function MemberCenter({
 
   // API Key
   const [apiKeys, setApiKeys] = useState<ApiKeyRow[] | null>(null);
+  // b3：Key 行「接入」弹层
+  const [integrationKey, setIntegrationKey] = useState<ApiKeyRow | null>(null);
   const [apiKeyError, setApiKeyError] = useState("");
   const [showCreateKey, setShowCreateKey] = useState(false);
   const [keyName, setKeyName] = useState("");
   const [keyExpireDays, setKeyExpireDays] = useState<"0" | "30" | "90" | "365">("0");
+  // b2 硬额度：创建时的额度上限（空字符串 = 不限额）
+  const [keyQuota, setKeyQuota] = useState("");
+  // b1：创建时的模型白名单（逗号/换行分隔，空 = 不限制）
+  const [keyModels, setKeyModels] = useState("");
   const [creatingKey, setCreatingKey] = useState(false);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [keyCopied, setKeyCopied] = useState(false);
@@ -350,10 +422,30 @@ export default function MemberCenter({
     setApiKeyError("");
     try {
       const days = parseInt(keyExpireDays, 10);
-      const body: { name?: string; expiresAt?: string } = {};
+      const body: {
+        name?: string;
+        expiresAt?: string;
+        quotaCredits?: number;
+        allowedModels?: string[];
+      } = {};
       const name = keyName.trim().slice(0, 50);
       if (name) body.name = name;
       if (days > 0) body.expiresAt = new Date(Date.now() + days * 86400000).toISOString();
+      const quotaTrimmed = keyQuota.trim();
+      if (quotaTrimmed !== "") {
+        const q = Number(quotaTrimmed);
+        if (!Number.isInteger(q) || q < 0) {
+          setApiKeyError(t(locale, "apiKeys.quotaInvalid"));
+          setCreatingKey(false);
+          return;
+        }
+        body.quotaCredits = q;
+      }
+      const models = keyModels
+        .split(/[\n,，]+/)
+        .map((m) => m.trim())
+        .filter(Boolean);
+      if (models.length) body.allowedModels = models;
       const r = await fetch("/api/member/keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -373,7 +465,7 @@ export default function MemberCenter({
     } finally {
       setCreatingKey(false);
     }
-  }, [keyName, keyExpireDays, locale]);
+  }, [keyName, keyExpireDays, keyQuota, keyModels, locale]);
 
   const revokeKey = useCallback(
     async (k: ApiKeyRow) => {
@@ -390,6 +482,68 @@ export default function MemberCenter({
       }
     },
     [loadApiKeys, locale]
+  );
+
+  // b2：行内停用 / 启用（不销毁 Key，可随时恢复）
+  const toggleKey = useCallback(
+    async (k: ApiKeyRow) => {
+      const disabling = k.status === "active";
+      if (disabling && !confirm(t(locale, "apiKeys.disableConfirm"))) return;
+      try {
+        const r = await fetch(`/api/member/keys/${k.id}/toggle`, { method: "POST" });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          setApiKeyError(d.error || t(locale, "apiKeys.loadFailed"));
+          return;
+        }
+        setApiKeys((prev) =>
+          prev ? prev.map((x) => (x.id === k.id ? { ...x, status: d.status } : x)) : prev
+        );
+      } catch {
+        setApiKeyError(t(locale, "apiKeys.loadFailed"));
+      }
+    },
+    [locale]
+  );
+
+  // b2 硬额度：修改单把 Key 的额度上限（留空 = 不限额）
+  const editKeyQuota = useCallback(
+    async (k: ApiKeyRow) => {
+      const input = window.prompt(
+        t(locale, "apiKeys.quotaPrompt"),
+        k.quotaCredits == null ? "" : String(k.quotaCredits)
+      );
+      if (input === null) return;
+      const trimmed = input.trim();
+      let quotaCredits: number | null = null;
+      if (trimmed !== "") {
+        const n = Number(trimmed);
+        if (!Number.isInteger(n) || n < 0) {
+          setApiKeyError(t(locale, "apiKeys.quotaInvalid"));
+          return;
+        }
+        quotaCredits = n;
+      }
+      try {
+        const r = await fetch(`/api/member/keys/${k.id}/quota`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ quotaCredits }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          setApiKeyError(d.error || t(locale, "apiKeys.quotaFailed"));
+          return;
+        }
+        setApiKeyError("");
+        setApiKeys((prev) =>
+          prev ? prev.map((x) => (x.id === k.id ? { ...x, quotaCredits: d.quotaCredits } : x)) : prev
+        );
+      } catch {
+        setApiKeyError(t(locale, "apiKeys.quotaFailed"));
+      }
+    },
+    [locale]
   );
 
   // 切到对应 Tab 时懒加载
@@ -466,31 +620,111 @@ export default function MemberCenter({
         ];
 
   return (
-    <div className="mb-8">
-      <div className="flex flex-col gap-4 lg:flex-row">
-        {/* v0.94 单列图标菜单（PC 左侧竖列 / 手机换行网格，v0.96 去掉横向滚动） */}
-        <nav className="w-full shrink-0 lg:w-52">
-          <div className="mc-card flex flex-wrap gap-1 p-2 lg:flex-col lg:flex-nowrap">
-            {MENU.map((x) => (
-              <button
-                key={x.key}
-                type="button"
-                onClick={() => {
-                  if (x.key === "messages") setMsgSection("tickets");
-                  setTab(x.key);
-                  scrollContentIntoView();
-                }}
-                className={`mc-menu-item grow basis-[calc(50%-2px)] justify-center lg:w-full lg:basis-auto lg:justify-start ${tab === x.key ? "active" : ""}`}
-              >
-                <span className="text-base leading-none">{x.icon}</span>
-                <span className="whitespace-nowrap">{t(locale, x.labelKey)}</span>
-              </button>
-            ))}
-          </div>
-          <div className="mt-3 flex justify-center">
-            <LogoutButton />
+    <div className="mb-8 overflow-x-clip">
+      {/* 手机端顶部条：☰ 翻开抽屉菜单（PC 隐藏） */}
+      <div className="mc-card mb-4 flex items-center gap-3 px-3 py-2.5 lg:hidden">
+        <button
+          type="button"
+          aria-label="打开会员中心菜单"
+          onClick={() => setDrawerOpen(true)}
+          className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 text-zinc-300 active:bg-zinc-800"
+        >
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+        <span className="text-sm font-medium text-zinc-200">{activeLabel}</span>
+      </div>
+
+      <div className="relative">
+        {/* 手机端抽屉菜单：主内容右推 3/4 时从左侧露出（fixed 不随主内容位移）
+            深蓝不透明底 + 蓝框；上下各预留一个按钮高度 + 刘海/小白条安全区，菜单不被裁切；
+            任意位置左滑 / 点按非菜单区域均可关闭 */}
+        <nav
+          className={`fixed inset-y-0 left-0 z-10 w-[75vw] max-w-xs overflow-y-auto border-r bg-[#1a2a6a] shadow-2xl transition-transform duration-300 lg:hidden ${
+            drawerOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+          style={{
+            borderColor: "#3333c3",
+            paddingTop: "calc(env(safe-area-inset-top, 0px) + 60px)",
+            paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 60px)",
+          }}
+          onTouchStart={onNavTouchStart}
+          onTouchEnd={onNavTouchEnd}
+          onClick={(e) => {
+            // 点按非菜单区域（空白处）关闭菜单；菜单按钮自身不触发
+            if (!(e.target as HTMLElement).closest("button, a, input")) setDrawerOpen(false);
+          }}
+        >
+          <div className="flex flex-col px-3">
+            <div className="px-2 pb-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+              会员中心
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {MENU.map((x) => (
+                <button
+                  key={x.key}
+                  type="button"
+                  onClick={() => {
+                    // 资料改为独立页面（弹层装不下完整资料）
+                    if (x.key === "profile") {
+                      router.push("/user/profile");
+                      setDrawerOpen(false);
+                      return;
+                    }
+                    if (x.key === "messages") setMsgSection("tickets");
+                    setTab(x.key);
+                    setDrawerOpen(false);
+                  }}
+                  className={`mc-menu-item w-full justify-start !py-3.5 !text-base ${tab === x.key ? "active" : ""}`}
+                >
+                  <span className="text-lg leading-none">{x.icon}</span>
+                  <span>{t(locale, x.labelKey)}</span>
+                </button>
+              ))}
+            </div>
           </div>
         </nav>
+
+        {/* 主内容 wrapper：抽屉打开时整体右推 75vw，遮罩盖在可见内容上点击还原 */}
+        <div
+          className="relative z-20 flex flex-col gap-4 transition-transform duration-300 lg:flex-row lg:!translate-x-0"
+          style={drawerOpen ? { transform: "translateX(75vw)" } : undefined}
+          onTouchStart={onNavTouchStart}
+          onTouchEnd={onNavTouchEnd}
+        >
+          {/* PC 左侧竖排菜单（手机端走抽屉，隐藏） */}
+          <nav className="hidden w-full shrink-0 lg:block lg:w-52">
+            <div className="mc-card flex flex-col flex-nowrap gap-1 p-2">
+              {MENU.map((x) => (
+                <button
+                  key={x.key}
+                  type="button"
+                  onClick={() => {
+                    if (x.key === "profile") {
+                      router.push("/user/profile");
+                      return;
+                    }
+                    if (x.key === "messages") setMsgSection("tickets");
+                    setTab(x.key);
+                    scrollContentIntoView();
+                  }}
+                  className={`mc-menu-item w-full justify-start ${tab === x.key ? "active" : ""}`}
+                >
+                  <span className="text-base leading-none">{x.icon}</span>
+                  <span className="whitespace-nowrap">{t(locale, x.labelKey)}</span>
+                </button>
+              ))}
+            </div>
+          </nav>
+
+          {/* 手机端遮罩：抽屉打开时盖住可见内容，点击还原 */}
+          <button
+            type="button"
+            aria-label="关闭菜单"
+            onClick={() => setDrawerOpen(false)}
+            className={`absolute inset-0 z-50 bg-black/60 lg:hidden ${drawerOpen ? "block" : "hidden"}`}
+          />
 
         {/* 内容区 */}
         <div ref={contentRef} className="min-w-0 flex-1 scroll-mt-24">
@@ -712,6 +946,13 @@ export default function MemberCenter({
                   {label}
                 </button>
               ))}
+              {/* b6：按当前报表 / 视图导出 CSV */}
+              <a
+                href={`/api/member/usage/export?channel=${usageChannel}&view=${usageView}`}
+                className="ml-1 rounded-lg border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:border-emerald-500 hover:text-emerald-300"
+              >
+                导出 CSV
+              </a>
             </div>
           </div>
 
@@ -832,6 +1073,8 @@ export default function MemberCenter({
                 setCreatedKey(null);
                 setKeyCopied(false);
                 setKeyName("");
+                setKeyQuota("");
+                setKeyModels("");
                 setApiKeyError("");
               }}
               className="ml-auto rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-emerald-400"
@@ -852,6 +1095,7 @@ export default function MemberCenter({
                     <tr>
                       <th className={th}>{t(locale, "apiKeys.colPrefix")}</th>
                       <th className={th}>{t(locale, "apiKeys.colName")}</th>
+                      <th className={th}>{t(locale, "apiKeys.colUsage")}</th>
                       <th className={th}>{t(locale, "apiKeys.colStatus")}</th>
                       <th className={th}>{t(locale, "apiKeys.colCreated")}</th>
                       <th className={th}>{t(locale, "apiKeys.colLastUsed")}</th>
@@ -866,19 +1110,37 @@ export default function MemberCenter({
                         <tr key={k.id}>
                           <td className={`${td} font-mono`}>{k.keyPrefix}…</td>
                           <td className={td}>{k.name || "—"}</td>
+                          <td className={`${td} text-xs`}>
+                            <div className="text-zinc-300">
+                              {k.usedCredits.toLocaleString()}
+                              {k.quotaCredits != null
+                                ? ` / ${k.quotaCredits.toLocaleString()}`
+                                : ` / ${t(locale, "apiKeys.quotaUnlimited")}`}
+                            </div>
+                            <div className="text-xs text-zinc-500">{k.calls.toLocaleString()} 次调用</div>
+                            <div className="text-xs text-zinc-500">
+                              {k.allowedModels?.length
+                                ? `模型 ${k.allowedModels.length} 个`
+                                : t(locale, "apiKeys.modelsUnlimited")}
+                            </div>
+                          </td>
                           <td className={td}>
                             <span
                               className={`rounded px-1.5 py-0.5 text-xs ${
                                 k.status === "active" && !expired
                                   ? "bg-emerald-500/15 text-emerald-300"
-                                  : "bg-zinc-700 text-zinc-400"
+                                  : k.status === "disabled"
+                                    ? "bg-amber-500/15 text-amber-300"
+                                    : "bg-zinc-700 text-zinc-400"
                               }`}
                             >
                               {expired
                                 ? t(locale, "apiKeys.expired")
                                 : k.status === "active"
                                   ? t(locale, "apiKeys.statusActive")
-                                  : t(locale, "apiKeys.statusRevoked")}
+                                  : k.status === "disabled"
+                                    ? t(locale, "apiKeys.statusDisabled")
+                                    : t(locale, "apiKeys.statusRevoked")}
                             </span>
                           </td>
                           <td className={`${td} text-xs`}>{fmt(k.createdAt)}</td>
@@ -889,15 +1151,50 @@ export default function MemberCenter({
                             {k.expiresAt ? fmt(k.expiresAt) : t(locale, "apiKeys.neverExpires")}
                           </td>
                           <td className="px-3 py-2.5 text-right">
-                            {k.status === "active" && (
-                              <button
-                                type="button"
-                                onClick={() => revokeKey(k)}
-                                className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 hover:border-rose-500 hover:text-rose-300"
-                              >
-                                {t(locale, "apiKeys.revoke")}
-                              </button>
-                            )}
+                            <div className="flex items-center justify-end gap-2">
+                              {k.status === "active" && !expired && (
+                                <button
+                                  type="button"
+                                  onClick={() => setIntegrationKey(k)}
+                                  className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:border-emerald-500 hover:text-emerald-300"
+                                >
+                                  接入
+                                </button>
+                              )}
+                              {k.status !== "revoked" && (
+                                <button
+                                  type="button"
+                                  onClick={() => editKeyQuota(k)}
+                                  className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:border-emerald-500 hover:text-emerald-300"
+                                >
+                                  {t(locale, "apiKeys.quotaEdit")}
+                                </button>
+                              )}
+                              {(k.status === "active" || k.status === "disabled") && (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleKey(k)}
+                                  className={`rounded-lg border border-zinc-700 px-3 py-1.5 text-xs ${
+                                    k.status === "active"
+                                      ? "text-zinc-400 hover:border-amber-500 hover:text-amber-300"
+                                      : "text-zinc-300 hover:border-emerald-500 hover:text-emerald-300"
+                                  }`}
+                                >
+                                  {k.status === "active"
+                                    ? t(locale, "apiKeys.disable")
+                                    : t(locale, "apiKeys.enable")}
+                                </button>
+                              )}
+                              {k.status !== "revoked" && (
+                                <button
+                                  type="button"
+                                  onClick={() => revokeKey(k)}
+                                  className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 hover:border-rose-500 hover:text-rose-300"
+                                >
+                                  {t(locale, "apiKeys.revoke")}
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -970,6 +1267,24 @@ export default function MemberCenter({
                       <option value="90">{t(locale, "apiKeys.expire90")}</option>
                       <option value="365">{t(locale, "apiKeys.expire365")}</option>
                     </select>
+                    <label className="mt-4 block text-xs text-zinc-400">{t(locale, "apiKeys.quotaLabel")}</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={keyQuota}
+                      onChange={(e) => setKeyQuota(e.target.value)}
+                      placeholder={t(locale, "apiKeys.quotaPlaceholder")}
+                      className="mt-1.5 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600"
+                    />
+                    <label className="mt-4 block text-xs text-zinc-400">{t(locale, "apiKeys.modelsLabel")}</label>
+                    <textarea
+                      rows={2}
+                      value={keyModels}
+                      onChange={(e) => setKeyModels(e.target.value)}
+                      placeholder={t(locale, "apiKeys.modelsPlaceholder")}
+                      className="mt-1.5 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600"
+                    />
                     {apiKeyError && <p className="mt-2 text-xs text-rose-400">{apiKeyError}</p>}
                     <div className="mt-5 flex gap-2">
                       <button
@@ -994,6 +1309,14 @@ export default function MemberCenter({
               </div>
             </div>
           )}
+
+          {/* b3：客户端接入配置弹层 */}
+          {integrationKey && (
+            <KeyIntegrationDialog
+              apiKey={{ id: integrationKey.id, keyPrefix: integrationKey.keyPrefix, name: integrationKey.name }}
+              onClose={() => setIntegrationKey(null)}
+            />
+          )}
         </div>
       )}
 
@@ -1012,7 +1335,7 @@ export default function MemberCenter({
               <ul className="divide-y divide-zinc-800/70">
                 {assets.map((a) => (
                   <li key={a.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-                    <span className="text-2xl">{ASSET_ICON[a.assetType] || "📄"}</span>
+                    <span className="text-2xl">{assetTypeIcon(a.assetType)}</span>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm text-zinc-200">{a.fileName}</p>
                       <p className="mt-0.5 text-xs text-zinc-500">
@@ -1067,7 +1390,7 @@ export default function MemberCenter({
             <div className="p-6 text-center text-sm text-zinc-500">
               还没有发布过提示词　
               <Link href="/publish" className="text-emerald-400 hover:underline">
-                去发布一条 →
+                去发布一条
               </Link>
             </div>
           ) : (
@@ -1112,9 +1435,6 @@ export default function MemberCenter({
         </div>
       )}
 
-      {/* ── 资料修改 ── */}
-      {tab === "profile" && <ProfileSettings />}
-
       {/* ── 修改密码 ── */}
       {tab === "password" && <PasswordChange />}
 
@@ -1143,6 +1463,9 @@ export default function MemberCenter({
       )}
         {/* /内容区 */}
         </div>
+        {/* /主内容 wrapper */}
+        </div>
+      {/* /relative 容器 */}
       </div>
     </div>
   );

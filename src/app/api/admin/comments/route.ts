@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { PERMISSIONS, requirePerm } from "@/lib/rbac";
+import { dateRangeFilter } from "@/lib/date-range";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,7 @@ export async function GET(req: NextRequest) {
   const targetId = Number(searchParams.get("targetId") || searchParams.get("promptId") || 0);
   const userId = Number(searchParams.get("userId") || 0);
   const page = Math.max(1, Number(searchParams.get("page") || 1) || 1);
+  const range = dateRangeFilter(searchParams.get("dateFrom"), searchParams.get("dateTo"));
 
   const where: any = {};
   if (status && VALID_STATUS.includes(status)) where.status = status;
@@ -26,6 +28,7 @@ export async function GET(req: NextRequest) {
   if (targetType) where.targetType = targetType;
   if (targetId) where.targetId = targetId;
   if (userId) where.userId = userId;
+  if (range) where.createdAt = range;
 
   const [rows, total, counts] = await Promise.all([
     db.comment.findMany({

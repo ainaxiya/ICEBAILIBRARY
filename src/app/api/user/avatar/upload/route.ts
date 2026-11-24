@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { writeFile, mkdir } from "fs/promises";
-import path from "path";
 import sharp from "sharp";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { saveUpload } from "@/lib/upload-store.server";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +26,7 @@ function sniffImage(buf: Buffer): boolean {
 }
 
 // POST /api/user/avatar/upload  用户头像上传
-// FormData: file=<File>  → sharp 压缩为 webp，保存到 public/uploads/avatars/
+// FormData: file=<File>  → sharp 压缩为 webp，统一落 public/uploads/<YYYY-MM>/image-...
 export async function POST(req: NextRequest) {
   try {
     const user = await getCurrentUser();
@@ -51,19 +50,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "unsupported file type, only image allowed" }, { status: 400 });
     }
 
-    const dir = path.join(process.cwd(), "public", "uploads", "avatars");
-    await mkdir(dir, { recursive: true });
-
     // sharp 压缩：resize 到 256x256 内（保持比例，cover 裁切），输出 webp
-    const name = `${user.id}-${Date.now()}.webp`;
     const processed = await sharp(buf)
       .resize(256, 256, { fit: "cover", position: "centre" })
       .webp({ quality: 82 })
       .toBuffer();
 
-    await writeFile(path.join(dir, name), processed);
-
-    const url = `/uploads/avatars/${name}`;
+    const saved = await saveUpload("image", "webp", processed);
+    const url = saved.url;
 
     // 更新用户 avatar 字段
     await db.user.update({

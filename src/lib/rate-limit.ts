@@ -1,5 +1,7 @@
-// 轻量内存速率限制（单实例部署足够；多实例需替换为 Redis）
+// 轻量内存速率限制（进程内兜底）
 // 滑动窗口：同一 key 在 windowMs 内最多 hit 次。
+
+import { getSharedRedis } from "@/lib/redis";
 
 const buckets = new Map<string, number[]>();
 let lastSweep = 0;
@@ -24,6 +26,24 @@ export function rateLimit(key: string, limit: number, windowMs: number): boolean
   arr.push(now);
   buckets.set(key, arr);
   return true;
+}
+
+// ─── g15 / o13：多实例共享限流（Redis 固定窗口 + 进程内滑动窗口兜底） ───
+// 仅配额/Key 限流等业务限流走这里；防刷类（登录、验证码、上传）仍用进程内 rateLimit，
+// 避免每次热路径都依赖 Redis。Redis 不可用时秒级回退，不影响请求。
+// 语义差异：Redis 侧是「固定窗口」（首次 INCR 时设过期），边界瞬时值可能高于滑动窗口，
+// 用于配额限流足够，且跨实例计数不会因负载均衡被放大 N 倍。
+export async function rateLimitAsync(key: string, limit: number, windowMs: number): Promise<boolean> {
+  const r = getSharedRedis();
+  if (!r) return rateLimit(key, limit, windowMs);
+  try {
+    const k = `rl:${key}`;
+    const n = await r.incr(k);
+    if (n === 1) await r.pexpire(k, windowMs);
+    return n <= limit;
+  } catch {
+    return rateLimit(key, limit, windowMs);
+  }
 }
 
 // 从请求中取客户端 IP（S0-6：取 XFF 最后一跳 = 本站 Nginx 追加的真实来源，

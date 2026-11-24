@@ -1,22 +1,122 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { getCategoryMeta } from "@/lib/category-meta";
+import { skillHref } from "@/lib/skill-link";
 
 export const dynamic = "force-dynamic";
 
 // ─── v0.92 #9 通用收藏（prompt/skill/software）：提示词收藏数据仍在 Favorite 旧表，此处统一出入口 ───
+// v0.117 会员中心收藏夹改版：?type=all 混合返回 提示词+技能（软件不再前台展示，POST toggle 仍兼容）
 
 const TARGETS = ["prompt", "skill", "software"] as const;
 type TargetType = (typeof TARGETS)[number];
 
-// GET /api/user/favorites?type=prompt|skill|software  当前用户收藏列表（含目标摘要）
+// GET /api/user/favorites?type=prompt|skill|software|all  当前用户收藏列表（含目标摘要与下级分类）
 export async function GET(req: NextRequest) {
   const currentUser = await getCurrentUser();
   if (!currentUser) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const type = req.nextUrl.searchParams.get("type") as TargetType;
-  if (!TARGETS.includes(type)) {
-    return NextResponse.json({ error: "type 仅支持 prompt/skill/software" }, { status: 400 });
+  const type = req.nextUrl.searchParams.get("type") as TargetType | "all";
+  if (!TARGETS.includes(type as TargetType) && type !== "all") {
+    return NextResponse.json({ error: "type 仅支持 prompt/skill/software/all" }, { status: 400 });
+  }
+
+  // v0.114 单查模式：?targetId=N → { favorited, loggedIn }（未登录不 401，供匿名详情页按钮初始化）
+  const qTargetId = Number(req.nextUrl.searchParams.get("targetId") || 0);
+  if (type !== "all" && Number.isInteger(qTargetId) && qTargetId > 0) {
+    const me = await getCurrentUser();
+    if (!me) return NextResponse.json({ favorited: false, loggedIn: false });
+    const favorited =
+      type === "prompt"
+        ? !!(await db.favorite.findUnique({
+            where: { userId_promptId: { userId: me.id, promptId: qTargetId } },
+            select: { userId: true },
+          }))
+        : !!(await db.userFavorite.findUnique({
+            where: { userId_targetType_targetId: { userId: me.id, targetType: type, targetId: qTargetId } },
+            select: { id: true },
+          }));
+    return NextResponse.json({ favorited, loggedIn: true });
+  }
+
+  // v0.117 混合模式：提示词 + 技能合并，按收藏时间倒序（软件不再前台展示）
+  if (type === "all") {
+    const [favRows, ufRows] = await Promise.all([
+      db.favorite.findMany({
+        where: { userId: currentUser.id },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+        select: { createdAt: true, promptId: true },
+      }),
+      db.userFavorite.findMany({
+        where: { userId: currentUser.id, targetType: "skill" },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+        select: { createdAt: true, targetId: true },
+      }),
+    ]);
+
+    const promptIds = favRows.map((r) => r.promptId);
+    const skillIds = ufRows.map((r) => r.targetId);
+    const [prompts, skills] = await Promise.all([
+      promptIds.length
+        ? db.prompt.findMany({
+            where: { id: { in: promptIds }, status: "published" },
+            select: { id: true, title: true, description: true, category: true },
+          })
+        : Promise.resolve([] as { id: number; title: string; description: string | null; category: string | null }[]),
+      skillIds.length
+        ? db.skill.findMany({
+            where: { id: { in: skillIds }, status: "published" },
+            select: { id: true, name: true, slug: true, summary: true, category: { select: { name: true } } },
+          })
+        : Promise.resolve([] as { id: number; name: string; slug: string; summary: string | null; category: { name: string } | null }[]),
+    ]);
+
+    type MixedItem = {
+      id: number;
+      targetId: number;
+      createdAt: Date;
+      title: string;
+      href: string;
+      summary: string | null;
+      targetType: "prompt" | "skill";
+      category: string | null;
+    };
+    const items: MixedItem[] = [];
+    const pById = new Map(prompts.map((p) => [p.id, p]));
+    for (const r of favRows) {
+      const p = pById.get(r.promptId);
+      if (!p) continue; // 已删除/下架的收藏不展示
+      items.push({
+        id: p.id,
+        targetId: p.id,
+        createdAt: r.createdAt,
+        title: p.title,
+        href: `/p/${p.id}`,
+        summary: p.description,
+        targetType: "prompt",
+        category: p.category ? getCategoryMeta(p.category)?.name.zh ?? p.category : null,
+      });
+    }
+    const sById = new Map(skills.map((s) => [s.id, s]));
+    for (const r of ufRows) {
+      const s = sById.get(r.targetId);
+      if (!s) continue;
+      items.push({
+        id: s.id,
+        targetId: s.id,
+        createdAt: r.createdAt,
+        title: s.name,
+        href: skillHref(s.slug, s.id),
+        summary: s.summary,
+        targetType: "skill",
+        category: s.category?.name ?? null,
+      });
+    }
+    items.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return NextResponse.json({ items });
   }
 
   // 提示词收藏在 Favorite 旧表，技能/软件在 UserFavorite 通用表

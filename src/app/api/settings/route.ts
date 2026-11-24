@@ -15,6 +15,10 @@ export async function GET() {
     },
     // 注册页动态字段配置（off/optional/required）
     registerFields: site.registerFields,
+    // P7 注册需邮箱验证码（前台注册页据此渲染邮箱+验证码输入）
+    emailVerifyRequired: site.emailVerifyRequired,
+    // P7 邮箱找回密码可用状态（前台找回密码页据此渲染）
+    emailResetEnabled: !!s.email?.enabled && !!s.email?.resetPasswordVerify,
     publish: s.publish,
     membership: s.membership,
   });

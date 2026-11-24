@@ -65,7 +65,7 @@ export default function PromptCard({
           <Placeholder />
         )}
         {p.featured && (
-          <span className="absolute right-2 top-2 rounded-md bg-[#bf360c] px-1.5 py-0.5 text-[10px] font-bold text-white shadow-[0_2px_10px_rgba(191,54,12,0.45)]">
+          <span className="absolute right-2 top-2 rounded-md bg-[#bf360c] px-1.5 py-0.5 text-xs font-bold text-white shadow-[0_2px_10px_rgba(191,54,12,0.45)]">
             ★ 精选
           </span>
         )}
@@ -103,7 +103,7 @@ export default function PromptCard({
         {p.tags.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1">
             {p.tags.slice(0, 3).map((t) => (
-              <span key={t} className="rounded bg-zinc-800 px-1.5 py-0.5 text-[11px] text-zinc-400">
+              <span key={t} className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-400">
                 {t}
               </span>
             ))}

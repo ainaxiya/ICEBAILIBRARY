@@ -2,7 +2,16 @@
 
 import { useEffect, useState } from "react";
 
-type Cat = { id: number; name: string; nameEn: string; slug: string; sort: number; promptCount?: number };
+type Cat = {
+  id: number;
+  name: string;
+  nameEn: string;
+  slug: string;
+  sort: number;
+  promptCount?: number;
+  metaDescription?: string | null;
+  metaKeywords?: string | null;
+};
 
 type Props = { initial: Cat[] };
 
@@ -16,6 +25,8 @@ export default function CategoryManager({ initial }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [nameEn, setNameEn] = useState("");
+  const [metaDescription, setMetaDescription] = useState("");
+  const [metaKeywords, setMetaKeywords] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -42,6 +53,8 @@ export default function CategoryManager({ initial }: Props) {
     setEditing(null);
     setName("");
     setNameEn("");
+    setMetaDescription("");
+    setMetaKeywords("");
     setShowForm(true);
   };
 
@@ -49,6 +62,8 @@ export default function CategoryManager({ initial }: Props) {
     setEditing(c);
     setName(c.name);
     setNameEn(c.nameEn);
+    setMetaDescription(c.metaDescription || "");
+    setMetaKeywords(c.metaKeywords || "");
     setShowForm(true);
   };
 
@@ -59,17 +74,20 @@ export default function CategoryManager({ initial }: Props) {
     }
     setBusy(true);
     try {
+      const metaPayload = { metaDescription: metaDescription.trim(), metaKeywords: metaKeywords.trim() };
       if (editing) {
         const r = await fetch(`/api/admin/categories/${editing.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: name.trim(), nameEn: nameEn.trim() }),
+          body: JSON.stringify({ name: name.trim(), nameEn: nameEn.trim(), ...metaPayload }),
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "保存失败");
         setCats((prev) =>
           prev.map((c) =>
-            c.id === editing.id ? { ...c, name: name.trim(), nameEn: nameEn.trim() || name.trim(), slug: name.trim() } : c
+            c.id === editing.id
+              ? { ...c, name: name.trim(), nameEn: nameEn.trim() || name.trim(), slug: name.trim(), ...metaPayload }
+              : c
           )
         );
         flash("ok", "已更新");
@@ -77,7 +95,7 @@ export default function CategoryManager({ initial }: Props) {
         const r = await fetch("/api/admin/categories", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: name.trim(), nameEn: nameEn.trim() }),
+          body: JSON.stringify({ name: name.trim(), nameEn: nameEn.trim(), ...metaPayload }),
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "创建失败");
@@ -169,6 +187,26 @@ export default function CategoryManager({ initial }: Props) {
                 onChange={(e) => setNameEn(e.target.value)}
                 className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
                 placeholder="如：AI Art"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-xs text-zinc-400">栏目描述（SEO description，留空用默认文案）</label>
+              <textarea
+                value={metaDescription}
+                onChange={(e) => setMetaDescription(e.target.value.slice(0, 500))}
+                rows={2}
+                maxLength={500}
+                className="w-full resize-y rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+                placeholder="如：AI 视频创作提示词合集，涵盖即梦、可灵、Runway 等工具的文生视频模板"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-xs text-zinc-400">栏目关键字（SEO keywords，逗号分隔，留空用默认）</label>
+              <input
+                value={metaKeywords}
+                onChange={(e) => setMetaKeywords(e.target.value.slice(0, 300))}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+                placeholder="如：视频提示词,文生视频,即梦提示词,可灵提示词"
               />
             </div>
           </div>

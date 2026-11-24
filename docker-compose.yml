@@ -11,7 +11,7 @@ services:
     container_name: prompthub-pg
     restart: unless-stopped
     ports:
-      - "127.0.0.1:5432:5432"                 # 只绑定本地，不暴露公网
+      - "127.0.0.1:${PG_PORT:-5432}:5432"      # 只绑定本地，不暴露公网（端口可用环境变量覆盖）
     env_file:
       - .env.db
     volumes:
@@ -33,7 +33,7 @@ services:
     container_name: meilisearch
     restart: unless-stopped
     ports:
-      - "127.0.0.1:7700:7700"
+      - "127.0.0.1:${MEILI_PORT:-7700}:7700"
     env_file:
       - .env.meili
     volumes:

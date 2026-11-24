@@ -210,10 +210,10 @@ export default function SkillForm({ cats, initial }: { cats: Cat[]; initial: Ski
             <div className="mb-2 rounded-lg border border-emerald-700/50 bg-emerald-900/15 p-2.5">
               <div className="flex flex-wrap items-center gap-2 text-xs text-emerald-300">
                 <span>📦 整包上传：{treeRows.length} 个文件 · {((bundle.size ?? 0) / 1024 / 1024).toFixed(2)} MB</span>
-                <span className="truncate font-mono text-[11px] text-emerald-400/60">对象：{bundle.content}</span>
+                <span className="truncate font-mono text-xs text-emerald-400/60">对象：{bundle.content}</span>
                 <button type="button" onClick={removeBundle} className="ml-auto shrink-0 text-rose-400 hover:underline">移除整包</button>
               </div>
-              <ul className="mt-2 max-h-48 space-y-0.5 overflow-y-auto rounded bg-zinc-950/50 p-2 font-mono text-[11px] text-zinc-400">
+              <ul className="mt-2 max-h-48 space-y-0.5 overflow-y-auto rounded bg-zinc-950/50 p-2 font-mono text-xs text-zinc-400">
                 <li className="text-zinc-500">📄 SKILL.md</li>
                 {treeRows.map((t, i) => (
                   <li key={i} className="flex items-center justify-between gap-3">

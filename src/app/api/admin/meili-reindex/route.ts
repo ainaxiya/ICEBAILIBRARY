@@ -51,6 +51,7 @@ export async function POST() {
     cwd: process.cwd(),
     env: process.env,
     stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
   });
   proc = child;
   child.stdout.on("data", (d: Buffer) => pushLog(d.toString("utf8")));

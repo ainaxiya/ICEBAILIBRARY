@@ -4,10 +4,11 @@ import { db } from "@/lib/db";
 import { PERMISSIONS, requirePerm } from "@/lib/rbac";
 import { num } from "@/lib/model-json";
 import { describeLedgerSources } from "@/lib/ledger-source";
+import { dateRangeFilter } from "@/lib/date-range";
 
 export const dynamic = "force-dynamic";
 
-// ─── 后台积分流水（可按会员筛选） ───
+// ─── 后台积分明细（可按会员筛选） ───
 // GET /api/admin/credits/ledger?userId=&reason=all|grant|consume|refund|admin_adjust&page=1&pageSize=20
 // 按 createdAt 倒序分页；每条附带会员 userId / username
 const REASONS = ["grant", "consume", "refund", "admin_adjust"];
@@ -34,6 +35,9 @@ export async function GET(req: NextRequest) {
   const where: Prisma.CreditLedgerWhereInput = {
     ...(userId ? { userId } : {}),
     ...(REASONS.includes(reason) ? { reason } : {}),
+    ...(dateRangeFilter(sp.get("dateFrom"), sp.get("dateTo"))
+      ? { createdAt: dateRangeFilter(sp.get("dateFrom"), sp.get("dateTo")) }
+      : {}),
   };
 
   const [total, list] = await Promise.all([
@@ -57,7 +61,7 @@ export async function GET(req: NextRequest) {
     items: list.map((r, i) => ({
       id: r.id,
       userId: r.userId,
-      username: r.user.username,
+      username: r.user?.username ?? "该会员号已注销",
       changeAmount: num(r.changeAmount),
       balanceAfter: num(r.balanceAfter),
       reason: r.reason,

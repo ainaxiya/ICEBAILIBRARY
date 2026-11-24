@@ -78,6 +78,36 @@ export function perMillionMemberCredits(
   return Math.max(1, Math.ceil(cost * (toNum(pricing.multiplierBps) / 10000)));
 }
 
+// ─── v0.113 媒体模型预览（按张/按秒/按次，meterBase=1）：每计量单位积分 ───
+// 成本积分/单位 = 单价 × 汇率 × 100（1 元 = 100 积分）
+export function perUnitCostCredits(
+  pricing: PricingLike,
+  side: "input" | "output"
+): number {
+  const price = toNum(side === "input" ? pricing.inputPrice : pricing.outputPrice);
+  const fx = toNum(pricing.fxRateE8) / 1e8;
+  return price * fx * 100;
+}
+
+// 会员积分/单位：优先直接填的会员价（积分/张|秒|次），否则成本积分 × 加价系数
+export function perUnitMemberCredits(
+  pricing: PricingLike,
+  side: "input" | "output"
+): number {
+  const member = toNum(side === "input" ? pricing.memberInputPrice : pricing.memberOutputPrice);
+  if (Number.isFinite(member) && member > 0) return Math.max(1, Math.ceil(member));
+  return Math.max(1, Math.ceil(perUnitCostCredits(pricing, side) * (toNum(pricing.multiplierBps) / 10000)));
+}
+
+// 计价单位后缀（后台模型库列表/文档展示用）
+export function pricingUnitSuffix(unit: string): string {
+  if (unit === "image") return "积分/张";
+  if (unit === "video_second" || unit === "audio_second") return "积分/秒";
+  if (unit === "request") return "积分/次";
+  if (unit === "char") return "积分/千字符";
+  return "积分/M";
+}
+
 // ─── v0.96 会员价按输入/输出直接计费（毫积分）；未填会员价时回退成本 × 加价系数 ───
 
 // 单边会员价（毫积分，取整）
@@ -121,10 +151,167 @@ export function latestPricing(
   const list = model?.pricings;
   if (!list || list.length === 0) return null;
   const now = Date.now();
-  const sorted = [...list].sort(
+  const pick = (arr: ModelPricing[]) => {
+    const sorted = [...arr].sort(
+      (a, b) => b.effectiveAt.getTime() - a.effectiveAt.getTime()
+    );
+    return sorted.find((p) => p.effectiveAt.getTime() <= now) ?? sorted[0];
+  };
+  // 通用行（variant=""）优先，避免把某个分辨率档位当成全模型默认价；
+  // 若只有档位行（老模型没写通用价），仍回退到最新的那一行，保持兼容。
+  const generic = list.filter((p) => ((p as { variant?: string | null }).variant ?? "") === "");
+  return generic.length > 0 ? pick(generic) : pick([...list]);
+}
+
+// 按计费档位取价：精确匹配 variant（如 720p:v），没有则回退通用价
+export function pricingForVariant(
+  model: { pricings?: readonly ModelPricing[] } | null,
+  variant: string
+): ModelPricing | null {
+  const list = model?.pricings;
+  if (!list || list.length === 0) return null;
+  const exact = list.filter(
+    (p) => ((p as { variant?: string | null }).variant ?? "") === variant
+  );
+  if (exact.length === 0) return latestPricing(model);
+  const now = Date.now();
+  const sorted = [...exact].sort(
     (a, b) => b.effectiveAt.getTime() - a.effectiveAt.getTime()
   );
   return sorted.find((p) => p.effectiveAt.getTime() <= now) ?? sorted[0];
+}
+
+// ─── v1.0.94 视频统一秒价：只认通用行（variant=""），不再区分分辨率/含视频档位 ───
+// 与 latestPricing 不同：没有通用行时返回 null，不会拿历史档位行当默认价。
+export function genericPricing<T extends { effectiveAt: Date; variant?: string | null }>(
+  model: { pricings?: readonly T[] } | null
+): T | null {
+  const list = model?.pricings;
+  if (!list || list.length === 0) return null;
+  const generic = list.filter((p) => ((p as { variant?: string | null }).variant ?? "") === "");
+  if (generic.length === 0) return null;
+  const now = Date.now();
+  const sorted = [...generic].sort(
+    (a, b) => b.effectiveAt.getTime() - a.effectiveAt.getTime()
+  );
+  return sorted.find((p) => p.effectiveAt.getTime() <= now) ?? sorted[0];
+}
+
+type VideoPricingLike = PricingLike & { unit?: string };
+
+// 视频每秒成本积分（内部核算）：成本价未填 / 非视频秒单位 → null
+export function videoPerSecondCostCredits(
+  pricing: VideoPricingLike | null | undefined
+): number | null {
+  if (!pricing) return null;
+  if (pricing.unit != null && pricing.unit !== "video_second") return null;
+  const cost = perUnitCostCredits(pricing, "input");
+  return Number.isFinite(cost) && cost > 0 ? cost : null;
+}
+
+// 视频每秒会员积分：会员价优先；未填会员价但有成本价时按倍率折算；
+// 两套都留空 → null（未定价，不按最低 1 分兜底）。
+export function videoPerSecondMemberCredits(
+  pricing: VideoPricingLike | null | undefined
+): number | null {
+  if (!pricing) return null;
+  if (pricing.unit != null && pricing.unit !== "video_second") return null;
+  const member = toNum(pricing.memberInputPrice);
+  if (Number.isFinite(member) && member > 0) return Math.max(1, Math.ceil(member));
+  const cost = videoPerSecondCostCredits(pricing);
+  if (cost == null) return null;
+  return Math.max(1, Math.ceil(cost * (toNum(pricing.multiplierBps) / 10000)));
+}
+
+// 视频任务会员积分 = ceil(每秒会员价) × 秒数；未定价 → null
+export function videoTaskMemberCredits(
+  pricing: VideoPricingLike | null | undefined,
+  seconds: number
+): number | null {
+  const perSecond = videoPerSecondMemberCredits(pricing);
+  if (perSecond == null) return null;
+  const sec = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+  if (sec <= 0) return null;
+  return Math.ceil(perSecond * sec);
+}
+
+// 从请求体推断计费档位键：分辨率 × 是否含视频输入
+// ratio/宽高比不参与定价（官方只按分辨率档位给价，同档 9:16 与 16:9 像素数相同）
+export function videoVariantFromBody(
+  body: Record<string, unknown> | null | undefined
+): string {
+  const raw = typeof body?.resolution === "string" ? body.resolution.trim() : "";
+  const res = raw ? raw.replace(/p$/i, "p") : "720p"; // Ark 缺省按 720p 计
+  const norm = /^4k/i.test(res) ? "4K" : /^(480|720|1080)p$/i.test(res) ? res.toLowerCase() : "720p";
+  const hasVideoInput =
+    (Array.isArray(body?.reference_videos) && body.reference_videos.length > 0) ||
+    typeof body?.reference_video === "string" ||
+    typeof body?.video_url === "string";
+  return `${norm}:${hasVideoInput ? "v" : "n"}`;
+}
+
+type VideoTierPricing = VideoPricingLike & { effectiveAt: Date; variant?: string | null };
+
+function latestEffective<T extends { effectiveAt: Date }>(list: readonly T[]): T | null {
+  if (list.length === 0) return null;
+  const now = Date.now();
+  const sorted = [...list].sort((a, b) => b.effectiveAt.getTime() - a.effectiveAt.getTime());
+  return sorted.find((p) => p.effectiveAt.getTime() <= now) ?? sorted[0];
+}
+
+// v1.0.98 视频档位价优先：精确档位（如 720p:n）→ 通用秒价 → 未定价。
+// 档位行填 0/null 视为「该档位留空」，同样回退通用秒价；不会拿别的档位价顶替。
+export function videoPricingForVariant<T extends VideoTierPricing>(
+  model: { pricings?: readonly T[] } | null | undefined,
+  variant: string
+): T | null {
+  const list = model?.pricings;
+  if (!list || list.length === 0) return null;
+  const exact = latestEffective(
+    list.filter(
+      (p) => ((p.variant ?? "") === variant) && (p.unit == null || p.unit === "video_second")
+    )
+  );
+  if (exact && videoPerSecondMemberCredits(exact) != null) return exact;
+  const generic = genericPricing(model);
+  return generic && videoPerSecondMemberCredits(generic) != null ? generic : null;
+}
+
+// 前台展示 / 准入：默认 720p:n → 720p:v → 通用秒价 → 任意已定价档位（取最低，作为「起」价）
+export function videoDisplayPricing<T extends VideoTierPricing>(
+  model: { pricings?: readonly T[] } | null | undefined
+): T | null {
+  const preferred = videoPricingForVariant(model, "720p:n");
+  if (preferred) return preferred;
+  const list = model?.pricings;
+  if (!list || list.length === 0) return null;
+  const priced = list.filter(
+    (p) => p.unit === "video_second" && videoPerSecondMemberCredits(p) != null
+  );
+  if (priced.length === 0) return null;
+  return priced.reduce((a, b) =>
+    (videoPerSecondMemberCredits(a) ?? Infinity) <= (videoPerSecondMemberCredits(b) ?? Infinity) ? a : b
+  );
+}
+
+// ─── P3 价格版本快照：结算时点的单价定格（方案 9.2「调价不回写历史账单」） ───
+// usage_record.price_snapshot 存 JSON，调价后可按快照重算任意历史请求的应扣金额。
+export function pricingSnapshot(pricing: ModelPricing): {
+  priceVersionId: number | null;
+  priceSnapshot: string;
+} {
+  const snap = {
+    meterBase: pricing.meterBase,
+    unit: pricing.unit,
+    inputPrice: String(pricing.inputPrice),
+    outputPrice: String(pricing.outputPrice),
+    currency: pricing.currency,
+    fxRateE8: String(pricing.fxRateE8),
+    multiplierBps: pricing.multiplierBps,
+    memberInputPrice: pricing.memberInputPrice == null ? null : String(pricing.memberInputPrice),
+    memberOutputPrice: pricing.memberOutputPrice == null ? null : String(pricing.memberOutputPrice),
+  };
+  return { priceVersionId: pricing.id, priceSnapshot: JSON.stringify(snap) };
 }
 
 // 预检估值：按预估 token 数算 ceil 会员标价（供 billing.preCheck 对余额门槛）

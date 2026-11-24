@@ -107,7 +107,7 @@ export default function MediaUploader({
               <button
                 type="button"
                 onClick={() => remove(m.url)}
-                className="absolute right-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[11px] text-rose-300 opacity-0 transition group-hover:opacity-100"
+                className="absolute right-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-xs text-rose-300 opacity-0 transition group-hover:opacity-100"
               >
                 {t(locale, "publish.remove")}
               </button>

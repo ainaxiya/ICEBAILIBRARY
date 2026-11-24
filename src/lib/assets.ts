@@ -1,9 +1,9 @@
 import crypto from "crypto";
-import dns from "dns/promises";
-import net from "net";
 import type { StorageBucket } from "@prisma/client";
 import { db } from "@/lib/db";
-import { bucketToConfig, putObject } from "@/lib/s3";
+import { bucketToConfig, getObject, putObject } from "@/lib/s3";
+import { fetchWithSsrfGuard, readBodyCapped } from "@/lib/net-guard";
+import { refineAssetType, type AssetType } from "@/lib/asset-types";
 
 // ─── P5 生成产物转存（方案 7.4） ───
 // 生成成功即转存默认存储桶（StorageBucket isDefault=true），写 generated_asset：
@@ -12,12 +12,6 @@ import { bucketToConfig, putObject } from "@/lib/s3";
 // 允许用户经 assets API 重试拉取一次（成功后清 sourceUrl，不再可重试）。
 
 const EXPIRE_DAYS = 30;
-const DOWNLOAD_TIMEOUT_MS = 120_000;
-// S0-6 SSRF 加固：重定向跳数与响应体大小上限
-const MAX_REDIRECTS = 3;
-const MAX_DOWNLOAD_BYTES = 256 * 1024 * 1024;
-
-export type AssetType = "image" | "video" | "audio" | "file";
 
 export interface SaveAssetResult {
   ok: boolean;
@@ -35,6 +29,19 @@ const EXT_BY_MIME: Record<string, string> = {
   "video/quicktime": ".mov",
   "audio/mpeg": ".mp3",
   "audio/wav": ".wav",
+  "audio/mp4": ".m4a",
+  "audio/aac": ".aac",
+  "audio/ogg": ".ogg",
+  "audio/flac": ".flac",
+  "model/gltf-binary": ".glb",
+  "model/gltf+json": ".gltf",
+  "model/obj": ".obj",
+  "application/x-fbx": ".fbx",
+  "application/pdf": ".pdf",
+  "application/zip": ".zip",
+  "application/gzip": ".gz",
+  "application/x-7z-compressed": ".7z",
+  "application/vnd.rar": ".rar",
 };
 
 function extOf(contentType: string, url: string): string {
@@ -43,92 +50,116 @@ function extOf(contentType: string, url: string): string {
   return m ? `.${m[1].toLowerCase()}` : ".bin";
 }
 
+// ─── 文件头魔数判定（优先于上游 content-type） ───
+// 上游产物常返回 application/octet-stream 且 URL 无扩展名，只信响应头会落成 .bin。
+// 这里按真实字节判定类型，上游 content-type 仅作兜底。
+const MAGIC_RULES: Array<{ ext: string; mime: string; match: (b: Buffer) => boolean }> = [
+  { ext: ".png", mime: "image/png", match: (b) => b.subarray(0, 8).toString("hex") === "89504e470d0a1a0a" },
+  { ext: ".jpg", mime: "image/jpeg", match: (b) => b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
+  {
+    ext: ".webp",
+    mime: "image/webp",
+    match: (b) => b.length >= 12 && b.subarray(0, 4).toString("latin1") === "RIFF" && b.subarray(8, 12).toString("latin1") === "WEBP",
+  },
+  { ext: ".gif", mime: "image/gif", match: (b) => b.length >= 6 && b.subarray(0, 4).toString("latin1") === "GIF8" },
+  {
+    ext: ".wav",
+    mime: "audio/wav",
+    match: (b) => b.length >= 12 && b.subarray(0, 4).toString("latin1") === "RIFF" && b.subarray(8, 12).toString("latin1") === "WAVE",
+  },
+  // 3D：glb 二进制 / fbx 二进制 / obj 纯文本 / gltf JSON
+  { ext: ".glb", mime: "model/gltf-binary", match: (b) => b.length >= 4 && b.subarray(0, 4).toString("latin1") === "glTF" },
+  {
+    ext: ".fbx",
+    mime: "application/x-fbx",
+    match: (b) => b.length >= 18 && b.subarray(0, 18).toString("latin1") === "Kaydara FBX Binary",
+  },
+  {
+    ext: ".obj",
+    mime: "model/obj",
+    match: (b) => {
+      const head = b.subarray(0, 64).toString("utf8").replace(/^\uFEFF/, "").trimStart().toLowerCase();
+      return /^(#|v\s|o\s|g\s|mtllib\s|usemtl\s|s\s)/.test(head);
+    },
+  },
+  {
+    ext: ".gltf",
+    mime: "model/gltf+json",
+    match: (b) => {
+      const head = b.subarray(0, 4096).toString("utf8").trimStart();
+      return head.startsWith("{") && head.includes('"asset"');
+    },
+  },
+  // 压缩包
+  { ext: ".zip", mime: "application/zip", match: (b) => b.length >= 4 && b.subarray(0, 4).toString("hex") === "504b0304" },
+  {
+    ext: ".gz",
+    mime: "application/gzip",
+    match: (b) => b.length >= 3 && b[0] === 0x1f && b[1] === 0x8b && b[2] === 0x08,
+  },
+  {
+    ext: ".7z",
+    mime: "application/x-7z-compressed",
+    match: (b) => b.length >= 6 && b.subarray(0, 6).toString("hex") === "377abcaf271c",
+  },
+  {
+    ext: ".rar",
+    mime: "application/vnd.rar",
+    match: (b) => b.length >= 6 && b.subarray(0, 6).toString("latin1") === "Rar!\u001a\u0007",
+  },
+  { ext: ".pdf", mime: "application/pdf", match: (b) => b.length >= 5 && b.subarray(0, 5).toString("latin1") === "%PDF-" },
+  // 其它音频：m4a 走 ftyp brand，ogg/flac 走容器魔数，aac(ADTS) 必须先于 mp3（两者帧同步位重叠）
+  {
+    ext: ".m4a",
+    mime: "audio/mp4",
+    match: (b) =>
+      b.length >= 12 &&
+      b.subarray(4, 8).toString("latin1") === "ftyp" &&
+      ["M4A ", "M4B "].includes(b.subarray(8, 12).toString("latin1")),
+  },
+  { ext: ".ogg", mime: "audio/ogg", match: (b) => b.length >= 4 && b.subarray(0, 4).toString("latin1") === "OggS" },
+  { ext: ".flac", mime: "audio/flac", match: (b) => b.length >= 4 && b.subarray(0, 4).toString("latin1") === "fLaC" },
+  {
+    ext: ".aac",
+    mime: "audio/aac",
+    // ADTS：12 位同步字 0xFFF + layer 位为 00；MP3 的 layer 位非 0
+    match: (b) => b.length >= 2 && b[0] === 0xff && (b[1] & 0xf6) === 0xf0,
+  },
+  {
+    // MP4 / MOV / HEIF 共用 ftyp box：brand=qt 视为 .mov，其余按 .mp4
+    ext: ".mp4",
+    mime: "video/mp4",
+    match: (b) => b.length >= 8 && b.subarray(4, 8).toString("latin1") === "ftyp",
+  },
+  {
+    ext: ".mp3",
+    mime: "audio/mpeg",
+    match: (b) =>
+      (b.length >= 3 && b.subarray(0, 3).toString("latin1") === "ID3") ||
+      (b.length >= 2 && b[0] === 0xff && (b[1] & 0xe0) === 0xe0 && (b[1] & 0x06) !== 0),
+  },
+];
+
+export function sniffMediaType(bytes: Buffer): { ext: string; mime: string } | null {
+  for (const rule of MAGIC_RULES) {
+    if (bytes.length && rule.match(bytes)) {
+      // MOV 细分：ftyp 后 8-12 字节为 brand
+      if (rule.ext === ".mp4" && bytes.subarray(8, 12).toString("latin1") === "qt  ") {
+        return { ext: ".mov", mime: "video/quicktime" };
+      }
+      return { ext: rule.ext, mime: rule.mime };
+    }
+  }
+  return null;
+}
+
 // 去掉末尾扩展名（object key 的 uuid 段不含点，可安全剥离）
 function stripExt(key: string): string {
   return key.replace(/\.[^./]+$/, "");
 }
 
 // ─── S0-6 SSRF 防护：协议白名单 + 私网地址拦截 + 限跳重定向 + 响应体上限 ───
-
-// 私网/保留地址判断（含 IPv4-mapped IPv6 与云 metadata 169.254.169.254）
-function isPrivateIp(ip: string): boolean {
-  if (net.isIPv4(ip)) {
-    const [a, b] = ip.split(".").map(Number);
-    if (a === 0 || a === 10 || a === 127) return true;
-    if (a === 169 && b === 254) return true; // link-local（含云 metadata）
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
-    return false;
-  }
-  const v6 = ip.toLowerCase();
-  if (v6 === "::" || v6 === "::1") return true;
-  if (v6.startsWith("fc") || v6.startsWith("fd")) return true; // ULA
-  if (v6.startsWith("fe80")) return true; // link-local
-  if (v6.startsWith("::ffff:")) return isPrivateIp(v6.slice(7)); // v4-mapped
-  return false;
-}
-
-// 主机必须是公网地址：字面 IP 直接判；域名解析后逐地址判
-async function assertPublicHost(hostname: string): Promise<void> {
-  if (/^localhost$/i.test(hostname) || hostname.endsWith(".localhost")) {
-    throw new Error("SSRF blocked: localhost");
-  }
-  if (net.isIP(hostname)) {
-    if (isPrivateIp(hostname)) throw new Error("SSRF blocked: private address");
-    return;
-  }
-  const addrs = await dns.lookup(hostname, { all: true }).catch(() => []);
-  if (!addrs.length) throw new Error("产物地址 DNS 解析失败");
-  for (const a of addrs) {
-    if (isPrivateIp(a.address)) throw new Error("SSRF blocked: private address");
-  }
-}
-
-// 手动跟随重定向（每跳重新校验协议与目标地址），防止 302 绕过
-async function fetchWithSsrfGuard(url: URL): Promise<Response> {
-  let current = url;
-  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    if (current.protocol !== "http:" && current.protocol !== "https:") {
-      throw new Error("仅允许 http(s) 产物地址");
-    }
-    await assertPublicHost(current.hostname);
-    const res = await fetch(current, {
-      redirect: "manual",
-      signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
-    });
-    if (res.status >= 301 && res.status <= 308) {
-      const loc = res.headers.get("location");
-      res.body?.cancel().catch(() => {});
-      if (!loc) throw new Error("重定向缺少 Location");
-      current = new URL(loc, current);
-      continue;
-    }
-    return res;
-  }
-  throw new Error("产物下载重定向次数过多");
-}
-
-// 流式读取响应体，超上限即中断（不把超大响应整块读进内存）
-async function readBodyCapped(res: Response): Promise<Buffer> {
-  const len = Number(res.headers.get("content-length") || 0);
-  if (len > MAX_DOWNLOAD_BYTES) throw new Error("产物体积超过下载上限");
-  const reader = res.body?.getReader();
-  if (!reader) return Buffer.alloc(0);
-  const chunks: Buffer[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > MAX_DOWNLOAD_BYTES) {
-      reader.cancel().catch(() => {});
-      throw new Error("产物体积超过下载上限");
-    }
-    chunks.push(Buffer.from(value));
-  }
-  return Buffer.concat(chunks);
-}
+// 实现在 src/lib/net-guard.ts（与实验场媒体落盘共用同一套）
 
 // 下载上游产物（http(s) 或 data: base64）
 async function fetchSource(sourceUrl: string): Promise<{ bytes: Buffer; contentType: string; ext: string }> {
@@ -154,12 +185,15 @@ async function fetchSource(sourceUrl: string): Promise<{ bytes: Buffer; contentT
   return { bytes, contentType: contentType || "application/octet-stream", ext: extOf(contentType, sourceUrl) };
 }
 
+// 存储口径（白名单）：用户产物（generated_asset）允许进默认桶，
+// 但桶必须配置公开读域名（后台已改公开桶），否则回退报错而不是产出打不开的链接。
 async function defaultBucket(): Promise<StorageBucket> {
   const bucket = await db.storageBucket.findFirst({
     where: { isDefault: true, enabled: true },
     orderBy: { id: "asc" },
   });
   if (!bucket) throw new Error("未配置默认存储桶");
+  if (!bucket.publicBaseUrl) throw new Error("默认存储桶未配置公开访问域名");
   return bucket;
 }
 
@@ -170,25 +204,42 @@ function objectKeyBase(userId: number): string {
 }
 
 // 生成成功即转存：成功写 temp 资产；失败写 deleted 资产（留 sourceUrl 供重试一次）
+// content（可选）：上游产物需要鉴权下载时由 adapter 直接给出二进制，跳过 URL 拉取
 export async function saveGeneratedAsset(opts: {
   userId: number;
   usageRecordId?: bigint | null;
   assetType: AssetType;
-  // 上游产物 URL（http(s) 或 data:）
-  resultUrl: string;
+  // 上游产物 URL（http(s) 或 data:）；与 content 二选一
+  resultUrl?: string;
+  // 已下载好的产物二进制（视频 /content 场景），与 resultUrl 二选一
+  content?: { bytes: Buffer; contentType: string };
 }): Promise<SaveAssetResult> {
   const base = objectKeyBase(opts.userId);
   const expireAt = new Date(Date.now() + EXPIRE_DAYS * 86400000);
+  const source = async () => {
+    if (opts.content) {
+      const contentType = opts.content.contentType || "application/octet-stream";
+      return { bytes: opts.content.bytes, contentType, ext: extOf(contentType, "") };
+    }
+    if (!opts.resultUrl) throw new Error("缺少产物来源");
+    return fetchSource(opts.resultUrl);
+  };
   try {
     const bucket = await defaultBucket();
-    const src = await fetchSource(opts.resultUrl);
-    const key = base + src.ext;
-    await putObject(bucketToConfig(bucket), key, src.bytes, src.contentType);
+    const src = await source();
+    // 以真实文件头为准：上游常给 application/octet-stream 且 URL 无扩展名
+    const sniff = sniffMediaType(src.bytes);
+    const mime = sniff?.mime ?? null;
+    const key = base + (sniff?.ext ?? src.ext);
+    await putObject(bucketToConfig(bucket), key, src.bytes, mime ?? src.contentType);
     const asset = await db.generatedAsset.create({
       data: {
         userId: opts.userId,
         usageRecordId: opts.usageRecordId ?? null,
-        assetType: opts.assetType,
+        // 通用 file 按真实 MIME 升级分类；明确分类（image/video/speech…）保持不变
+        assetType: refineAssetType(opts.assetType, mime),
+        // 只记嗅探出的真实 MIME；嗅探不出保持 NULL，不拿 application/octet-stream 充数
+        mimeType: mime,
         bucketId: bucket.id,
         storageKey: key,
         sizeBytes: BigInt(src.bytes.length),
@@ -200,6 +251,10 @@ export async function saveGeneratedAsset(opts: {
     return { ok: true, assetId: asset.id };
   } catch (e) {
     const msg = (e as Error).message || "转存失败";
+    // 只留存可重试的 http(s) 来源：data URL / 二进制产物没有外部地址，
+    // 存进 sourceUrl 会把整段 base64 写进库（大字段膨胀），也无法据此重试
+    const retryUrl =
+      opts.resultUrl && !opts.resultUrl.startsWith("data:") ? opts.resultUrl : null;
     try {
       const asset = await db.generatedAsset.create({
         data: {
@@ -211,7 +266,7 @@ export async function saveGeneratedAsset(opts: {
           sizeBytes: 0,
           status: "deleted",
           expireAt,
-          sourceUrl: opts.resultUrl,
+          sourceUrl: retryUrl,
         },
       });
       return { ok: false, assetId: asset.id, error: msg };
@@ -221,7 +276,44 @@ export async function saveGeneratedAsset(opts: {
   }
 }
 
-// 重试拉取一次（仅 status=deleted 且留存 sourceUrl 的资产）：
+// 存量回填：只读对象字节、只更新 mimeType，不动对象本身、不改 assetType 历史值。
+// 嗅探不出的记录保持 NULL（跳过），不拿 octet-stream 乱填。
+export interface MimeBackfillResult {
+  scanned: number;
+  updated: number;
+  skipped: number;
+  details: Array<{ id: string; storageKey: string; mime: string | null }>;
+}
+
+export async function backfillAssetMimeTypes(limit = 200): Promise<MimeBackfillResult> {
+  const rows = await db.generatedAsset.findMany({
+    where: { mimeType: null, status: "temp", bucketId: { not: null } },
+    include: { bucket: true },
+    orderBy: { id: "asc" },
+    take: Math.max(1, Math.min(limit, 500)),
+  });
+  const result: MimeBackfillResult = { scanned: rows.length, updated: 0, skipped: 0, details: [] };
+  for (const row of rows) {
+    let mime: string | null = null;
+    if (row.bucket) {
+      try {
+        mime = sniffMediaType(await getObject(bucketToConfig(row.bucket), row.storageKey))?.mime ?? null;
+      } catch {
+        // 单条对象读取失败不影响其它记录，保持 NULL 跳过
+      }
+    }
+    if (!mime) {
+      result.skipped += 1;
+      result.details.push({ id: String(row.id), storageKey: row.storageKey, mime: null });
+      continue;
+    }
+    await db.generatedAsset.update({ where: { id: row.id }, data: { mimeType: mime } });
+    result.updated += 1;
+    result.details.push({ id: String(row.id), storageKey: row.storageKey, mime });
+  }
+  return result;
+}
+
 // 成功 → status=temp 并清 sourceUrl（不可再重试）；失败保持 deleted
 export async function retryAssetTransfer(
   assetId: bigint,
@@ -236,13 +328,16 @@ export async function retryAssetTransfer(
   try {
     const bucket = await defaultBucket();
     const src = await fetchSource(asset.sourceUrl);
-    const key = `${stripExt(asset.storageKey)}${src.ext}`;
-    await putObject(bucketToConfig(bucket), key, src.bytes, src.contentType);
+    // 重试同样以真实文件头为准，并补写 mimeType（不改存量 assetType 值）
+    const sniff = sniffMediaType(src.bytes);
+    const key = `${stripExt(asset.storageKey)}${sniff?.ext ?? src.ext}`;
+    await putObject(bucketToConfig(bucket), key, src.bytes, sniff?.mime ?? src.contentType);
     await db.generatedAsset.update({
       where: { id: asset.id },
       data: {
         bucketId: bucket.id,
         storageKey: key,
+        mimeType: sniff?.mime ?? null,
         sizeBytes: BigInt(src.bytes.length),
         sha256Hex: crypto.createHash("sha256").update(src.bytes).digest("hex"),
         status: "temp",

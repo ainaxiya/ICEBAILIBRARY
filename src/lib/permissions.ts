@@ -34,6 +34,13 @@ export const PERMISSIONS = {
 
 export const ALL_PERMISSIONS = Object.values(PERMISSIONS);
 
+// b13 权限矩阵单格切换："*"（全部权限）与普通权限互斥
+export function togglePermission(perms: string[], perm: string): string[] {
+  if (perm === "*") return perms.includes("*") ? [] : ["*"];
+  const without = perms.filter((p) => p !== "*");
+  return without.includes(perm) ? without.filter((p) => p !== perm) : [...without, perm];
+}
+
 export const PERMISSION_GROUPS = [
   { label: "提示词管理", perms: ["prompt:read", "prompt:write", "prompt:delete", "prompt:feature", "prompt:batch"] },
   { label: "用户管理", perms: ["user:read", "user:write", "user:delete"] },

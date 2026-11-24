@@ -4,7 +4,7 @@ import { PERMISSIONS, requirePerm } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/admin/logs?page=&pageSize=&q=管理员账号&action=&targetType=
+// GET /api/admin/logs?page=&pageSize=&q=管理员账号&action=&targetType=&targetId=
 export async function GET(req: NextRequest) {
   const { ok } = await requirePerm(PERMISSIONS.LOG_READ);
   if (!ok) return NextResponse.json({ error: "forbidden" }, { status: 403 });
@@ -15,6 +15,8 @@ export async function GET(req: NextRequest) {
   const q = (searchParams.get("q") || "").trim();
   const action = searchParams.get("action");
   const targetType = searchParams.get("targetType");
+  const targetIdText = (searchParams.get("targetId") || "").trim();
+  const targetId = /^\d+$/.test(targetIdText) ? Number(targetIdText) : null;
 
   const where: any = {};
   if (q) {
@@ -25,6 +27,7 @@ export async function GET(req: NextRequest) {
   }
   if (action) where.action = action;
   if (targetType) where.targetType = targetType;
+  if (targetId != null) where.targetId = targetId;
 
   const [list, total] = await Promise.all([
     db.adminLog.findMany({

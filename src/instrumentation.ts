@@ -13,6 +13,13 @@ export async function register() {
     console.error("[instrumentation] billing-reconcile loop 启动失败", e);
   }
 
+  // M5：实验场媒体任务的重启恢复不放在这里——instrumentation 会被 edge 运行时二次编译，
+  // media-task-runner 依赖链带 node 内置模块（crypto/dns/net）会拖垮 edge 编译（同 P6 #20 教训）。
+  // 改挂在 /api/playground/tasks 路由模块加载时调度。
+
+  // P6 #20：BullMQ video worker 改为在 /v1/videos 路由模块加载时启动
+  // （video-queue 依赖 bullmq→pg，instrumentation 会被 edge 运行时二次编译吞不下 node 内置模块）
+
   // S0-1：生产环境关键变量缺失 fail-fast（开发环境跳过，保证零配置可跑）
   if (process.env.NODE_ENV !== "production") return;
 

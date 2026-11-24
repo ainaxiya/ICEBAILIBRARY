@@ -24,8 +24,11 @@ export interface UsageInput {
   costMilli: number;
   paidCredits: number;
   latencyMs?: number | null;
-  // success | failed | blocked
-  status: "success" | "failed" | "blocked";
+  // success | failed | blocked | cancelled（P2：客户端断连按已发生用量结算）
+  status: "success" | "failed" | "blocked" | "cancelled";
+  // P3 价格版本：结算时点定价行 ID + 单价快照 JSON（调价不回写历史，可按快照重算）
+  priceVersionId?: number | null;
+  priceSnapshot?: string | null;
 }
 
 // 写调用日志（requestId 幂等 upsert），返回 usage_record.id（生成资产关联用）
@@ -44,6 +47,8 @@ export async function recordUsage(input: UsageInput): Promise<bigint> {
     paidCredits: BigInt(Math.max(0, Math.round(input.paidCredits))),
     latencyMs: input.latencyMs ?? null,
     status: input.status,
+    priceVersionId: input.priceVersionId == null ? null : BigInt(input.priceVersionId),
+    priceSnapshot: input.priceSnapshot ?? null,
   };
   const row = await db.usageRecord.upsert({
     where: { requestId: input.requestId },

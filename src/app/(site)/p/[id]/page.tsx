@@ -3,10 +3,13 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser, getCurrentAdmin } from "@/lib/auth";
 import { CopyButton } from "@/components/Buttons";
+import FavoriteButton from "@/components/FavoriteButton";
 import PromptCard from "@/components/PromptCard";
 import AutoTranslate from "@/components/AutoTranslate";
 import MediaGallery, { SectionMedia } from "@/components/MediaGallery";
 import ImageLightbox from "@/components/ImageLightbox";
+import SingleVideoPlayback from "@/components/SingleVideoPlayback";
+import RichVideoEnhancer from "@/components/media/RichVideoEnhancer";
 import CategoryIcon from "@/components/CategoryIcon";
 import { getServerLocale, translate as t } from "@/lib/i18n";
 import { detectLang } from "@/lib/langdetect";
@@ -72,12 +75,15 @@ function serializeComment(c: any): CommentData {
     liked: Array.isArray(c.likes) ? c.likes.length > 0 : false,
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
-    user: {
-      id: c.user.id,
-      username: c.user.username,
-      nickname: c.user.nickname,
-      avatar: c.user.avatar,
-    },
+    // 会员被删除后评论保留，作者为 null（前端显示「该会员号已注销」）
+    user: c.user
+      ? {
+          id: c.user.id,
+          username: c.user.username,
+          nickname: c.user.nickname,
+          avatar: c.user.avatar,
+        }
+      : null,
     replies: ((c.replies ?? []) as any[]).map(serializeComment),
   };
 }
@@ -88,8 +94,12 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  // 严格入参守卫：必须是正整数。不用 parseInt —— parseInt("123abc") 会得 123，
+  // 把垃圾路径当成合法 id 去查库（线上曾因此产生 30 条 invalid id 报错）。
+  const pid = Number(id);
+  if (!Number.isInteger(pid) || pid <= 0) return {};
   const p = await db.prompt.findUnique({
-    where: { id: parseInt(id) },
+    where: { id: pid },
     select: { title: true, description: true, tags: true, content: true, status: true },
   });
   if (!p) return { title: "未找到" };
@@ -108,8 +118,9 @@ export default async function PromptDetail({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const pid = parseInt(id);
-  if (!pid) notFound();
+  // 与 generateMetadata 同一套严格校验：/p/123abc 这类路径直接 404，不落到 id=123
+  const pid = Number(id);
+  if (!Number.isInteger(pid) || pid <= 0) notFound();
   const locale = await getServerLocale();
 
   const [p, user, admin] = await Promise.all([
@@ -275,7 +286,7 @@ export default async function PromptDetail({
     name: p.title,
     description: p.description || undefined,
     keywords: p.tags.join(","),
-    author: { "@type": "Person", name: p.sourceAuthor || p.user.username },
+    author: { "@type": "Person", name: p.sourceAuthor || p.user?.nickname || p.user?.username || "该会员号已注销" },
     datePublished: p.createdAt.toISOString(),
     dateModified: p.updatedAt.toISOString(),
     mainEntityOfPage: siteUrl(`/p/${p.id}`),
@@ -329,13 +340,15 @@ export default async function PromptDetail({
                 {t(locale, "detail.rejected")}
               </span>
             )}
+            {/* v0.117 会员收藏（星星胶囊款，第一排栏目行最右） */}
+            <FavoriteButton type="prompt" targetId={p.id} size="sm" className="ml-auto" />
           </div>
           <h1 className="mb-3 text-2xl font-bold leading-tight">{p.title}</h1>
           {/* 元信息：作者 / 发布日期 / 观看 / 赞 + 原作品链接 */}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-zinc-400">
             <span className="inline-flex items-center gap-1.5">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 text-zinc-500"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-              {locale === "zh" ? "作者" : "Author"}：{p.sourceAuthor || p.user.nickname || p.user.username}
+              {locale === "zh" ? "作者" : "Author"}：{p.sourceAuthor || p.user?.nickname || p.user?.username || "该会员号已注销"}
             </span>
             <span className="inline-flex items-center gap-1.5">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 text-zinc-500"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
@@ -402,8 +415,8 @@ export default async function PromptDetail({
                           key={ci}
                           className={
                             ci === chips.length - 1
-                              ? "rounded border border-emerald-700/60 bg-emerald-500/10 px-1.5 py-0.5 text-[11px] text-emerald-300"
-                              : "rounded bg-zinc-800 px-1.5 py-0.5 text-[11px] text-zinc-400"
+                              ? "rounded border border-emerald-700/60 bg-emerald-500/10 px-1.5 py-0.5 text-xs text-emerald-300"
+                              : "rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-400"
                           }
                         >
                           {c}
@@ -473,6 +486,10 @@ export default async function PromptDetail({
 
     {/* 图片灯箱：拦截正文/画廊图片点击，本页放大显示 */}
     <ImageLightbox />
+    {/* 同页视频互斥：开始播放某个视频时自动暂停其它视频 */}
+    <SingleVideoPlayback />
+    {/* 正文富文本里的原生 <video> 就地替换为统一播放器 */}
+    <RichVideoEnhancer />
     </>
   );
 }

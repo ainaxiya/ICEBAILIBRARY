@@ -407,7 +407,7 @@ console.log(video.data);</code></pre>
   <li><span class="hl">能否用 OpenAI 官方 SDK？</span>可以。请求 / 响应结构与 OpenAI 兼容，只需把<code>base_url</code>（Python）/ <code>baseURL</code>（Node）指向 <code>{{BASE_URL}}</code>，<code>api_key</code> 填本站的 <code>sk-</code> 密钥。</li>
   <li><span class="hl">视频生成很慢 / 超时？</span>视频为同步长耗时请求（内部提交 → 每 5 秒轮询 → 取结果，等待上限 10 分钟），请把客户端超时设为<code>≥ 300 秒</code>；超时或失败全额退回，不扣费。</li>
   <li><span class="hl">流式中断怎么算？</span>SSE 连接中途断开按失败处理，预扣积分全额退回（不扣费）；需要完整结果时可改用非流式调用。</li>
-  <li><span class="hl">调用记录在哪看？</span>会员中心「用量明细」按日 / 按模型 / 按 Key 查询；积分明细在「积分流水」查看。</li>
+  <li><span class="hl">调用记录在哪看？</span>会员中心「用量明细」按日 / 按模型 / 按 Key 查询；积分变动见「积分明细」。</li>
   <li><span class="hl">Key 安全</span>：请勿将 API Key 写入前端代码或公开仓库；一旦泄露请立即在会员中心吊销并重新生成。</li>
 </ul>
 <p class="note">本文档随接口迭代持续更新；如需协助或发现问题，请通过「联系我们」页面反馈。</p>`;

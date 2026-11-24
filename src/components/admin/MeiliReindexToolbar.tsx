@@ -104,7 +104,7 @@ export default function MeiliReindexToolbar() {
             <span>{msg || "把数据库内容全量推送到搜索索引，数据不一致时点这个"}</span>
           )}
           {lastLine && (
-            <div className="mt-1 truncate font-mono text-[11px] text-zinc-500">{lastLine}</div>
+            <div className="mt-1 truncate font-mono text-xs text-zinc-500">{lastLine}</div>
           )}
         </div>
       </div>

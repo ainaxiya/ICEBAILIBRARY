@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { encryptSecret } from "@/lib/crypto";
 import { PERMISSIONS, requirePerm, logAdminAction, getClientIp } from "@/lib/rbac";
 import { keyPrefixOf } from "@/lib/model-json";
+import { resetKeyHealth } from "@/lib/gateway/router";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,10 @@ const updateSchema = z.object({
   // 轮换 Key：传新明文则重新加密；不传则保持原密文
   apiKey: z.string().min(1).max(500).optional(),
   status: z.enum(STATUS).optional(),
+  // P2 路由权重（≥1，越大流量越多）
+  weight: z.number().int().min(1).max(100).optional(),
+  // P5 维护窗口（分钟）：>0 = 从现在起维护 N 分钟；0/null = 解除维护
+  maintainMinutes: z.number().int().min(0).max(1440).nullable().optional(),
   remark: z.string().max(500).nullable().optional(),
 });
 
@@ -40,6 +45,13 @@ export async function PUT(
   if (!exists) return NextResponse.json({ error: "Key 不存在" }, { status: 404 });
 
   const data = parsed.data;
+  // P5 维护窗口：maintainMinutes > 0 → 维护到 now+N 分钟；0/null → 解除
+  const maintainUntil =
+    data.maintainMinutes === undefined
+      ? undefined
+      : data.maintainMinutes && data.maintainMinutes > 0
+        ? new Date(Date.now() + data.maintainMinutes * 60_000)
+        : null;
   const key = await db.vendorApiKey.update({
     where: { id: keyId },
     data: {
@@ -48,9 +60,20 @@ export async function PUT(
         ? { keyPrefix: keyPrefixOf(data.apiKey), keyCipher: encryptSecret(data.apiKey) }
         : {}),
       ...(data.status !== undefined ? { status: data.status } : {}),
+      ...(data.weight !== undefined ? { weight: data.weight } : {}),
+      ...(maintainUntil !== undefined ? { maintainUntil } : {}),
       ...(data.remark !== undefined ? { remark: data.remark } : {}),
     },
   });
+  // P2/P5：重新启用 / 轮换 / 调权重 / 变更维护窗口时清熔断健康态（重新参与选路）
+  if (
+    data.status !== undefined ||
+    data.apiKey !== undefined ||
+    data.weight !== undefined ||
+    maintainUntil !== undefined
+  ) {
+    resetKeyHealth(keyId);
+  }
 
   await logAdminAction({
     adminId: admin.id,
@@ -61,13 +84,24 @@ export async function PUT(
       name: key.name,
       keyPrefix: key.keyPrefix,
       rotated: data.apiKey !== undefined,
+      ...(maintainUntil !== undefined
+        ? { maintainMinutes: data.maintainMinutes ?? 0 }
+        : {}),
     }),
     ip: await getClientIp(),
   });
 
   return NextResponse.json({
     ok: true,
-    key: { id: key.id, name: key.name, keyPrefix: key.keyPrefix, configured: true, status: key.status },
+    key: {
+      id: key.id,
+      name: key.name,
+      keyPrefix: key.keyPrefix,
+      configured: true,
+      status: key.status,
+      weight: key.weight,
+      maintainUntil: key.maintainUntil ? key.maintainUntil.toISOString() : null,
+    },
   });
 }
 

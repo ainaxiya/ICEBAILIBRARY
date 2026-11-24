@@ -13,9 +13,17 @@ export interface CleanupSummary {
   deleted: number;
   failed: number;
   errors: string[];
+  dryRun: boolean;
 }
 
-export async function cleanupExpiredAssets(): Promise<CleanupSummary> {
+// pa 组口径：过期清理默认干跑，设 PLAYGROUND_RETENTION_DRY_RUN=0 才真正删除
+export function assetCleanupDryRun(): boolean {
+  const raw = (process.env.PLAYGROUND_RETENTION_DRY_RUN ?? "1").trim().toLowerCase();
+  return !["0", "false", "off", "no"].includes(raw);
+}
+
+export async function cleanupExpiredAssets(opts?: { dryRun?: boolean }): Promise<CleanupSummary> {
+  const dryRun = opts?.dryRun ?? assetCleanupDryRun();
   const rows = await db.generatedAsset.findMany({
     where: { status: "temp", expireAt: { lt: new Date() } },
     include: { bucket: true },
@@ -23,7 +31,15 @@ export async function cleanupExpiredAssets(): Promise<CleanupSummary> {
     take: BATCH_LIMIT,
   });
 
-  const summary: CleanupSummary = { scanned: rows.length, deleted: 0, failed: 0, errors: [] };
+  const summary: CleanupSummary = { scanned: rows.length, deleted: 0, failed: 0, errors: [], dryRun };
+  if (dryRun) {
+    if (rows.length > 0) {
+      console.info(
+        `[asset-cleanup] 干跑：命中 ${rows.length} 个过期产物（未删除，设 PLAYGROUND_RETENTION_DRY_RUN=0 才执行）`
+      );
+    }
+    return summary;
+  }
   for (const row of rows) {
     try {
       if (row.bucket) {
